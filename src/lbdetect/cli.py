@@ -16,7 +16,7 @@ import typer
 from . import breadth as breadth_mod
 from . import clustering, config as C, dating, emergence, ingest, releasealign
 from . import report as report_mod
-from . import llmcorpus, scoring, series, templates, validate
+from . import llmcorpus, provenance, scoring, series, templates, validate
 from .util import read_json, write_json
 
 app = typer.Typer(add_completion=False, help=__doc__)
@@ -289,6 +289,26 @@ def cmd_validate(cutoff: str = "2024-06", top_n: int = 250, min_docs: int = 1500
     (C.OUT / "validation.md").write_text(
         "# Validation\n\n```json\n" + json.dumps(out, indent=2, default=str) + "\n```\n")
     typer.echo(json.dumps(out, indent=2, default=str))
+
+
+@app.command("provenance")
+def cmd_provenance(start: str = "2024-01", end: str = "2026-07", hours: int = 1,
+                   max_mb: int = 6, workers: int = 6):
+    """Measure declared AI assistance (Co-Authored-By trailers) over time.
+
+    Scans the archive directly and tallies; stores no documents. Reports a floor,
+    not an estimate: only assistance that the author's tool declares is visible.
+    """
+    y0, m0 = map(int, start.split("-"))
+    y1, m1 = map(int, end.split("-"))
+    slots = []
+    for (y, m) in C.months((y0, m0), (y1, m1)):
+        slots.extend(C.sample_hours(y, m, hours))
+    typer.echo(f"scanning {len(slots)} hours, {max_mb}MB each")
+    df = provenance.scan(slots, max_bytes=max_mb << 20, workers=workers)
+    df.write_parquet(C.ARTIFACTS / "provenance.parquet")
+    typer.echo(str(df))
+    typer.echo(f"\nwrote {C.ARTIFACTS / 'provenance.parquet'}")
 
 
 @app.command("date-model")

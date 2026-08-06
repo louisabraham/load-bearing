@@ -56,7 +56,9 @@ def load_period(period: str, strip_templates: bool = True) -> pl.DataFrame:
     files = sorted((C.DOCS / period).glob("*.parquet"))
     if not files:
         return pl.DataFrame()
-    df = pl.concat([pl.read_parquet(f) for f in files], how="vertical_relaxed")
+    from .series import _concat_shards
+
+    df = _concat_shards(files)
     df = df.filter(pl.col("artifact").is_in(C.PROSE_ARTIFACTS))
     if df.height == 0:
         return df

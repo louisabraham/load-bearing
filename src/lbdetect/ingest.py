@@ -24,6 +24,7 @@ import orjson
 import polars as pl
 
 from . import config as C
+from .provenance import detect as detect_assist
 from .textclean import clean, eligible, is_bot_login
 
 UA = "lbdetect/0.1 (research; longitudinal language change)"
@@ -57,6 +58,7 @@ SCHEMA = {
     "repo_id": pl.Int64,
     "author": pl.Utf8,
     "is_bot": pl.Boolean,
+    "assist": pl.Utf8,
     "n_tokens": pl.Int32,
     "code_ratio": pl.Float32,
     "text": pl.Utf8,
@@ -174,6 +176,9 @@ def _extract(line: bytes, artifact: str, commit_sample: int) -> list[dict]:
     for i, (kind, raw, author) in enumerate(raws):
         if not raw or len(raw) < 12:
             continue
+        # detected on the raw text: the cleaner strips these trailers, and it must,
+        # or the marker would sit inside the document it labels
+        assist = detect_assist(raw)
         cl = clean(raw)
         if not eligible(cl):
             continue
@@ -187,6 +192,7 @@ def _extract(line: bytes, artifact: str, commit_sample: int) -> list[dict]:
                 "repo_id": repo_id,
                 "author": (author or "").lower(),
                 "is_bot": is_bot_login(author),
+                "assist": assist,
                 "n_tokens": cl.n_tokens,
                 "code_ratio": cl.code_ratio,
                 "text": cl.text[:6000],

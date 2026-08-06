@@ -341,3 +341,59 @@ def test_vocabulary_admits_declines():
     v = pl.read_parquet(S.VOCAB)
     assert "direction" in v.columns
     assert (v["direction"] == "decline").sum() > 0
+
+
+# ---------------------------------------------------------------- provenance
+
+def test_claude_code_trailers_detected():
+    from lbdetect import provenance
+
+    for raw in ("fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+                "feat\n\n🤖 Generated with [Claude Code](https://claude.ai/code)",
+                "x\n\nGenerated with [Claude Code](https://claude.com/claude-code)"):
+        assert provenance.detect(raw) == "claude_code", raw
+
+
+def test_dependency_bots_are_not_ai_assistance():
+    # the loose first version matched any co-author containing "bot" or "ai",
+    # making this category 18x larger than Claude Code's while being renovate
+    from lbdetect import provenance
+
+    for raw in ("Co-authored-by: renovate[bot] <29139614+renovate[bot]@u.n.g.com>",
+                "Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@u.n.g.com>",
+                "Co-authored-by: pre-commit-ci-lite[bot] <x@y>",
+                "Co-authored-by: github-actions[bot] <x@y>"):
+        assert provenance.detect(raw) == "", raw
+        assert provenance.is_non_llm_bot_coauthor(raw), raw
+        assert not provenance.has_human_coauthor(raw), raw
+
+
+def test_human_coauthor_not_counted_as_assistance():
+    from lbdetect import provenance
+
+    for raw in ("Co-authored-by: Jane Doe <jane@corp.com>",
+                "Co-authored-by: Ai Wang <ai.wang@corp.com>"):
+        assert provenance.detect(raw) == ""
+        assert provenance.has_human_coauthor(raw)
+
+
+def test_llm_review_tool_coauthors_are_assistance():
+    from lbdetect import provenance
+
+    assert provenance.detect("Co-authored-by: coderabbitai[bot] <x@y>") == "other_ai"
+
+
+def test_plain_commit_has_no_marker():
+    from lbdetect import provenance
+
+    assert provenance.detect("fix: correct off-by-one in the parser") == ""
+
+
+def test_cleaner_strips_the_marker_so_capture_must_precede_it():
+    # the label must be taken from raw text: if the trailer survived into the
+    # document, every expression in an assisted commit would correlate with it
+    from lbdetect import provenance
+
+    raw = "Add retry logic\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
+    assert provenance.detect(raw) == "claude_code"
+    assert "claude" not in textclean.clean(raw).text.lower()

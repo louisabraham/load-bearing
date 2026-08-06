@@ -45,6 +45,23 @@ def available_periods(freq: str = "M") -> list[str]:
     return sorted(p.name for p in C.DOCS.iterdir() if p.is_dir() and any(p.glob("*.parquet")))
 
 
+def _concat_shards(files: list[Path]) -> pl.DataFrame:
+    """Concatenate shards written by different versions of the ingester.
+
+    Columns are added over time -- `assist` came later than the first shards --
+    and a plain concat fails on the mismatch. Missing columns are filled rather
+    than forcing a re-download of everything already fetched.
+    """
+    frames = []
+    for f in files:
+        d = pl.read_parquet(f)
+        for col, dt in (("assist", pl.Utf8),):
+            if col not in d.columns:
+                d = d.with_columns(pl.lit(None, dt).alias(col))
+        frames.append(d)
+    return pl.concat(frames, how="vertical_relaxed") if frames else pl.DataFrame()
+
+
 def load_period(period: str, freq: str = "M", apply_templates: bool = True) -> pl.DataFrame:
     """Eligible, de-duplicated, non-bot documents of one period.
 
@@ -58,7 +75,7 @@ def load_period(period: str, freq: str = "M", apply_templates: bool = True) -> p
     files = sorted((C.DOCS / period).glob("*.parquet"))
     if not files:
         return pl.DataFrame()
-    df = pl.concat([pl.read_parquet(f) for f in files], how="vertical_relaxed")
+    df = _concat_shards(files)
     df = df.with_columns(is_bot=textclean.bot_expr("author"))
     df = df.filter(~pl.col("is_bot") & pl.col("artifact").is_in(C.PROSE_ARTIFACTS))
     if df.height == 0:
@@ -98,7 +115,7 @@ def exclusion_stats(period: str) -> dict:
     files = sorted((C.DOCS / period).glob("*.parquet"))
     if not files:
         return {"period": period, "raw": 0}
-    raw = pl.concat([pl.read_parquet(f) for f in files], how="vertical_relaxed")
+    raw = _concat_shards(files)
     raw = raw.unique(subset=["doc_id"], keep="first")
     n_raw = raw.height
     n_bot = int(raw["is_bot"].sum())
