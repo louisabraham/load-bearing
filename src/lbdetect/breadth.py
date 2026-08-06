@@ -132,7 +132,10 @@ def capitalization(text: str, pat: re.Pattern) -> tuple[int, int]:
         if j < 0 or text[j] in _SENT_END:
             continue  # sentence-initial tells us nothing
         occ += 1
-        if m.group(0)[0].isupper():
+        # any capitalised word counts, not just the first: the name in a phrase is
+        # often not at the front ("under GSSoC", "the MCP server"), and testing
+        # only the leading word reads those as ordinary lowercase prose
+        if any(w[:1].isupper() for w in m.group(0).split()):
             cap += 1
     return occ, cap
 

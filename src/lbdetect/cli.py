@@ -374,6 +374,101 @@ def cmd_date_model(k: int = 1500, min_docs: int = 600, holdout: float = 0.35,
     typer.echo(json.dumps(out, indent=2, default=str))
 
 
+@app.command("recent")
+def cmd_recent(months: int = 3, baseline_months: int = 6, top_n: int = 250,
+               min_docs_recent: int = 20, min_growth: float = 1.4,
+               workers: int = 10, show: int = 25):
+    """Expressions that rose in the last `months`, against the months before them.
+
+    Restricted to periods sharing the same artifact-coverage regime. The archive
+    stops carrying pull-request descriptions partway through, so a comparison that
+    straddles that boundary measures the collector, not the language; staying
+    inside one regime is what makes a short recent window interpretable at all.
+    """
+    s = series.Series.load().standardize()
+    cov = s.artifact_coverage()
+    last_cov = cov[-1]
+    # contiguous run of periods ending at the newest that share its coverage
+    idx = [i for i in range(len(s.periods)) if abs(cov[i] - last_cov) < 0.02]
+    run = []
+    for i in reversed(idx):
+        if run and run[-1] - i != 1:
+            break
+        run.append(i)
+    run = sorted(run)
+    if len(run) < months + 3:
+        typer.echo(f"only {len(run)} periods in the current coverage regime")
+        raise typer.Exit(1)
+    recent = run[-months:]
+    base = run[max(0, len(run) - months - baseline_months):-months]
+    typer.echo(f"recent:   {s.periods[recent[0]]}..{s.periods[recent[-1]]} "
+               f"({int(s.docs[recent].sum()):,} docs)")
+    typer.echo(f"baseline: {s.periods[base[0]]}..{s.periods[base[-1]]} "
+               f"({int(s.docs[base].sum()):,} docs)  [artifact coverage {last_cov:.3f}]")
+
+    n_r, n_b = float(s.docs[recent].sum()), float(s.docs[base].sum())
+    k_r = np.asarray(s.counts)[:, recent].sum(axis=1)
+    k_b = np.asarray(s.counts)[:, base].sum(axis=1)
+    p_b = np.maximum(k_b / n_b, 0.5 / n_b)
+    z = (k_r - n_r * p_b) / np.sqrt(np.maximum(n_r * p_b * (1 - p_b), 1e-9))
+    growth = (k_r / n_r) / p_b
+
+    keep = (k_r >= min_docs_recent) & (growth >= min_growth) & (z > 0)
+    order = np.argsort(-z[keep])
+    cand = [s.terms[i] for i in np.nonzero(keep)[0][order][:top_n]]
+    if not cand:
+        typer.echo("no expression cleared the thresholds")
+        raise typer.Exit(1)
+    typer.echo(f"{len(cand)} candidates; measuring breadth and confounders...")
+
+    periods = [s.periods[i] for i in base + recent]
+    cps = {t: s.periods[recent[0]] for t in cand}
+    br = breadth_mod.compute(cand, cps, periods, workers=workers, log=lambda *_: None)
+    stat = pl.DataFrame({
+        "term": cand,
+        "recent_per_10k": [round(float(k_r[s.index[t]] / n_r * 1e4), 2) for t in cand],
+        "before_per_10k": [round(float(k_b[s.index[t]] / n_b * 1e4), 2) for t in cand],
+        "growth": [round(float(growth[s.index[t]]), 2) for t in cand],
+        "z": [round(float(z[s.index[t]]), 1) for t in cand],
+        "family": [ngrams_family(t) for t in cand],
+    })
+    flagged = breadth_mod.flag_confounders(stat.with_columns(
+        core_score=pl.lit(1.0)), br, require_measured=True)
+    ok = flagged.filter(pl.col("confounder_penalty") >= 0.45)
+    # one row per family: inflections of one habit are not separate findings
+    ok = ok.sort("z", descending=True).unique(subset=["family"], keep="first")
+    ok = ok.sort("z", descending=True)
+    ok.write_parquet(C.ARTIFACTS / "recent.parquet")
+    typer.echo(f"{ok.height}/{flagged.height} survive the confounder filter\n")
+    cols = ["term", "recent_per_10k", "before_per_10k", "growth", "z",
+            "repo_spread", "top_repo_share"]
+    # Phrases, constructions and typography first. A bare unigram that rises is
+    # usually a symptom of some phrase around it rising, and is a poor answer to
+    # "which expressions" -- but it is still evidence, so it is shown separately
+    # rather than dropped.
+    from .ngrams import is_word_ngram
+
+    is_phrase = pl.col("term").map_elements(
+        lambda t: (not is_word_ngram(t)) or len(t.split()) > 1, return_dtype=pl.Boolean)
+    phrases = ok.filter(is_phrase)
+    unigrams = ok.filter(~is_phrase)
+    typer.echo(f"=== phrases, constructions and typography ({phrases.height})")
+    typer.echo(str(phrases.head(show).select(cols)))
+    typer.echo(f"\n=== single words ({unigrams.height}), shown for completeness")
+    typer.echo(", ".join(f"{r['term']} ({r['growth']}x)"
+                         for r in unigrams.head(20).to_dicts()))
+    typer.echo("\ncontexts:")
+    for r in phrases.head(min(show, 14)).to_dicts():
+        ctx = (r.get("contexts") or [""])[0][:140].replace("\n", " ")
+        typer.echo(f"  {r['term']!r}: {ctx}")
+
+
+def ngrams_family(t: str) -> str:
+    from .ngrams import family_key
+
+    return family_key(t)
+
+
 # ------------------------------------------------------------------------ scoring
 
 @app.command("score")
