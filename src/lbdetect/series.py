@@ -52,13 +52,18 @@ def _concat_shards(files: list[Path]) -> pl.DataFrame:
     and a plain concat fails on the mismatch. Missing columns are filled rather
     than forcing a re-download of everything already fetched.
     """
+    from .ingest import SCHEMA
+
     frames = []
     for f in files:
         d = pl.read_parquet(f)
-        for col, dt in (("assist", pl.Utf8),):
+        for col, dt in SCHEMA.items():
             if col not in d.columns:
                 d = d.with_columns(pl.lit(None, dt).alias(col))
-        frames.append(d)
+        # concat matches on position, not name, so a filled-in column appended at
+        # the end would line up against a different column in the newer shards
+        extra = [c for c in d.columns if c not in SCHEMA]
+        frames.append(d.select([*SCHEMA.keys(), *extra]))
     return pl.concat(frames, how="vertical_relaxed") if frames else pl.DataFrame()
 
 

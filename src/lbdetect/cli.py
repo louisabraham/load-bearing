@@ -152,12 +152,12 @@ def cmd_cluster(top_n: int = 1200, threshold: float = 0.55, min_size: int = 3,
     em = pl.read_parquet(EMERGENCE)
     if BREADTH.exists():
         br = pl.read_parquet(BREADTH)
-        flagged = breadth_mod.flag_confounders(em, br)
+        flagged = breadth_mod.flag_confounders(em, br, require_measured=True)
         before = flagged.height
         em = (flagged.filter(pl.col("confounder_penalty") >= min_penalty)
               .sort("adj_score", descending=True))
-        typer.echo(f"confounder filter: {em.height}/{before} expressions survive "
-                   f"penalty >= {min_penalty}")
+        typer.echo(f"confounder filter: {em.height}/{before} measured expressions "
+                   f"survive penalty >= {min_penalty}")
     top = em.head(top_n)
     terms = [t for t in top["term"].to_list() if t in s.index]
     sub = s.subset(np.array([s.index[t] for t in terms]))
@@ -326,8 +326,13 @@ def cmd_date_model(k: int = 1500, min_docs: int = 600, holdout: float = 0.35,
     if BREADTH.exists():
         cand = (breadth_mod.flag_confounders(em, pl.read_parquet(BREADTH))
                 .filter(pl.col("confounder_penalty") >= 0.45))
-    terms = list(dict.fromkeys(cand["term"].to_list() + em.head(3000)["term"].to_list()))
-    terms = [t for t in terms if t in s.index][:20000]
+    # The candidate pool is the whole recounted vocabulary, not the emergence
+    # shortlist. Emergence ranks by size of jump from a low base, so its top terms
+    # are rare by construction -- excellent for saying *that* something changed,
+    # useless for dating a specific document, which needs expressions common
+    # enough to actually appear in it. Selection below picks from all of them by
+    # temporal information measured on LLM text.
+    terms = list(s.terms)
 
     periods = [p for p in series.available_periods() if p >= start]
     docs = llmcorpus.corpus(periods)
@@ -339,7 +344,14 @@ def cmd_date_model(k: int = 1500, min_docs: int = 600, holdout: float = 0.35,
 
     # rank the candidate expressions by temporal information *within* this corpus
     full = llmcorpus.build_series(docs, terms, periods)
-    sel = dating.informative_terms(full, k=k, min_docs=min_llm_docs, min_total=15)
+    # Scale the support floor with the corpus. A fixed floor of a few documents
+    # lets the selector fill up on rare, sharply time-localised expressions: they
+    # maximise mutual information but appear in almost nothing, so most documents
+    # end up with no evidence at all and cannot be dated.
+    min_total = max(15, int(0.002 * docs.height))
+    sel = dating.informative_terms(full, k=k, min_docs=min_llm_docs,
+                                   min_total=min_total)
+    typer.echo(f"support floor: expression must appear in >={min_total} documents")
     typer.echo(f"selected {len(sel)} dating expressions")
 
     train, test = llmcorpus.split_by_repo(docs, holdout=holdout)

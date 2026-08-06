@@ -326,6 +326,7 @@ def flag_confounders(
     max_ai_share: float = 0.5,
     min_repo_spread: int = 15,
     max_cohesion: float = 0.18,
+    require_measured: bool = True,
 ) -> pl.DataFrame:
     """Attach confounder flags and a penalty multiplier.
 
@@ -333,7 +334,10 @@ def flag_confounders(
     recorded, because the point of the atlas is to be inspectable. The penalty
     only affects ranking and the weight the text scorer gives it.
     """
-    df = em.join(br, on="term", how="left")
+    # Breadth is pass C: it covers a shortlist, not the whole vocabulary. Joining
+    # left and filling the gaps would mark every *unmeasured* expression as narrow
+    # and concentrated, silently discarding it for never having been looked at.
+    df = em.join(br, on="term", how="inner" if require_measured else "left")
     df = df.with_columns(
         [
             pl.col("top_repo_share").fill_null(1.0),

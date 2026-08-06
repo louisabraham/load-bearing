@@ -307,8 +307,17 @@ def run(start=C.START, end=C.END, plan: C.SamplingPlan = C.DEFAULT_PLAN,
 
 
 def corpus() -> pl.LazyFrame:
-    """All ingested documents as one lazy frame."""
-    return pl.scan_parquet(str(C.DOCS / "*" / "*.parquet"))
+    """All ingested documents as one lazy frame.
+
+    Shards written before a column existed are tolerated: the ingester gains
+    columns over time (`assist` came later), and a strict scan would otherwise
+    require re-downloading everything already fetched.
+    """
+    return pl.scan_parquet(
+        str(C.DOCS / "*" / "*.parquet"),
+        missing_columns="insert",
+        extra_columns="ignore",
+    )
 
 
 def coverage() -> pl.DataFrame:
