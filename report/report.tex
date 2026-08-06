@@ -1,0 +1,492 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{titlesec}
+\usepackage[colorlinks=true,linkcolor=NavyBlue,urlcolor=NavyBlue]{hyperref}
+\usepackage{caption}
+\usepackage[skip=4pt]{parskip}
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+
+\definecolor{ink}{HTML}{0B0B0B}
+\definecolor{ink2}{HTML}{52514E}
+\definecolor{rulec}{HTML}{C9C8C1}
+\captionsetup{font=small,labelfont=bf,labelsep=period}
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection}{0.6em}{}
+\setlist[itemize]{leftmargin=1.2em,itemsep=1pt,topsep=2pt}
+\newcommand{\expr}[1]{\texttt{\small #1}}
+
+\title{\bfseries Detecting LLM-Associated Expressions\\Through Longitudinal GitHub Language Change}
+\author{\normalsize \texttt{load-bearing} — technical summary}
+\date{\normalsize August 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\noindent\textbf{Abstract.} An unsupervised pipeline that finds expressions whose
+use on GitHub rises unusually fast, groups those that rise \emph{together}, and
+uses the resulting lexicon to score text and to estimate when a passage of
+model-written prose was generated. The premise is that a model generation leaves a
+\emph{bundle} of habits rather than one catchphrase, so the unit of evidence is a
+group of expressions moving at the same time. From 4.92M GitHub documents over 103
+months the system recovers 62{,}828 candidate expressions and 45 temporal clusters,
+dates LLM-written text to a mean absolute error of 5.6 months against a 9.3-month
+baseline, and measures declared AI assistance rising from zero to 50 commits per
+10{,}000. Two headline results are negative and reported as such: cluster timing
+cannot be distinguished from a randomly shifted release calendar, and date
+estimation does not transfer reliably to a generator the model has not seen.
+
+\vspace{0.6em}
+\hrule height 0.6pt
+\vspace{0.9em}
+
+\section{Data collection}
+
+\textbf{Source.} GH Archive, the hourly public event log of GitHub. Unauthenticated,
+complete back to 2015, and the only longitudinal record of GitHub prose that does
+not require replaying the API.
+
+\textbf{Sampling.} The archive is roughly 70\,MB per hour, so a census is
+impractical. Hours are sampled on a deterministic diagonal: days spread across the
+month, hours spread across the clock, so each month's sample covers both the weekly
+and the diurnal cycle, and the pattern is identical every month so that months stay
+comparable. Sampling density rises with era (4 hours/month for the 2018--2021
+baseline, 5 for 2022--2025, 40 for 2026, where the archive is degraded).
+
+\textbf{Streaming.} Raw archive files are never written to disk. Each worker
+downloads one hour into memory, applies a byte-level prefilter to the head of each
+line --- \texttt{type} is the second JSON key, so the 60--90\% of events that are
+pushes are rejected without being parsed --- cleans the surviving prose, and writes a
+small Parquet shard. 34\,GB streamed through RAM produced 564\,MB on disk.
+
+\textbf{Yield.} 686 hour-slots, one unavailable; 4{,}921{,}372 documents across
+issues, issue comments, pull-request descriptions, PR comments, review comments and
+review bodies. Median 38{,}841 documents per month.
+
+\subsection{Two archive defects that shape every result}
+
+The archive degrades partway through the window, and both defects imitate the signal
+being hunted:
+
+\begin{itemize}
+  \item \textbf{Pull-request descriptions vanish from 2025-11.} The artifact mix
+  shifts hard (\expr{issue\_comment} falls from 35\% to 12\% of the corpus over the
+  window; \expr{pr\_review\_comment} rises from 13\% to 28\%). Untreated, every
+  expression commoner in review comments than in descriptions shows a jump exactly
+  where the mix moved --- 21 of 30 clusters initially placed their shared changepoint
+  in that month.
+  \item \textbf{Commit payloads vanish from 2025-10.} \texttt{PushEvent} records carry
+  no \texttt{commits} array at all: 0 of 20{,}113 sampled in 2025-12, against 10{,}464
+  of 10{,}473 in 2025-09. Commit-message analysis therefore stops at 2025-09.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.94\linewidth]{../out/figs/coverage.pdf}
+\caption{Eligible documents per month after cleaning. The shaded window is where the
+archive stops carrying pull-request descriptions; comparisons that straddle its
+boundary measure the collector rather than the language.}
+\end{figure}
+
+\section{Pre-processing}
+
+Everything here exists because a specific artefact was found masquerading as
+emergent language.
+
+\textbf{Cleaning.} Fenced and indented code, logs and stack traces, URLs, quoted
+replies, HTML, markdown tables, mentions, issue references and SHAs are removed.
+Runs of two or more machine-output lines are dropped, while isolated matches are
+kept --- prose legitimately mentions \expr{foo.py:12}.
+
+\textbf{One eligibility predicate.} The same function decides both numerator and
+denominator of every rate: $\geq 8$ tokens, English by a function-word test, less than
+90\% of characters removed as code. Any asymmetry here makes frequencies move with
+the document mix rather than with language. 2.69M of 4.92M documents qualify.
+
+\textbf{Machine authors are excluded, and counted.} The machine-authored share of
+GitHub prose runs from 7\% (2018) to 37\% (2025) to 53\% (2026). Left in, the study
+would measure how many review bots comment on GitHub. The bot flag is recomputed from
+the author login at analysis time, never read from the shard: the list of AI review
+tools grows faster than any snapshot of it, and GitHub's own reviewer posts as plain
+\expr{copilot} with no \expr{[bot]} suffix.
+
+\textbf{Boilerplate is mined, not listed.} Whole-document de-duplication misses the
+damaging case: a banner inserted into text a human really wrote. Lines recurring
+verbatim across $\geq 5$ repositories in a period are mined and stripped, with digit
+runs masked so \emph{reviewed 67 of 69 files} and \emph{reviewed 3 of 4 files} collapse
+to one template. Lines under five tokens are exempt, so \expr{lgtm} survives as
+language. A complementary detector flags authors whose documents share a modal
+six-token opening across repositories --- this catches tools that are templated in
+shape but unique in content, which nothing else finds.
+
+\textbf{Near-duplicates.} Banded LSH over 64-permutation MinHash signatures of
+5-gram shingles; clusters confined to one repository are local templates, clusters
+spanning several are platform-wide.
+
+\textbf{Documents are truncated to 400 tokens for feature extraction.} Document
+frequency gives every document one vote, but the median document is 30 tokens while
+generated project write-ups run past 1000 and carry thousands of distinct
+$n$-grams. A few dozen of those push many expressions over threshold at once, and
+those expressions then co-emerge perfectly --- because they are literally the same
+documents.
+
+\textbf{Rates are standardised over a fixed artifact mix.} Direct standardisation:
+the rate within each artifact type is estimated separately, then recombined with
+weights fixed at the corpus average, so a period's own mix cannot move any
+expression's rate. Periods whose artifact coverage falls below 90\% of the corpus
+average are dropped rather than compared.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.94\linewidth]{../out/figs/machine_share.pdf}
+\caption{Share of documents written by identifiable machine authors. These are
+excluded from the discovery corpus and reused as the training population for date
+estimation (\S5).}
+\end{figure}
+
+\section{Model}
+
+\subsection{Features}
+
+Counting is by \emph{document frequency}: an expression is present or absent, never
+counted twice, so one author repeating a phrase eight times is one adoption. Four
+feature kinds share a namespace:
+
+\begin{itemize}
+  \item Word 1--3-grams over a canonical token stream where hyphens and apostrophes
+  are dissolved, so \expr{load-bearing} and \expr{load bearing} are the same bigram.
+  $n$-grams never cross clause boundaries.
+  \item Hyphenated compounds (\expr{HYPH:load-bearing}) and typography markers
+  (\expr{TYPO:em\_dash}), which carry their own signal.
+  \item About 50 hand-written rhetorical constructions (\expr{CONSTR:not\_just\_but}),
+  for frames whose slots vary and which no $n$-gram captures.
+  \item Character $n$-grams, available but off by default.
+\end{itemize}
+
+Inflectional and surface variants collapse into families via a conservative
+singulariser (WordNet where installed, an explicit irregular table otherwise) applied
+only for grouping, never for counting: inflection is itself stylistic signal.
+
+\subsection{Three passes}
+
+Width and cost trade off, so the wide passes stay cheap. \textbf{Pass A} counts every
+feature in every period and keeps what clears a document-frequency floor.
+\textbf{Vocabulary selection} pools into calendar windows --- a per-period floor makes
+visibility depend on that period's volume, biasing discovery against thin months ---
+and admits expressions with large variation in \emph{either} direction.
+\textbf{Pass B} recounts the 62{,}828 candidates exactly in all 103 periods, stratified
+by artifact type. \textbf{Pass C} adds repositories, authors, contexts, capitalisation
+and cohesion for a 4{,}000-expression shortlist.
+
+\subsection{Emergence}
+
+For each expression the single best level shift is found by maximising a binomial $z$
+over every admissible split, fully vectorised across expressions. With $k$ documents
+containing the expression and $n$ eligible documents,
+\[
+z(s)=\frac{k_{\text{post}} - n_{\text{post}}\,\hat p_{\text{pre}}}
+{\sqrt{n_{\text{post}}\,\hat p_{\text{pre}}(1-\hat p_{\text{pre}})}},
+\qquad
+\hat p_{\text{pre}}=\max\!\left(\frac{k_{\text{pre}}}{n_{\text{pre}}},\frac{0.5}{n_{\text{pre}}}\right).
+\]
+This is the right test for rare events, where a rate can triple on a handful of
+documents. A second, robust $z$ against a rolling median with MAD scale asks whether
+the jump is unusual \emph{for that expression}. An expression only the first statistic
+likes is rare and lucky; one only the second likes is noisy. Both are reported.
+
+The emergence score is a bounded sum of saturating terms --- growth, significance,
+robustness, persistence, rise speed, prior rarity --- rather than a product, so no
+single component can carry an expression to the top. It is gated on the shift being
+upward: the best split is a maximum even for an expression that only ever fell.
+Declines stay in the table, because a rise-then-fall profile is what pins down a
+narrow date.
+
+\subsection{Clusters as the unit of evidence}
+
+Expressions are compared by growth series $g_{e,t}=\Delta\log(f_{e,t}+\varepsilon)$
+under a similarity combining correlation, changepoint agreement and small-lag
+cross-correlation. Average-linkage clustering is followed by a rank-one fit
+$g_{e,t}\approx a_e L_{k,t}$, giving each cluster a latent curve and each member a
+loading. Clusters must span $\geq 3$ distinct \emph{families}: three inflections of one
+phrase are one habit, not three witnesses.
+
+\textbf{Confounders are removed before clustering, not after.} Bot templates and
+migration imports co-emerge perfectly by construction; filtering afterwards leaves
+them dominating the output, and the largest cluster in an early run was 209 members of
+market-research spam. Five measures do the work: repository concentration, repository
+spread, AI-repository share, artifact-mix entropy (graded, not thresholded --- spam
+filed as issue bodies is broad across repositories and defeats every other test),
+mid-sentence capitalisation (a phrase almost always capitalised is a product name, and
+\emph{any} capitalised word in the phrase counts), and document cohesion, the mean
+pairwise Jaccard among the documents containing the expression --- high cohesion means
+the expression marks a \emph{kind of document} rather than a way of writing.
+
+\section{Inference}
+
+\textbf{Text scoring.} Expression weights combine emergence strength, confounder
+penalty, breadth and cluster loading. Two guards prevent one striking phrase carrying
+a verdict: only the strongest member of a family counts, and within-cluster evidence
+is pooled concavely ($\text{contribution}=(\sum w)^{0.6}$) while independent clusters
+add linearly. A document with three expressions from one 2025 cluster therefore
+scores well above one phrase but well below three unrelated markers. The output is a
+continuous LLM-era expression score, never a human-versus-model verdict: humans who
+read model output adopt its phrasing too.
+
+\textbf{Date estimation.} $P(t\mid d)\propto P(t)\prod_e P(e\mid t)$, with two
+departures from the textbook form, both forced by measurement:
+
+\begin{itemize}
+  \item \emph{Present expressions contribute a rate ratio, not a raw probability.}
+  Absence looks informative, but over a fixed feature set it is swamped by document
+  length --- a two-sentence comment lacks almost every expression whenever it was
+  written. Using absence dated recent documents years early, with error growing the
+  more recent the document. The ratio form is invariant to how many features are
+  absent.
+  \item \emph{Each period's rate is shrunk toward the expression's global rate} with
+  fixed strength in document-equivalents. Add-half smoothing puts a floor of
+  $0.5/n_t$ on every cell, an order of magnitude higher in a thin month than a fat
+  one, which drags estimates toward whichever months were sampled most heavily.
+\end{itemize}
+
+A cluster-level variant collapses each cluster to one observation, since members that
+rose together carry nearly the same information and treating twelve as twelve
+observations produces absurdly sharp posteriors.
+
+\textbf{Likelihoods come from the population being dated.} $P(e\mid t)$ estimated on
+general GitHub prose describes how developers write; dating model output needs how
+\emph{generated} text read in that month, and a phrase can be ubiquitous in model
+output while rare in human comments. The estimator is therefore fitted on the material
+the rest of the pipeline discards: 298{,}318 documents from 16 review bots and coding
+agents, which are dated and unambiguously LLM-written.
+
+\textbf{Feature selection for dating is a separate problem from discovery.} Emergence
+ranks by size of jump from a low base, so its top expressions are rare by
+construction --- only 29 of them appeared in even 0.4\% of LLM documents, leaving
+two-thirds of test documents with no evidence. Dating features are instead selected
+from the full recounted vocabulary by mutual information between presence and period,
+measured on LLM text, with a support floor scaled to corpus size.
+
+\section{Benchmark}
+
+Every test is written so that it can fail, and so that failure is legible.
+
+\begin{itemize}
+  \item \textbf{Temporal backtest.} Fit before a cutoff; ask whether the rise
+  \emph{holds} afterwards, not whether it keeps rising --- an expression that entered
+  the language plateaus, so ``still rising'' penalises the cases the detector should
+  get right. Windows either side of the cutoff are equal length, or the comparison
+  measures which years were sampled most.
+  \item \textbf{Repository holdout.} Discover on one hash-partition of repositories,
+  verify on a disjoint one, so a phrase one large project uses cannot replicate by
+  accident.
+  \item \textbf{Placebo releases.} Null A shifts the release calendar
+  \emph{circularly} inside the observed window; null B scatters the changepoints. A
+  plain shift pushes the calendar out of the data range and loses by construction,
+  which made an early version report $p=0.000$ for a result that does not hold. The
+  test also reports its own power.
+  \item \textbf{Pre-era placebo.} Run the whole detector on pre-2022 data alone.
+  Language changed before LLMs, and that is the noise floor any claim must clear.
+  \item \textbf{Cluster stability.} Re-cluster under perturbed thresholds, aggregation
+  and period sets; measure how often pairs stay together.
+  \item \textbf{Date recovery.} Hide timestamps and measure error in months, stratified
+  by period so the most heavily sampled months cannot dominate, with a repository split
+  and a leave-one-generator-out condition.
+\end{itemize}
+
+\section{Results}
+
+\subsection{Discovery}
+
+62{,}828 candidate expressions; 4{,}000 measured for breadth; 426 survive the
+confounder filter; 45 clusters of $\geq 3$ expressions spanning $\geq 3$ families.
+Cluster changepoints concentrate in 2025-02 to 2025-06 (14 clusters). Representative
+members:
+
+\begin{center}\small
+\begin{tabular}{@{}llp{8.4cm}@{}}
+\toprule
+\textbf{Cluster} & \textbf{Emerged} & \textbf{Members} \\
+\midrule
+0 & 2025-06 & \expr{coding agent}, \expr{copilot instructions}, \expr{by claude},
+\expr{coding agents}, \expr{fallback chain}, \expr{cause identified} \\
+3 & 2025-02 & \expr{an mcp server}, \expr{in the mcp}, \expr{tool-call},
+\expr{handoffs}, \expr{with clear error} \\
+6 & 2025-04 & \expr{for claude code}, \expr{human-in-the},
+\expr{correctly implements}, \expr{returns structured} \\
+2, 5 & 2018-09/10 & \expr{a clear and concise description},
+\expr{add any other context about the} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The 2018 clusters are GitHub's issue-template rollout --- a real event, correctly
+dated, and evidence that the detector is not simply finding LLM-shaped things
+everywhere.
+
+\subsection{Most representative expressions, last three months}
+
+Comparing 2026-05--07 (49{,}790 documents) against 2025-11--2026-04 (273{,}013),
+inside one artifact-coverage regime. Ranked by evidence contributed per document
+(Bernoulli KL: prevalence $\times$ distinctiveness).
+
+\begin{center}\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Expression} & \textbf{\% of docs} & \textbf{growth} & \textbf{repos} \\
+\midrule
+em dash (---) & 29.1 & 3.0$\times$ & 8{,}613 \\
+\expr{so the} & 6.7 & 4.0$\times$ & 2{,}808 \\
+\expr{gate} & 4.1 & 6.3$\times$ & 1{,}621 \\
+arrow ($\rightarrow$) & 9.5 & 2.6$\times$ & 3{,}755 \\
+\expr{surface} & 3.9 & 5.3$\times$ & 1{,}664 \\
+\expr{scope} / \expr{out of scope} & 7.5 & 3.0$\times$ & 2{,}922 \\
+\expr{verified} & 5.0 & 3.5$\times$ & 2{,}040 \\
+\expr{follow-up} & 4.0 & 3.8$\times$ & 1{,}603 \\
+\expr{canonical} & 2.1 & 4.8$\times$ & 903 \\
+\expr{load-bearing} & 0.4 & 13.9$\times$ & 194 \\
+\expr{byte-identical} & 0.3 & 20.8$\times$ & 167 \\
+\expr{git diff -{}-check} & 0.3 & 36.9$\times$ & 97 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The em dash is the strongest single marker by a factor of 2.8 in information
+contributed, appearing in 29\% of recent documents against 10\% before, across 8{,}613
+repositories. \textbf{But the top five expressions carry only 12\% of the total
+evidence and the top ten 19\%}: the signal is genuinely diffuse, which supports the
+bundle premise and means no single expression is diagnostic. The contexts place these
+in one register --- structured agentic verification reports pasted into pull-request
+discussions --- which explains why \expr{load-bearing} keeps company with
+\expr{byte-identical} and \expr{git diff -{}-check}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.94\linewidth]{../out/figs/expressions.pdf}
+\caption{Four expressions on a standardised log scale. All four turn upward from
+mid-2025; the steepest segment falls inside the changed-coverage window, which is why
+the recent-window analysis is run inside a single regime rather than against history.}
+\end{figure}
+
+\subsection{Declared AI assistance}
+
+Coding agents append a trailer to what they help write, which is a declared label on
+text submitted under a \emph{human} account --- the only ground truth available for
+that middle category. Detection must run before cleaning, since the cleaner strips the
+trailer deliberately, and the marker is kept only as a column: left in the document,
+every expression in an assisted commit would correlate perfectly with its own label.
+
+Across 252{,}655 commits, Claude Code trailers per 10{,}000 commits: zero through
+2025-03, then 1.8 (2025-04), 20.2 (2025-06), 39.8 (2025-08), 50.4 (2025-09). First
+appearance coincides with the tool's release rather than preceding it. This is a
+\emph{floor}, not an estimate: only assistance that the tool declares and the author
+did not strip is visible.
+
+A first version of the generic pattern matched any co-author line containing
+\emph{ai} or \emph{bot}, making that category 18$\times$ larger than Claude Code's
+while being almost entirely Renovate, Dependabot, pre-commit-ci and github-actions.
+Reporting it would have claimed $\sim$1\% AI-assisted commits that were really
+dependency automation.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.94\linewidth]{../out/figs/provenance.pdf}
+\caption{Commits declaring Claude Code assistance. Zero for fifteen months, then a
+28$\times$ rise over six. The series ends at 2025-09 because the archive stops
+carrying commit payloads.}
+\end{figure}
+
+\subsection{Dating LLM-written text}
+
+Fitted on 194{,}236 LLM-authored training documents over 38 months, tested on a
+disjoint repository partition:
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Condition} & \textbf{MAE} & \textbf{Baseline} & \textbf{Skill} & \textbf{Coverage} \\
+\midrule
+All generators, repository holdout & 5.56 mo & 9.30 & 1.67$\times$ & 100\% \\
+Cluster-level likelihood & 5.55 mo & 9.30 & 1.68$\times$ & 100\% \\
+Held out: Copilot & 6.20 & 8.98 & 1.45$\times$ & 100\% \\
+Held out: CodeRabbit & 10.59 & 8.73 & 0.82$\times$ & 100\% \\
+Held out: Gemini Code Assist & 12.33 & 9.73 & 0.79$\times$ & 100\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Median error 3 months; 53\% of documents within 3 months, 72\% within 6.
+\textbf{Transfer to an unseen generator fails for two of three tools}, so most of the
+in-distribution skill is generator-specific style rather than a universal
+``when was this generated'' signal. The method will date text from a generator it has
+seen; treat it as unproven on one it has not.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.94\linewidth]{../out/figs/dating.pdf}
+\caption{Date-recovery error. The model beats the midpoint baseline overall and on
+held-out Copilot, and loses on held-out CodeRabbit and Gemini Code Assist.}
+\end{figure}
+
+\subsection{Validation}
+
+\begin{center}\small
+\begin{tabular}{@{}lp{9.6cm}@{}}
+\toprule
+\textbf{Test} & \textbf{Result} \\
+\midrule
+Pre-era placebo & \textbf{8.0$\times$} enrichment of LLM-era emergences above the
+pre-era 99th percentile. Clears the noise floor by a wide margin. \\
+Cluster stability & 88.8\% of co-clustered pairs hold in a majority of six settings. \\
+Repository holdout & 97\% of rises replicate in both partitions, but log-ratio
+correlation is only 0.23 --- weak agreement on \emph{magnitude}. \\
+Placebo releases & \textbf{Inconclusive.} $p=0.69$ (shifted calendar), $p=0.80$
+(shuffled changepoints); 19 releases in a 93-month window leave a 4.9-month mean gap,
+so any date lands near some release. \\
+Temporal backtest & \textbf{Negative.} Flagged rises retain 1.03$\times$ their level
+out of sample against 1.19$\times$ for volume-matched controls. Partly winner's curse
+--- selection on a jump implies regression to the mean --- but not isolated. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Limitations}
+
+\begin{itemize}
+  \item \textbf{Release attribution does not work.} Cluster timing is consistent with
+  the release calendar but indistinguishable from a shifted one. At this release
+  density the test has no power; separating specific models was never in scope, and
+  even generation-level attribution is unsupported here.
+  \item \textbf{Cross-generator date transfer is unproven}, and the leave-one-out
+  result suggests generator identity does much of the work.
+  \item \textbf{The archive limits the recent window.} PR descriptions end 2025-11 and
+  commit payloads 2025-10; the last three months are interpretable only against
+  neighbours inside the same regime.
+  \item \textbf{Declared assistance is a floor.} Undeclared assistance is invisible,
+  and the declaring population is self-selected.
+  \item \textbf{The subject is drifting.} Much of the recent signal is agent-generated
+  or agent-pasted text under human accounts. That is arguably what ``LLM-era
+  language'' means, but it is not the claim that humans changed how they write
+  unprompted.
+  \item \textbf{A high score is not attribution.} It says a text uses expressions that
+  spread in a period, nothing about who or what produced it.
+\end{itemize}
+
+\vspace{0.4em}
+\hrule height 0.4pt
+\vspace{0.5em}
+\noindent\footnotesize\color{ink2}
+Implementation: 14 modules, 41 tests. \texttt{lbdetect ingest} $\to$
+\texttt{lbdetect all} reproduces every number above; \texttt{lbdetect recent},
+\texttt{lbdetect provenance} and \texttt{lbdetect date-model} produce
+\S6.2, \S6.3 and \S6.4.
+
+\end{document}

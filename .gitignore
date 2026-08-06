@@ -6,3 +6,7 @@ __pycache__/
 *.egg-info/
 out/
 .DS_Store
+report/*.aux
+report/*.log
+report/*.out
+report/*.png
