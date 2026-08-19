@@ -9,7 +9,7 @@ Three files:
 |---|---|
 | `fetch_week.py` | one `.jsonl.gz` per week of pull request descriptions, from GitHub's search API. Standard library only. |
 | `analyze.py` | counts the words, factorises the week × word matrix, writes `analysis.js`. Needs `numpy` and `scikit-learn`. |
-| `index.html` | reads `analysis.js`. No build step, no dependencies. Open it. |
+| `index.html` | reads `analysis.js`. No build step, no dependencies. Open it. Every component appears as a miniature on one shared axis; picking one shows it in full, and the choice is in the URL hash. |
 
 ```bash
 pip install numpy scikit-learn
@@ -51,15 +51,30 @@ NMF fixes `W H` only up to a diagonal rescaling — `W H = (W D)(D⁻¹ H)` for 
 diagonal `D` — so normalising the columns of `W` pins that free scale at the one place it
 carries meaning, and pushes it into `H`.
 
-**The loss is Kullback–Leibler, not squared error.** `X` holds counts and the columns of
-`W` are distributions over words; together that is a multinomial mixture, and KL is its
-likelihood. It is also better on the only test that matters — the register's share of the
-week rises from 0.003 to 0.747 under KL, against 0.021 to 0.582 under squared error. The
-price is that KL needs the multiplicative solver, which updates by multiplication and so
-approaches zero without reaching it: the slight L1 on `H` shrinks the quiet weeks rather
-than zeroing them. That costs little, because the register averages 0.003 of the week over
-the first two months anyway — the "not there yet" shape, written as a small number instead
-of an exact zero.
+**Why Kullback–Leibler and not squared error.** `X` holds counts and the columns of `W` are
+probability distributions over words; together that is a multinomial mixture, and KL is its
+likelihood. Squared error instead assumes Gaussian noise of constant variance, which counts
+do not have — the variance of a count grows with its mean, so squared error treats a swing
+of 50 in a word appearing 200,000 times as equally surprising as a swing of 50 in a word
+appearing 60 times. Measured at `k = 16` on this vocabulary:
+
+| loss | the register component | exact zeros in `H` |
+|---|---|---|
+| **KL** | **13.8% of mass, 0.001 → 0.732** | 0% |
+| squared error | 7.3% of mass, 0.009 → 0.420 | 22% |
+
+**And the cost, stated plainly: under KL the L1 on `H` does nothing.** Two reasons. KL needs
+the multiplicative solver, which approaches zero without reaching it, so there are no exact
+zeros. And this parameterisation cancels the penalty outright: NMF fixes `W H` only up to a
+diagonal rescaling, and normalising `W`'s columns pins that scale *after* fitting — so the
+optimiser can satisfy an L1 on `H` by shrinking `H` uniformly and inflating `W`, which costs
+it nothing, and the rescaling then undoes the shrinkage exactly. Measured: `alpha_H` from 0
+to 10 moves `sum(H)` by 0.7% and the per-week *shape* of `H` by 0.0085. **An L1 is only
+meaningful where the scale is not free.**
+
+With `LOSS = "l2"` the penalty does bite — 22% of `H` exactly zero at `alpha_H = 0`, 25% at
+0.02, 47% at 0.2 — at the cost of the separation in the table above. That trade is one
+constant, not a rewrite.
 
 ### Two rankings, because there are two questions
 
@@ -139,12 +154,34 @@ and ×208 for comments. They were the quietest surface before assistants arrived
 
 ## Counting
 
-A word is a run of non-space characters, lowercased, with surrounding punctuation removed.
-That is the only normalisation: no stemming, no n-grams, no stopword list. Every appearance
-counts, so a word used three times in one description contributes three. Purely numeric
-tokens are dropped — the calendar advances every week, so a bare `10` or `2026` arrives and
-departs on a schedule of its own (`apr` went 0.05% → 9% of documents at the end of one
-March; month abbreviations are words and stay, so that one is an artifact to read past).
+**What counts as a word.** A run of letters, digits, hyphens and underscores containing at
+least one letter — so `load-bearing`, `snake_case` and `--all-targets` survive whole, while
+`/`, backtick, `:` and `>` are separators rather than characters a word may contain. No
+stemming, no n-grams, no stopword list. Every appearance counts, so a word used three times
+in one description contributes three.
+
+Order matters, and each step exists because of what the previous one broke:
+
+1. **Links first, whole.** `[bugbot](https://cursor.com/x)` gives `bugbot` and the link.
+   Splitting on punctuation first produced `bugbot](https` and a trail of fragments, and
+   those fragments were ranking among components' most representative words.
+2. **Then HTML tags, whole.** Splitting them character by character turned
+   `<sup>reviewed</sup>` into `sup, reviewed, sup` and made `li`, `br`, `td` and `href` six
+   of one component's twelve commonest words. The pattern requires a letter or slash after
+   the bracket, so `a > b` in prose is not mistaken for markup.
+3. **Then everything else splits** on any character a word may not contain, which handles
+   what markdown creates without needing to know about it: `srcset="…"` gives `srcset`,
+   `height="28` gives `height`, `*emphasis*` needs nothing because `*` is a separator.
+4. **Then trim the edges.** `_other example_` needs its underscores trimmed, since an
+   underscore is allowed *inside* a word. A trailing hyphen goes for the same reason; a
+   leading one stays, so `--all-targets` is not quietly turned into `all-targets`.
+
+Requiring a letter drops what is left of numbers and rules — `27.49`, `589/1000`,
+`2025-06-24`, `-------` — along with the arrow and `+`. **The em dash is the one exception**,
+taken before the split and counted as a word of its own. It earns that: 0.0 appearances per
+10,000 words in early 2024 against 123.0 in mid-2026, the sharpest single signal here. It is
+counted separately rather than added to the word characters because it is as often unspaced
+as spaced, and inside the character class `foo—bar` would become one token instead of three.
 
 Two documents with the identical word set count once, within each week — one ordinary account once posted 147 copies of the same sentence inside
 a fortnight, 16% of it, and every word of its template moved with it. That collapse is

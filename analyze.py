@@ -20,6 +20,7 @@ Run `python analyze.py` to write analysis.js, `--selftest` to check the invarian
 
 import argparse
 import glob
+import re
 import gzip
 import json
 import os
@@ -35,8 +36,15 @@ ANCHOR = date(2024, 1, 1)          # a Monday; weeks starting mid-week would str
                                    # two partial weekends and mix the author mix
 WEEK_GLOB = "data/weeks/*.jsonl.gz"
 
-# The only normalisation applied to text. No stemming, no n-grams, no stopword list.
-STRIP = "\"'`*_~<>|#.,;:!?()[]{}"
+# A word is a run of letters, digits, hyphens and underscores containing at least one
+# letter -- so `load-bearing`, `snake_case` and `--all-targets` survive whole, while `/`,
+# backtick, `:` and `>` are separators rather than characters a word may contain. Whole
+# http(s) links are pulled out first and kept as single tokens, before that split can
+# shred them. No stemming, no n-grams, no stopword list.
+URL_RE = re.compile(r"https?://[^\s<>\"'`)\]}]+")
+TAG_RE = re.compile(r"<[a-z/!][^<>]*>")   # html markup, not prose: `a > b` is not a tag
+EM_DASH = "\u2014"                       # a word by fiat; see `tokens`
+WORD_RE = re.compile(r"[a-z0-9_-]*[a-z][a-z0-9_-]*")
 MIN_WORDS = 5                      # a body needs this many distinct words to be prose
 MIN_TF = 45                        # a word needs this many total appearances. Set by the
                                    # rarest word worth naming: `load-bearing` appears 51
@@ -52,8 +60,10 @@ DOCS_PER_WEEK = 350                # see the note in `read_week`
 
 # ----------------------------------------------------------------------------- model
 
-K = 8
-ALPHA_H = 5e-3                     # L1 on the weekly activations; see `fit`
+K = 16
+LOSS = "kl"                        # "kl" or "l2"; see `fit` -- they trade separation
+                                   # against a working L1
+ALPHA_H = 2e-2                     # L1 on the weekly activations; see `fit`
 MAX_ITER = 600
 SEED = 0
 WORDS_CHARTED = 16
@@ -62,25 +72,46 @@ WORDS_MOST_USED = 12
 
 
 def tokens(body):
-    """Every appearance of every word in one document, in order.
+    """Every appearance of every word in one document.
 
-    Numeric tokens are dropped: anything with a digit in it and no letter. They are dates,
-    versions, counts and line numbers rather than vocabulary, and they are an active
-    nuisance -- the calendar advances every week, so a bare `10` or `2026` arrives and
-    departs on a schedule of its own. `apr` went from 0.05% to 9% of documents at the end
-    of one March; month abbreviations are words and stay, so that one is an artifact to
-    read past.
+    Links are taken first, whole: `[bugbot](https://cursor.com/x)` yields `bugbot` and the
+    link, where splitting on punctuation first would have produced `bugbot](https` and a
+    trail of fragments. Those fragments were real: they used to rank among a component's
+    most representative words.
 
-    The rule is "digit and no letter" rather than `isdigit`, which let `27.49`, `589/1000`
-    and `2025-06-24` through and put them among the most representative words of a
-    component. It deliberately keeps tokens that are pure punctuation: `-` and the em dash
-    and the arrow are typography, not arithmetic, and one of them turns out to be the
-    clearest signal in the corpus.
+    HTML tags go next, whole, for the same reason: splitting them character by character
+    turned `<sup>reviewed</sup>` into `sup`, `reviewed`, `sup` and made `li`, `br`, `td` and
+    `href` six of one component's twelve commonest words. The pattern requires a letter or
+    slash after the bracket, so `a > b` in prose is not mistaken for markup.
+
+    Then everything else splits on any character a word may not contain, which handles what
+    markdown creates without needing to know about it -- `srcset="..."` gives `srcset`,
+    `height="28` gives `height`. Emphasis is handled by trimming: `*example*` needs nothing
+    because `*` is a separator, and `_other example_` needs the underscores trimmed off the
+    ends, since an underscore is allowed *inside* a word. A trailing hyphen goes for the
+    same reason; a leading one stays, so `--all-targets` is not quietly turned into
+    `all-targets`.
+
+    Requiring a letter drops what is left of numbers and rules: `27.49`, `589/1000`,
+    `2025-06-24`, `-------`. The arrow and `+` go with them. The em dash is the one
+    exception, taken before the split and counted as a word of its own -- it earns that by
+    going from 0.0 appearances per 10,000 words in early 2024 to 123.0 in mid-2026, the
+    sharpest single signal here.
     """
-    out = []
-    for t in body.lower().split():
-        w = t.strip(STRIP)
-        if w and not (any(c.isdigit() for c in w) and not any(c.isalpha() for c in w)):
+    body = body.lower()
+    out = [m.group(0).rstrip(".,;:!?") for m in URL_RE.finditer(body)]
+    # the em dash counts as a word. It is punctuation, so the rule above would drop it,
+    # and it is the sharpest single signal in the corpus: 0.0 appearances per 10,000 words
+    # in early 2024 against 123.0 in mid-2026. Counted separately rather than added to the
+    # word characters, because it is as often unspaced as spaced -- inside the character
+    # class `foo\u2014bar` would become one token instead of three.
+    out += [EM_DASH] * body.count(EM_DASH)
+    # links first so they survive whole, then tags, so that what is left of
+    # `<a href="...">text</a>` is `text` and not `a`, `href`, `text`, `a`
+    rest = TAG_RE.sub(" ", URL_RE.sub(" ", body))
+    for w in WORD_RE.findall(rest):
+        w = w.strip("_").rstrip("-")
+        if w and any(c.isalpha() for c in w):
             out.append(w)
     return out
 
@@ -148,31 +179,42 @@ def build(log=print):
     return X, weeks, vocab
 
 
-def fit(X, k=K, alpha_h=ALPHA_H, seed=SEED, max_iter=MAX_ITER):
+def fit(X, k=K, alpha_h=ALPHA_H, seed=SEED, max_iter=MAX_ITER, loss=LOSS):
     """Factorise X into word distributions and weekly activations.
 
-    The loss is Kullback-Leibler, not squared error. X holds counts and the columns of W
-    are probability distributions over words, which together are a multinomial mixture --
-    KL is that model's likelihood, and squared error is not. It is also better here on the
-    only test that matters: the register's share of the week rises from 0.003 to 0.747
-    across the window under KL, against 0.021 to 0.582 under squared error.
+    **Why Kullback-Leibler and not squared error.** X holds counts and the columns of W are
+    probability distributions over words; together that is a multinomial mixture, and KL is
+    its likelihood. Squared error instead assumes Gaussian noise of constant variance,
+    which counts do not have -- the variance of a count grows with its mean, so squared
+    error treats a swing of 50 in a word appearing 200,000 times as equally surprising as a
+    swing of 50 in a word appearing 60 times. It is also better on the only test that
+    matters, at k=16 with this vocabulary:
 
-    The price is that KL requires the multiplicative solver, which updates by
-    multiplication and so approaches zero without ever reaching it. The L1 on H therefore
-    shrinks the quiet weeks rather than zeroing them. That costs less than it sounds:
-    the register component averages 0.003 of the week over the first two months, which is
-    the "not there yet" shape, just written as a small number instead of an exact zero.
-    Squared error with the coordinate-descent solver does give exact zeros in about 17% of
-    cells, if that matters more than the loss being right.
+                             register component        exact zeros in H
+        KL                   13.5% of mass, 0.001 -> 0.725        0%
+        squared error         7.3% of mass, 0.009 -> 0.420       22%
 
-    W is rescaled after fitting so each column sums to 1. NMF is only determined up to a
-    diagonal rescaling -- W H = (W D)(D^-1 H) for any positive diagonal D -- so this fixes
-    the free scale at the one place it means something, and pushes it into H, where the
-    column sums then recover each week's word count.
+    **The cost, stated plainly: under KL the L1 on H does nothing.** KL needs the
+    multiplicative solver, which approaches zero without reaching it, so no exact zeros.
+    Worse, this parameterisation cancels the penalty outright. NMF fixes W H only up to a
+    diagonal rescaling, and the normalisation below pins that scale *after* fitting -- so
+    the optimiser can satisfy an L1 on H by shrinking H uniformly and inflating W, which
+    costs it nothing, and the rescaling then undoes the shrinkage exactly. Measured:
+    alpha_H from 0 to 10 moves sum(H) by 0.7% and the per-week shape of H by 0.0085.
+    An L1 is only meaningful where the scale is not free.
+
+    With `loss="l2"` the penalty does bite -- 22% of H exactly zero at alpha_H=0, 25% at
+    0.02, 47% at 0.2 -- at the cost of the separation in the table above. The knob is here
+    so that trade is one line, not a rewrite.
+
+    W is rescaled after fitting so each column sums to 1, which fixes the free scale at the
+    one place it carries meaning and pushes it into H, whose column sums then recover each
+    week's word count.
     """
-    model = NMF(n_components=k, init="nndsvda", solver="mu",
-                beta_loss="kullback-leibler", alpha_H=alpha_h, l1_ratio=1.0,
-                max_iter=max_iter, random_state=seed)
+    kw = dict(n_components=k, init="nndsvda", alpha_H=alpha_h, l1_ratio=1.0,
+              max_iter=max_iter, random_state=seed)
+    model = (NMF(solver="mu", beta_loss="kullback-leibler", **kw) if loss == "kl"
+             else NMF(solver="cd", **kw))
     W = model.fit_transform(X)                 # words by k
     H = model.components_                      # k by weeks
     scale = W.sum(axis=0)
@@ -264,7 +306,6 @@ def selftest():
     w = np.array(hit[0]["weight"])
     assert w[:on].mean() < 0.5 * w[on:].mean(), "its share does not rise"
 
-    quiet, _, _ = fit(X, k=4, alpha_h=0.0, max_iter=400)
     assert err >= 0
     print(f"selftest: ok  (W columns sum to 1, weekly shares sum to 1, "
           f"bundle recovered at {hit[0]['mass']:.0%} of mass)")

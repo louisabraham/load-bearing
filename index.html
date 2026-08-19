@@ -62,7 +62,29 @@ h1 em { font-style: normal; color: var(--accent); }
   color: var(--muted);
 }
 
+/* ---------------------------------------------------------------- contents */
+.pick {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 1px; margin: 0 0 8px;      /* hairlines are drawn on the cards, so that a row with
+                                     empty cells does not show as a grey block */
+}
+.card {
+  background: var(--ground); border: 0; padding: 12px 13px 9px; cursor: pointer;
+  text-align: left; font: inherit; color: inherit; display: block; width: 100%;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.card:hover { background: var(--fill); }
+.card[aria-current="true"] { background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--hairline), inset 0 4px 0 var(--accent); }
+.card .n { font: 900 1.5rem/1 var(--sans); letter-spacing: -0.03em;
+           color: var(--accent); }
+.card .m { font: 900 1rem/1 var(--sans); letter-spacing: -0.02em; margin-left: 6px; }
+.card svg { display: block; width: 100%; height: 30px; margin-top: 7px; }
+.card .pw { font: 500 10px/1.4 var(--mono); color: var(--muted);
+            letter-spacing: 0.06em; }
+
 /* -------------------------------------------------------------- components */
+section[hidden] { display: none; }
 section { border-top: 4px solid var(--ink); margin-top: 64px; padding-top: 22px; }
 .head { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
 .numeral {
@@ -245,9 +267,9 @@ function build() {
   let html = `<header>
     <h1>Words that<br>arrived <em>together</em></h1>
     <p class="standfirst">Every pull request description on GitHub, sampled evenly week by
-      week for two and a half years, then factorised into groups of words whose
-      frequencies move as one. Six of the eight groups are a vendor's comment template.
-      Two are not.</p>
+      week for two and a half years. Each week is a bag of words; the model splits it into
+      ${A.k} ways of writing and says how much of each week belongs to each. Many are one
+      vendor's comment template, legible from the links among their words. One is not.</p>
     <div class="stats">
       <div class="stat"><b>${fmt(A.appearances)}</b><span class="label">word appearances</span></div>
       <div class="stat"><b>${A.weeks.length}</b><span class="label">weeks</span></div>
@@ -255,6 +277,18 @@ function build() {
       <div class="stat"><b>${A.k}</b><span class="label">components</span></div>
     </div>
   </header>`;
+
+  html += `<p class="label" style="margin:40px 0 10px">the ${A.k} ways of writing
+    &nbsp;·&nbsp; pick one &nbsp;·&nbsp; every graph on the same 0 to
+    ${(TOP * 100).toFixed(0)}% axis</p>
+    <div class="pick" role="tablist">` + A.components.map((c, rank) => `
+      <button class="card" role="tab" data-pick="${rank}"
+              aria-current="${rank === 0}"
+              aria-label="component ${rank + 1}, ${(c.mass * 100).toFixed(1)}% of mass">
+        <span class="n">${rank + 1}</span><span class="m">${(c.mass * 100).toFixed(1)}%</span>
+        <svg data-mini="${rank}"></svg>
+        <span class="pw">peaks ${c.peak_week}</span>
+      </button>`).join("") + `</div>`;
 
   A.components.forEach((c, rank) => {
     const words = c.words.map((w, j) => {
@@ -279,7 +313,7 @@ function build() {
        <td>${w.lift.toFixed(1)}&times;</td>
        <td>${Math.max(...w.per10k).toFixed(1)}</td></tr>`).join("");
 
-    html += `<section>
+    html += `<section data-sec="${rank}" ${rank ? "hidden" : ""}>
       <div class="head">
         <span class="numeral">${rank + 1}</span>
         <span class="mass">${(c.mass * 100).toFixed(1)}% of mass</span>
@@ -354,7 +388,16 @@ function build() {
   </footer>`;
 
   app.innerHTML = html;
-  render();
+  app.addEventListener("click", ev => {
+    const b = ev.target.closest("[data-pick]");
+    if (b) select(+b.dataset.pick);
+  });
+  addEventListener("keydown", ev => {
+    const d = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+    if (d) select((current + d + A.components.length) % A.components.length);
+  });
+  addEventListener("hashchange", fromHash);
+  fromHash();
   let t;
   addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
 
@@ -381,18 +424,40 @@ function start() {
   build();
 }
 
+let current = 0;
+
+function fromHash() {
+  const n = parseInt(location.hash.slice(2), 10);
+  select(Number.isInteger(n) && n >= 1 && n <= A.components.length ? n - 1 : current);
+}
+
+function select(rank) {
+  current = rank;
+  app.querySelectorAll("[data-pick]").forEach(b =>
+    b.setAttribute("aria-current", String(+b.dataset.pick === rank)));
+  app.querySelectorAll("[data-sec]").forEach(sec =>
+    sec.hidden = +sec.dataset.sec !== rank);
+  if (location.hash !== `#c${rank + 1}`) history.replaceState(null, "", `#c${rank + 1}`);
+  render();
+}
+
 function render() {
+  // the eight miniatures, always on screen and all on the shared axis so that picking
+  // between them is a comparison and not a guess
   A.components.forEach((c, rank) => {
-    const svg = app.querySelector(`svg[data-weight="${rank}"]`);
-    // a fixed ceiling, not each panel's own peak: these are shares of the same whole, so
-    // one axis makes the eight components directly comparable
-    draw(svg, c.weight, { rules: true, years: true, pad: 6, sw: 2, max: TOP });
-    hover(svg, v => `${(v * 100).toFixed(1)}% of the week`);
-    c.words.forEach((w, j) => {
-      const s = app.querySelector(`svg[data-series="${rank}:${j}"]`);
-      draw(s, w.per10k, { sw: 1.5 });
-      hover(s, v => `${w.word}  ${v.toFixed(1)} per 10k`);
-    });
+    const mini = app.querySelector(`svg[data-mini="${rank}"]`);
+    if (mini) draw(mini, c.weight, { max: TOP, sw: 1.25 });
+  });
+  // and only the chosen section: a hidden one has no width, so its charts would be empty
+  const c = A.components[current];
+  const svg = app.querySelector(`svg[data-weight="${current}"]`);
+  if (!svg) return;
+  draw(svg, c.weight, { rules: true, years: true, pad: 6, sw: 2, max: TOP });
+  hover(svg, v => `${(v * 100).toFixed(1)}% of the week`);
+  c.words.forEach((w, j) => {
+    const s = app.querySelector(`svg[data-series="${current}:${j}"]`);
+    draw(s, w.per10k, { sw: 1.5 });
+    hover(s, v => `${w.word}  ${v.toFixed(1)} per 10k`);
   });
 }
 
