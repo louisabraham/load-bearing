@@ -26,38 +26,58 @@ silent failure would invalidate the result.
 
 ## The model
 
+Let `X[v, t]` count every appearance of word `v` in week `t` — every appearance, not one
+per document. Factorise it:
+
 ```
-rate(word w, week t) = sum over components c of  weight(c, t) · profile(c, w)
+X  ≈  W H        W: words × k, each column summing to 1
+                 H: k × weeks, non-negative
 ```
 
-A component is a way of writing. `profile[c]` says which words it uses, fixed across the
-whole window; `weight[c]` says how much of it was in the air each week, shared by every
-word in it. Nothing in the code knows what a model release is. The claim is only that if
-an assistant brings a bundle of habits, that bundle is a rank-one piece of the matrix, and
-the factorisation has to spend a component on it.
+Each column of `W` is a probability distribution over the vocabulary — a way of writing.
+Each row of `H` says how much of that way of writing was in the air each week. Because the
+columns of `W` are normalised, the column sums of `H` recover the week's word count, so
 
-Non-negative matrix factorisation, `k = 8`, coordinate descent, L1 on the weekly weights.
-Non-negativity is what makes the components additive pieces of the observed rate rather
-than arbitrary directions, and so readable at all. A word that falls is still
-representable: a component whose weight is high early and low later.
+```
+H[c, t] / Σ_c H[c, t]
+```
 
-**One line matters more than the rest of the model.** Each word is divided by its own
-average across the window before fitting. Scored by whether the fit separates the prose
-register at all, and how much mass lands on the twenty commonest words:
+is genuinely component `c`'s **share of everything written that week**. That is why all
+eight charts on the page share one axis instead of each being scaled to its own peak: the
+shares sum to 1, so the components are directly comparable and you can watch one overtake
+another.
 
-| fit | mass on the 20 commonest | register |
-|---|---|---|
-| NMF, these normalised rates | 0.4% | **found** |
-| NMF, raw rates | 14.4% | not found |
-| NMF, counts with a KL loss | 14.5% | not found |
-| LDA, counts | 15.6% | not found |
-| LDA, these normalised rates | 0.4% | **found** |
+NMF fixes `W H` only up to a diagonal rescaling — `W H = (W D)(D⁻¹ H)` for any positive
+diagonal `D` — so normalising the columns of `W` pins that free scale at the one place it
+carries meaning, and pushes it into `H`.
 
-So it is the input, not the model. Pruning frequent words is not a substitute: only twenty
-words here exceed 25% document frequency, and removing them promotes the next tier — that
-fit spends 68% of its mass on `it, if, not, as, new, you, change, have`. There is no
-threshold between function words and content words, because the problem is the scale of the
-counts at every level.
+**The loss is Kullback–Leibler, not squared error.** `X` holds counts and the columns of
+`W` are distributions over words; together that is a multinomial mixture, and KL is its
+likelihood. It is also better on the only test that matters — the register's share of the
+week rises from 0.003 to 0.747 under KL, against 0.021 to 0.582 under squared error. The
+price is that KL needs the multiplicative solver, which updates by multiplication and so
+approaches zero without reaching it: the slight L1 on `H` shrinks the quiet weeks rather
+than zeroing them. That costs little, because the register averages 0.003 of the week over
+the first two months anyway — the "not there yet" shape, written as a small number instead
+of an exact zero.
+
+### Two rankings, because there are two questions
+
+The words charted and listed are ranked by `P(v|c) · log(P(v|c) / P(v))` — each word's
+pointwise contribution to the divergence between the component and the corpus. A word
+scores highly when the component uses it a lot **and** uses it more than average. Ranking
+by probability alone lists `the` under every component, since every component has to
+reproduce `the`.
+
+The *distinctive* words are ranked by lift alone, `P(v|c) / P(v)`, floored on probability so
+a one-off cannot win and on lift itself so a background component does not fill the list
+with `or` and `are` at a lift of 1.1. Components show fewer than twelve where fewer qualify.
+
+An earlier version of this counted one appearance per document and needed each word divided
+by its own average across the window before fitting — without that, every fit spent itself
+on `the`. This formulation does not need it, because the interpretation step does that work
+instead: `W`'s columns are *allowed* to be dominated by common words, since they are
+distributions over real text, and the lift term is what recovers what is characteristic.
 
 ## Why not GH Archive
 
@@ -105,21 +125,23 @@ and ×208 for comments. They were the quietest surface before assistants arrived
 ## Counting
 
 A word is a run of non-space characters, lowercased, with surrounding punctuation removed.
-That is the only normalisation: no stemming, no n-grams, no stopword list. Purely numeric
+That is the only normalisation: no stemming, no n-grams, no stopword list. Every appearance
+counts, so a word used three times in one description contributes three. Purely numeric
 tokens are dropped — the calendar advances every week, so a bare `10` or `2026` arrives and
 departs on a schedule of its own (`apr` went 0.05% → 9% of documents at the end of one
 March; month abbreviations are words and stay, so that one is an artifact to read past).
 
-Each word counts once per document. Two documents with the identical word set count once,
-within each week — one ordinary account once posted 147 copies of the same sentence inside
+Two documents with the identical word set count once, within each week — one ordinary account once posted 147 copies of the same sentence inside
 a fortnight, 16% of it, and every word of its template moved with it. That collapse is
 deliberately per-week and not global: collapsing across the window would make a template
 running for months look as though it started or stopped.
 
-Every week is then thinned to the same number of documents. Sampling the same number of
+Every week is then cut off at the same number of documents. Sampling the same number of
 hours does not give the same number of documents, and because text is overdispersed — words
 cluster inside repositories — a rate computed on more documents comes out inflated rather
-than merely more precise. Without thinning, busy weeks outrank busy language.
+than merely more precise. Without it, busy weeks outrank busy language. Document *length* still varies threefold
+after this, which is exactly why the model reports `H` as a share of the week rather than
+raw.
 
 ## Two things to hold onto
 
