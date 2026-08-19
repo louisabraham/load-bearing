@@ -63,15 +63,30 @@ of an exact zero.
 
 ### Two rankings, because there are two questions
 
-The words charted and listed are ranked by `P(v|c) · log(P(v|c) / P(v))` — each word's
-pointwise contribution to the divergence between the component and the corpus. A word
-scores highly when the component uses it a lot **and** uses it more than average. Ranking
-by probability alone lists `the` under every component, since every component has to
-reproduce `the`.
+A component's **most representative** words — the sixteen charted and the forty listed —
+are those with the highest ratio of probability under the component to probability in the
+corpus:
 
-The *distinctive* words are ranked by lift alone, `P(v|c) / P(v)`, floored on probability so
-a one-off cannot win and on lift itself so a background component does not fill the list
-with `or` and `are` at a lift of 1.1. Components show fewer than twelve where fewer qualify.
+```
+lift(v, c) = P(v | c) / P(v)
+```
+
+That ratio is what makes a word belong to a component rather than to English. Its
+counterpart, the twelve words a component is most **made of**, ranks by
+`P(v|c) · log(P(v|c) / P(v))` — the pointwise contribution to the divergence between
+component and corpus, which is why `the` can appear there and never in the first list.
+
+**Two floors keep the lift ranking honest.** A word needs 45 total appearances *and*, 
+separately, must appear in 25 distinct documents. Appearances alone are not breadth:
+`multi-draw` appears 101 times inside a single description, `m₀` 140 times, and both were
+ranking among a component's most representative words, because a ratio cannot tell a
+widespread word from a word someone repeated. Both ceilings are set by `load-bearing`
+itself — 51 appearances across 45 documents — which under this ranking comes out 8th of
+40 in the component that rises through 2026.
+
+There is deliberately no *probability* floor. Flooring on probability throws away exactly
+the rare-but-concentrated words the ratio is for: `load-bearing` ranks 8th with no floor
+and 6,062nd with one at the 80th percentile.
 
 An earlier version of this counted one appearance per document and needed each word divided
 by its own average across the window before fitting — without that, every fit spent itself

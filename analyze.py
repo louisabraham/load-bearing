@@ -41,6 +41,13 @@ MIN_WORDS = 5                      # a body needs this many distinct words to be
 MIN_TF = 45                        # a word needs this many total appearances. Set by the
                                    # rarest word worth naming: `load-bearing` appears 51
                                    # times, so 60 would have excluded it.
+MIN_DF = 25                        # and this many distinct documents. Total appearances
+                                   # alone is not breadth: `multi-draw` appears 101 times
+                                   # inside ONE document, `m0` 140 times, and each was
+                                   # ranking among a component's most representative words
+                                   # because lift cannot tell a widespread word from a
+                                   # word someone repeated. The ceiling is `load-bearing`
+                                   # again, in 45 documents.
 DOCS_PER_WEEK = 350                # see the note in `read_week`
 
 # ----------------------------------------------------------------------------- model
@@ -51,24 +58,35 @@ MAX_ITER = 600
 SEED = 0
 WORDS_CHARTED = 16
 WORDS_LISTED = 40
-WORDS_DISTINCTIVE = 12
+WORDS_MOST_USED = 12
 
 
 def tokens(body):
     """Every appearance of every word in one document, in order.
 
-    Purely numeric tokens are dropped. They are dates, versions, counts and line numbers
-    rather than vocabulary, and they are an active nuisance: the calendar advances every
-    week, so a bare `10` or `2026` arrives and departs on a schedule of its own. `apr`
-    went from 0.05% to 9% of documents at the end of one March. Month abbreviations are
-    words and are not filtered, so that one is an artifact to read past.
+    Numeric tokens are dropped: anything with a digit in it and no letter. They are dates,
+    versions, counts and line numbers rather than vocabulary, and they are an active
+    nuisance -- the calendar advances every week, so a bare `10` or `2026` arrives and
+    departs on a schedule of its own. `apr` went from 0.05% to 9% of documents at the end
+    of one March; month abbreviations are words and stay, so that one is an artifact to
+    read past.
+
+    The rule is "digit and no letter" rather than `isdigit`, which let `27.49`, `589/1000`
+    and `2025-06-24` through and put them among the most representative words of a
+    component. It deliberately keeps tokens that are pure punctuation: `-` and the em dash
+    and the arrow are typography, not arithmetic, and one of them turns out to be the
+    clearest signal in the corpus.
     """
-    return [w for w in (t.strip(STRIP) for t in body.lower().split())
-            if w and not w.isdigit()]
+    out = []
+    for t in body.lower().split():
+        w = t.strip(STRIP)
+        if w and not (any(c.isdigit() for c in w) and not any(c.isalpha() for c in w)):
+            out.append(w)
+    return out
 
 
 def read_week(path):
-    """One week's word counts, repeats collapsed and the week thinned.
+    """One week's word counts and per-word document counts, repeats collapsed.
 
     Two documents with the identical set of words count once. This is about text, not
     authorship: one ordinary account once posted 147 copies of the same sentence inside a
@@ -83,7 +101,7 @@ def read_week(path):
     busy weeks would outrank busy language. Document *length* still varies threefold even
     after this, which is why the model reports H as a share of the week rather than raw.
     """
-    seen, kept, counts = set(), 0, Counter()
+    seen, kept, counts, docs = set(), 0, Counter(), Counter()
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             t = tokens(json.loads(line)["body"])
@@ -97,7 +115,8 @@ def read_week(path):
             if kept > DOCS_PER_WEEK:
                 break
             counts.update(t)
-    return counts
+            docs.update(key)          # once per document, for the breadth filter
+    return counts, docs
 
 
 def build(log=print):
@@ -107,14 +126,18 @@ def build(log=print):
         raise SystemExit(f"no weeks in {WEEK_GLOB} -- run `python fetch_week.py --all`")
     weeks = [os.path.basename(f)[:10] for f in files]
 
-    per_week = [read_week(f) for f in files]
+    per_week, docs = [], Counter()
+    for f in files:
+        counts, seen = read_week(f)
+        per_week.append(counts)
+        docs.update(seen)
     total = Counter()
     for c in per_week:
         total.update(c)
-    vocab = sorted(w for w, n in total.items() if n >= MIN_TF)
+    vocab = sorted(w for w, n in total.items() if n >= MIN_TF and docs[w] >= MIN_DF)
     index = {w: j for j, w in enumerate(vocab)}
-    log(f"{len(files)} weeks, {total.total():,} word appearances, "
-        f"{len(total):,} distinct, {len(vocab):,} kept at >= {MIN_TF} appearances")
+    log(f"{len(files)} weeks, {total.total():,} word appearances, {len(total):,} distinct, "
+        f"{len(vocab):,} kept at >= {MIN_TF} appearances in >= {MIN_DF} documents")
 
     X = np.zeros((len(vocab), len(files)))
     for t, c in enumerate(per_week):
@@ -174,21 +197,16 @@ def pack(X, weeks, vocab, W, H):
     for c in np.argsort(-mass):
         p = W[:, c]
         lift = p / np.maximum(overall, 1e-12)
-        # Pointwise contribution to KL(component || corpus): a word ranks high when the
-        # component uses it a lot AND uses it more than the corpus does. Ranking by
-        # probability alone lists `the` for every component, because every component has
-        # to reproduce `the`; ranking by lift alone surfaces one-off oddities that happen
-        # to sit in only one component.
-        chars = p * np.log(np.maximum(lift, 1e-12))
-        order = np.argsort(-chars)
-        # and separately the most distinctive words: highest lift, floored on probability
-        # so a one-off cannot win, and on lift itself so that a background component does
-        # not fill this list with `the` and `or` at a lift of 1.1
-        floor = np.percentile(p[p > 0], 60) if (p > 0).any() else 0.0
-        ok = np.flatnonzero((p >= floor) & (lift >= 2.0))
-        ok = ok[np.argsort(-lift[ok])][:WORDS_DISTINCTIVE]   # only what qualifies; a
-                                                            # padded list would be filled
-                                                            # by whatever sorts first
+        # A component's most representative words are the ones whose probability under it
+        # is furthest above their probability in the corpus as a whole. No support floor:
+        # every word here already appears at least MIN_TF times, and flooring on
+        # probability throws away exactly the rare-but-concentrated words this is for --
+        # `load-bearing` ranks 24th in its component by lift and 6,062nd once floored.
+        order = np.argsort(-lift)
+        # kept as a second view, because it answers the other question: what a component
+        # is mostly *made* of. Ranking by probability alone would list `the` under every
+        # component, so this is the pointwise contribution to KL(component || corpus).
+        used = np.argsort(-(p * np.log(np.maximum(lift, 1e-12))))
         components.append({
             "id": int(c),
             "mass": round(float(mass[c]), 4),
@@ -202,7 +220,7 @@ def pack(X, weeks, vocab, W, H):
                        "per10k": r(per10k[j], 2)}
                       for j in order[:WORDS_CHARTED]],
             "word_list": [vocab[j] for j in order[:WORDS_LISTED]],
-            "distinctive": [vocab[j] for j in ok],
+            "most_used": [vocab[j] for j in used[:WORDS_MOST_USED]],
         })
     return {
         "generated": date.today().isoformat(),
@@ -241,7 +259,7 @@ def selftest():
 
     moved = {f"w{j}" for j in range(size)}
     hit = [c for c in out["components"]
-           if len(moved & set(c["word_list"] + c["distinctive"])) >= 4]
+           if len(moved & set(c["word_list"] + c["most_used"])) >= 4]
     assert hit, "the arriving bundle did not become a component"
     w = np.array(hit[0]["weight"])
     assert w[:on].mean() < 0.5 * w[on:].mean(), "its share does not rise"
@@ -280,7 +298,7 @@ def main():
         print(f"  {c['mass']:5.1%}  peak {c['peak_week']}  "
               f"share {c['start_share']:.3f} -> {c['end_share']:.3f}")
         print("         " + ", ".join(w["word"][:20] for w in c["words"][:8]))
-        print("         distinctive: " + ", ".join(w[:20] for w in c["distinctive"][:6]))
+        print("         most used:   " + ", ".join(w[:20] for w in c["most_used"][:8]))
 
 
 if __name__ == "__main__":

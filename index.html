@@ -268,7 +268,7 @@ function build() {
       </div>`;
     }).join("");
 
-    const dchips = c.distinctive.map(w =>
+    const dchips = c.most_used.map(w =>
       `<span class="chip" title="${esc(w)}">${esc(short(w))}</span>`).join("");
     const chips = c.word_list.map(w =>
       `<span class="chip" data-c="${rank}" data-w="${esc(w)}"
@@ -294,13 +294,14 @@ function build() {
              aria-label="component ${rank + 1} weekly weight, peaking ${c.peak_week}"></svg>
         <div class="axis label">${axisHtml(first, last)}</div>
       </div>
-      <p class="label" style="margin:26px 0 0">the sixteen words it is most made of
+      <p class="label" style="margin:26px 0 0">its sixteen most representative words
         &nbsp;·&nbsp; appearances per 10,000 words</p>
       <div class="grid">${words}</div>
-      <p class="label" style="margin:26px 0 0">its forty most characteristic words</p>
+      <p class="label" style="margin:26px 0 0">its forty most representative words
+        &nbsp;·&nbsp; highest ratio of probability here to probability in the corpus</p>
       <div class="words">${chips}</div>
-      <p class="label" style="margin:22px 0 0">and the twelve most distinctive to it
-        &nbsp;·&nbsp; rarest elsewhere, not commonest here</p>
+      <p class="label" style="margin:22px 0 0">and the twelve it is most made of
+        &nbsp;·&nbsp; commonest here, not rarest elsewhere</p>
       <div class="words">${dchips}</div>
       <details><summary>table view</summary>
         <table><thead><tr><th>word</th><th>P(word | component)</th><th>lift</th>
@@ -328,13 +329,19 @@ function build() {
       from a mixture of distributions is a multinomial model and KL is its likelihood. A
       slight L1 penalty on <code>H</code> pulls the quiet weeks down; the solver that KL
       requires updates by multiplication, so it approaches zero without reaching it.</p>
-    <p>Words are ranked two ways, because they answer different questions. The sixteen
-      charted and the forty listed are ranked by how much they contribute to the
-      difference between the component and the corpus &mdash; used a lot <em>and</em> used
-      more than average. Ranking by probability alone would list <code>the</code> under
-      every component, since every component has to reproduce <code>the</code>. The twelve
-      distinctive words are ranked by lift alone, which surfaces what is rare everywhere
-      else.</p>
+    <p>Words are ranked two ways, because they answer different questions. A component's
+      <em>most representative</em> words &mdash; the sixteen charted and the forty listed
+      &mdash; are those whose probability under it is furthest above their probability in
+      the corpus as a whole. That ratio is what makes a word belong to a component rather
+      than to English. The twelve it is most <em>made of</em> are ranked the other way,
+      by how much they contribute to the difference between the component and the corpus,
+      which is why <code>the</code> can appear there and never in the first list.</p>
+    <p>Two floors keep the first list honest. A word needs 45 appearances and, separately,
+      must appear in 25 distinct documents. Appearances alone are not breadth:
+      <code>multi-draw</code> appears 101 times inside a single description and
+      <code>m&#8320;</code> 140 times, and both were ranking among a component's most
+      representative words, because a ratio cannot tell a widespread word from a word
+      someone repeated.</p>
     <p>The components come from the model. The word curves do not: each is the raw rate
       per ten thousand words, so only the <em>choice</em> of which words to show is the
       model's. Sparklines are scaled to their own peak, printed beside each one.</p>
