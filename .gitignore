@@ -1,12 +1,11 @@
-data/
 .venv/
 __pycache__/
 *.pyc
-.pytest_cache/
-*.egg-info/
-out/
 .DS_Store
-report/*.aux
-report/*.log
-report/*.out
-report/*.png
+
+# the corpus: 137 weekly files, ~26 MB. Regenerate with `python fetch_week.py --all`,
+# which takes about 85 minutes against GitHub's rate limit.
+data/weeks/
+
+# the issue-body corpus, kept only so it need not be downloaded again. Nothing reads it.
+data/issues-2024-2026.tar.gz

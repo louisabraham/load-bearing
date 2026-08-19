@@ -1,0 +1,367 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Words that arrived together</title>
+<script src="analysis.js"></script>
+<style>
+/* Palette. Every colour here was computed rather than chosen: the accent passes the
+   OKLCH lightness band, chroma floor and 3:1 mark contrast against its own surface in
+   both modes, and `muted` is the darkest step that clears 4.5:1 for body text on paper
+   (#8a8378 was the first choice and fails at 3.33:1). The accent itself is 3.50:1 on
+   paper, so it is used for marks and large type only, never for small text. */
+:root {
+  --ground:   #f4f1ea;
+  --ink:      #14110f;
+  --muted:    #6b6459;
+  --accent:   #e8452c;
+  --hairline: #ddd7ca;
+  --fill:     #e8452c2e;
+  --sans: ui-sans-serif, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground:   #14110f;
+    --ink:      #f4f1ea;
+    --muted:    #a39b8e;
+    --accent:   #f0563a;   /* stepped for the dark surface, not flipped */
+    --hairline: #302b26;
+    --fill:     #f0563a33;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font: 400 18px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px 96px; }
+
+/* ---------------------------------------------------------------- masthead */
+header { padding: 72px 0 0; }
+h1 {
+  margin: 0; font-weight: 900; letter-spacing: -0.035em; line-height: 0.92;
+  font-size: clamp(2.6rem, 8vw, 5.6rem); text-transform: uppercase;
+}
+h1 em { font-style: normal; color: var(--accent); }
+.standfirst {
+  margin: 28px 0 0; max-width: 62ch; font-size: clamp(1.05rem, 2.1vw, 1.3rem);
+  color: var(--ink);
+}
+.stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0; margin: 44px 0 0; border-top: 4px solid var(--ink);
+  border-bottom: 4px solid var(--ink);
+}
+.stat { padding: 18px 20px 16px; border-right: 1px solid var(--hairline); }
+.stat:last-child { border-right: 0; }
+.stat b { display: block; font-size: 2rem; font-weight: 900; letter-spacing: -0.02em; }
+.label {
+  font: 500 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+/* -------------------------------------------------------------- components */
+section { border-top: 4px solid var(--ink); margin-top: 64px; padding-top: 22px; }
+.head { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
+.numeral {
+  font-size: clamp(3rem, 9vw, 5.5rem); font-weight: 900; line-height: 0.8;
+  letter-spacing: -0.05em; color: var(--accent);
+}
+.head .mass { font-size: 1.6rem; font-weight: 900; letter-spacing: -0.02em; }
+.head .meta { color: var(--muted); font: 500 11px/1.5 var(--mono);
+              text-transform: uppercase; letter-spacing: 0.12em; }
+.big { position: relative; margin: 22px 0 0; }
+.big svg { display: block; width: 100%; height: 220px; }
+.axis { position: relative; height: 15px; margin-top: 6px; }
+.axis span { position: absolute; top: 0; white-space: nowrap; }
+.axis .last { right: 0; }
+
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 1px; margin: 30px 0 0; background: var(--hairline);
+  border: 1px solid var(--hairline);
+}
+.tile { background: var(--ground); padding: 9px 9px 5px; position: relative; }
+.tile .w { font: 500 12px/1.25 var(--mono); display: block; overflow: hidden;
+           text-overflow: ellipsis; white-space: nowrap; }
+.tile .pk { font: 500 10px/1.4 var(--mono); color: var(--muted);
+            letter-spacing: 0.06em; }
+.tile svg { display: block; width: 100%; height: 40px; margin-top: 4px; }
+.tile.on { background: var(--fill); box-shadow: inset 3px 0 0 var(--accent); }
+
+.words { margin: 26px 0 0; }
+.chip {
+  display: inline-block; font: 500 12px/1 var(--mono); padding: 6px 8px;
+  max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+  border: 1px solid var(--hairline); margin: 0 4px 4px 0; cursor: default;
+}
+.chip.on { background: var(--fill); border-color: var(--accent); }
+
+details { margin: 22px 0 0; border-top: 1px solid var(--hairline); padding-top: 12px; }
+summary { font: 500 11px/1.4 var(--mono); text-transform: uppercase;
+          letter-spacing: 0.12em; color: var(--muted); cursor: pointer; }
+table { border-collapse: collapse; margin-top: 14px; font: 400 13px/1.5 var(--mono);
+         width: 100%; table-layout: fixed; }
+td:first-child { overflow-wrap: anywhere; }
+th, td { text-align: right; padding: 4px 14px 4px 0; }
+th { font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--hairline); }
+td:first-child, th:first-child { text-align: left; }
+
+/* --------------------------------------------------------------- tooltip */
+#tip {
+  position: fixed; pointer-events: none; opacity: 0; z-index: 10;
+  background: var(--ink); color: var(--ground); padding: 7px 9px;
+  font: 500 11px/1.45 var(--mono); white-space: nowrap;
+}
+#tip.on { opacity: 1; }
+
+footer { border-top: 4px solid var(--ink); margin-top: 64px; padding-top: 24px; }
+footer h2 { font: 900 1.35rem/1.2 var(--sans); letter-spacing: -0.02em; margin: 0 0 14px; }
+footer p { max-width: 66ch; margin: 0 0 14px; }
+footer code { font: 500 0.9em var(--mono); }
+.err { padding: 80px 0; font: 500 14px/1.7 var(--mono); }
+</style>
+
+<div class="wrap" id="app"></div>
+<div id="tip"></div>
+
+<script>
+const A = window.ANALYSIS;
+const app = document.getElementById("app");
+const tip = document.getElementById("tip");
+
+const fmt = n => n.toLocaleString("en-US");
+const pctFmt = v => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2)) + "%";
+
+function esc(s) {
+  return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;",
+                                      '"': "&quot;" }[c]));
+}
+
+/* An area chart from one series scaled to its own peak. `vals` are already 0..1 for
+   component weights; word series are scaled here against their own maximum, which is why
+   each tile prints its peak percentage — shape is comparable across tiles, magnitude is
+   not, so the magnitude is given as text. */
+function draw(svg, vals, opts = {}) {
+  const w = svg.clientWidth || 300, h = svg.clientHeight || 40;
+  const pad = opts.pad || 0;
+  const top = pad, bot = h - pad;
+  const hi = Math.max(...vals) || 1;
+  const x = i => (i / (vals.length - 1)) * w;
+  const y = v => bot - (v / hi) * (bot - top);
+  let line = "", area = `M0,${bot}`;
+  vals.forEach((v, i) => {
+    const cmd = `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+    line += cmd;
+    area += cmd.replace(/^M/, "L");
+  });
+  area += `L${w},${bot}Z`;
+
+  let rules = "";
+  if (opts.rules) {
+    for (const f of [0.25, 0.5, 0.75, 1]) {
+      const yy = (bot - f * (bot - top)).toFixed(1);
+      rules += `<line x1="0" x2="${w}" y1="${yy}" y2="${yy}" stroke="var(--hairline)"
+                 stroke-width="1" shape-rendering="crispEdges"/>`;
+    }
+  }
+  let years = "";
+  if (opts.years) {
+    A.weeks.forEach((wk, i) => {
+      if (i && wk.slice(0, 4) !== A.weeks[i - 1].slice(0, 4)) {
+        years += `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${top}"
+                   y2="${bot}" stroke="var(--hairline)" stroke-width="1"
+                   shape-rendering="crispEdges"/>`;
+      }
+    });
+  }
+  svg.innerHTML = rules + years +
+    `<path d="${area}" fill="var(--fill)"/>` +
+    `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="${opts.sw || 1.5}"
+      stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` +
+    `<line class="cross" x1="0" x2="0" y1="${top}" y2="${bot}" stroke="var(--ink)"
+      stroke-width="1" opacity="0"/>` +
+    `<line x1="0" x2="${w}" y1="${bot}" y2="${bot}" stroke="var(--ink)"
+      stroke-width="1" shape-rendering="crispEdges"/>`;
+  svg.__vals = vals;
+}
+
+/* The hover layer. An SVG chart is interactive by default: line and area charts get a
+   crosshair and a tooltip naming the week and the value. */
+function hover(svg, label) {
+  const move = ev => {
+    const r = svg.getBoundingClientRect();
+    const vals = svg.__vals || [];
+    if (!vals.length) return;
+    const i = Math.max(0, Math.min(vals.length - 1,
+      Math.round(((ev.clientX - r.left) / r.width) * (vals.length - 1))));
+    const cross = svg.querySelector(".cross");
+    if (cross) {
+      const cx = ((i / (vals.length - 1)) * r.width).toFixed(1);
+      cross.setAttribute("x1", cx);
+      cross.setAttribute("x2", cx);
+      cross.setAttribute("opacity", "0.5");
+    }
+    tip.textContent = `${A.weeks[i]}  ·  ${label(vals[i], i)}`;
+    tip.classList.add("on");
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.min(window.innerWidth - tw - 8,
+                              Math.max(8, ev.clientX - tw / 2)) + "px";
+    tip.style.top = (r.top - tip.offsetHeight - 8 < 8
+                       ? r.bottom + 8 : r.top - tip.offsetHeight - 8) + "px";
+  };
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("pointerleave", () => {
+    tip.classList.remove("on");
+    const cross = svg.querySelector(".cross");
+    if (cross) cross.setAttribute("opacity", "0");
+  });
+}
+
+/* Year labels placed where the year actually turns, so a 137-week axis can be read
+   without counting. The endpoints carry the full dates. */
+function axisHtml(first, last) {
+  let out = `<span>${first}</span>`;
+  A.weeks.forEach((wk, i) => {
+    if (i && wk.slice(0, 4) !== A.weeks[i - 1].slice(0, 4)) {
+      const pos = (i / (A.weeks.length - 1)) * 100;
+      if (pos > 8 && pos < 88) {
+        out += `<span style="left:${pos.toFixed(1)}%">${wk.slice(0, 4)}</span>`;
+      }
+    }
+  });
+  return out + `<span class="last">${last}</span>`;
+}
+
+function short(w) { return w.length > 26 ? w.slice(0, 25) + "\u2026" : w; }
+
+function build() {
+  const first = A.weeks[0], last = A.weeks[A.weeks.length - 1];
+  let html = `<header>
+    <h1>Words that<br>arrived <em>together</em></h1>
+    <p class="standfirst">Every pull request description on GitHub, sampled evenly week by
+      week for two and a half years, then factorised into groups of words whose
+      frequencies move as one. Six of the eight groups are a vendor's comment template.
+      Two are not.</p>
+    <div class="stats">
+      <div class="stat"><b>${fmt(A.documents)}</b><span class="label">documents</span></div>
+      <div class="stat"><b>${A.weeks.length}</b><span class="label">weeks</span></div>
+      <div class="stat"><b>${fmt(A.vocab)}</b><span class="label">words</span></div>
+      <div class="stat"><b>${A.k}</b><span class="label">components</span></div>
+    </div>
+  </header>`;
+
+  A.components.forEach((c, rank) => {
+    const words = c.words.map((w, j) => {
+      const peak = Math.max(...w.pct);
+      return `<div class="tile" data-c="${rank}" data-w="${esc(w.word)}"
+                   title="${esc(w.word)}">
+        <span class="w">${esc(short(w.word))}</span>
+        <span class="pk">peak ${pctFmt(peak)}</span>
+        <svg data-series="${rank}:${j}" role="img"
+             aria-label="${esc(w.word)}, weekly document frequency, peak ${pctFmt(peak)}"></svg>
+      </div>`;
+    }).join("");
+
+    const chips = c.word_list.map(w =>
+      `<span class="chip" data-c="${rank}" data-w="${esc(w)}"
+             title="${esc(w)}">${esc(short(w))}</span>`).join("");
+
+    const rows = c.words.map(w =>
+      `<tr><td>${esc(w.word)}</td><td>${(w.share * 100).toFixed(0)}%</td>
+       <td>${w.lift.toFixed(2)}&times;</td>
+       <td>${pctFmt(Math.max(...w.pct))}</td></tr>`).join("");
+
+    html += `<section>
+      <div class="head">
+        <span class="numeral">${rank + 1}</span>
+        <span class="mass">${(c.mass * 100).toFixed(1)}% of mass</span>
+        <span class="meta">peaks ${c.peak_week} &nbsp;·&nbsp;
+          ${(c.zero_weeks * 100).toFixed(0)}% of weeks at exactly zero</span>
+      </div>
+      <p class="label" style="margin:22px 0 0">component weight, share of its peak week</p>
+      <div class="big">
+        <svg data-weight="${rank}" role="img"
+             aria-label="component ${rank + 1} weekly weight, peaking ${c.peak_week}"></svg>
+        <div class="axis label">${axisHtml(first, last)}</div>
+      </div>
+      <p class="label" style="margin:26px 0 0">the sixteen words this component owns</p>
+      <div class="grid">${words}</div>
+      <p class="label" style="margin:26px 0 0">its forty most characteristic words</p>
+      <div class="words">${chips}</div>
+      <details><summary>table view</summary>
+        <table><thead><tr><th>word</th><th>share</th><th>lift</th><th>peak</th></tr>
+        </thead><tbody>${rows}</tbody></table></details>
+    </section>`;
+  });
+
+  html += `<footer>
+    <h2>How this was made</h2>
+    <p>The source is GitHub's search API, not GH Archive &mdash; the archive's feed has
+      carried almost only <code>PushEvent</code> since mid&#8209;2025, so it holds no prose
+      for 2026 and every bulk mirror inherits the loss. Each week contributes five
+      randomly placed five&#8209;minute windows of newly opened pull requests, so no week
+      is looked at harder than another, and each week is thinned to the same number of
+      documents so that a busy week cannot outrank busy language.</p>
+    <p>Words are runs of non&#8209;space characters, lowercased, punctuation stripped,
+      counted once per document. Each word is then divided by its own average across the
+      window before factorising &mdash; without that step the fit spends itself on
+      <code>the</code> and <code>to</code>, and none of this is visible.</p>
+    <p>The eight components come from the model. The word curves do not: each is the raw
+      weekly share of documents containing that word, so only the <em>choice</em> of which
+      words to show is the model's. Sparklines are scaled to their own peak, which is
+      printed beside each one, so their shapes are comparable but their heights are not.</p>
+    <p>Two things to hold onto. The corpus only contains pull requests whose author wrote
+      a description, and that condition loosens over the window &mdash; empty descriptions
+      fall from about a third to about a seventh. And the components that look like a
+      vendor's template are one: their curves are spiky and decline. The two that rise
+      smoothly through 2026 are the finding.</p>
+    <p class="label">generated ${A.generated} &nbsp;·&nbsp; ${esc(A.source)}</p>
+  </footer>`;
+
+  app.innerHTML = html;
+  render();
+  let t;
+  addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
+
+  // hovering a word anywhere highlights it everywhere it appears
+  app.addEventListener("pointerover", ev => {
+    const el = ev.target.closest("[data-w]");
+    document.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
+    if (!el) return;
+    const { c, w } = el.dataset;
+    document.querySelectorAll(`[data-c="${c}"]`).forEach(n => {
+      if (n.dataset.w === w) n.classList.add("on");
+    });
+  });
+}
+
+/* Called last on purpose: `build` reads `fmt` and `pctFmt`, which are `const`, so
+   starting earlier would land in the temporal dead zone and render nothing. */
+function start() {
+  if (!A) {
+    app.innerHTML = '<p class="err">analysis.js not found.<br>' +
+      'Run <b>python analyze.py</b> in this directory first.</p>';
+    return;
+  }
+  build();
+}
+
+function render() {
+  A.components.forEach((c, rank) => {
+    const svg = app.querySelector(`svg[data-weight="${rank}"]`);
+    draw(svg, c.weight, { rules: true, years: true, pad: 6, sw: 2 });
+    hover(svg, v => `weight ${v.toFixed(2)} of peak`);
+    c.words.forEach((w, j) => {
+      const s = app.querySelector(`svg[data-series="${rank}:${j}"]`);
+      draw(s, w.pct, { sw: 1.5 });
+      hover(s, v => `${w.word}  ${pctFmt(v)}`);
+    });
+  });
+}
+
+start();
+</script>
