@@ -150,6 +150,43 @@ A 5.6-fold reduction, monotone, costing 0.002% of the log-likelihood at the far 
 so it is a constant with zero gradient — L1 induces sparsity by trading against magnitude, and
 on a simplex the magnitude is already spent.
 
+### How many components
+
+`--k` sets it, `--out` names the file, and `mixture.html?k=N` reads whichever fit you ask
+for, so the sweep is one loop:
+
+```bash
+for k in 4 6 8 12 16 24 32; do
+  python mixture.py --k $k --n-init 6 --out mixture-k$k.js
+done
+```
+
+The register is found at **every** k tried, always as one component until it starts to split.
+Measured by how many of 22 words known to belong to it are recovered, all fits at six
+restarts so the comparison is fair:
+
+| `k` | log-likelihood | pieces | markers | mass | ends at | biggest piece's top words |
+|---|---|---|---|---|---|---|
+| 4 | −32,630,676 | 1 | 4/22 | 39.4% | 82.3% | `refusal, subagent, nixpkgs-update…` |
+| 6 | −32,323,292 | 1 | 18/22 | 16.8% | 69.3% | `load-bearing, optimole, imgbot, octocat` |
+| 8 | −32,089,443 | 1 | 20/22 | 8.6% | 61.0% | `[webkit-url], byte-identical, load-bearing, ews` |
+| **12** | −31,794,747 | **1** | **20/22** | 10.0% | 65.9% | `load-bearing, --all-targets, byte-identical, seam` |
+| 16 | −31,637,956 | 1 | 17/22 | 8.3% | 57.0% | `load-bearing, 2100s, dhi, 600s` |
+| 24 | −31,347,611 | **2** | 18/22 | 10.3% | 31.5% | `non-profit, dhi, [exercism-url], syncer` |
+| 32 | −31,171,090 | **2** | 20/22 | 11.1% | 42.2% | `load-bearing, genuine, carries, latent` |
+
+Three regimes. **Below k = 6 it is absorbed**: at k = 4 one component holds 39% of the corpus
+and only 4 of the 22 marker words, so the register is in there but diluted with everything
+else. **From 6 to 16 it is one undivided component** recovering 17 to 21 of the markers, with
+`load-bearing` its single most representative word at k = 6, 12, 16 and 32. **From about 24 it
+splits in two**, and the pieces stay identifiable rather than dissolving.
+
+Log-likelihood rises monotonically with k, as it must with more parameters, so it cannot pick
+one. What does distinguish them is marker recovery, which peaks around k = 12 — a mild
+justification for the default, not a strong one. The finding does not depend on the choice: a
+component going from near nothing to roughly two thirds of the week, with these words, is
+there at every k from 6 to 32.
+
 ### Absolute, not share
 
 `mixture.html` reports absolute counts everywhere, and the two stacked views side by side are

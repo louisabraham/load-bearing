@@ -9,3 +9,6 @@ data/weeks/
 
 # the issue-body corpus, kept only so it need not be downloaded again. Nothing reads it.
 data/issues-2024-2026.tar.gz
+
+# sweep outputs; regenerate with the loop in the README
+mixture-k*.js
