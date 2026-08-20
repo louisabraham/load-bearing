@@ -209,6 +209,15 @@ function build() {
       <p>Fitted by alternating four steps: attribute each document to components, refit the
         word distributions from those attributions, refit the prevalences under the birth
         constraint, and re-read the birth weeks off the curves.</p>
+      <p>The fit is run ${B.n_init ?? 10} times from different starting points and the
+        highest-likelihood run is kept, because one run is not enough. The component is
+        stable across restarts &mdash; the same words, a peak between 66% and 73% &mdash;
+        but its birth week is not: single runs put it anywhere across a 23&#8209;month range,
+        because the birth threshold sits in the near-zero tail where a handful of documents
+        decides whether a week clears it. Dropping 75 documents of 47,373 moved it thirteen
+        weeks. Likelihood selection fixes most of that, and consistently prefers a later
+        birth, because a better fit attributes the early tail elsewhere rather than to a
+        component that had barely started. What survives is reported as an interval.</p>
       <p>That last step is not a search over candidate births by likelihood, which cannot
         work: a later birth is a strictly tighter constraint, so it can only lower the
         likelihood and the search returns week zero every time. Making it prefer lateness

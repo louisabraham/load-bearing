@@ -45,6 +45,7 @@ LAMBDA = 40.0                       # smoothness after birth; see `fit_pi`
 BIRTH_FRAC = 0.05                   # a component is born when it first reaches this much
 BIRTH_SUSTAIN = 2                   # of its eventual peak, and holds it; see `birth_weeks`
 OUTER = 12
+N_INIT = 10                         # EM restarts; see `fit_best` -- one run is not enough
 SEED = 0
 WORDS_LISTED = 40
 WORDS_CHARTED = 16
@@ -251,9 +252,59 @@ def birth_weeks(pi, frac=BIRTH_FRAC, sustain=BIRTH_SUSTAIN):
     return tau
 
 
+def fit_best(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, n_init=N_INIT,
+             seed=SEED, log=print):
+    """Fit `n_init` times from different seeds, keep the highest likelihood, and report how
+    much each birth week moved across the restarts.
+
+    One run is not enough, and the reason is worth stating. EM finds different local optima
+    here, and while the *component* is stable across them -- the same words, a peak between
+    66% and 73% -- the *birth week* is not. Eight single runs put it anywhere from 2024-01-29
+    to 2026-02-09, a spread of 23 months, because the birth threshold sits in the near-zero
+    tail where a handful of documents decides whether a week clears it. Dropping 75
+    documents of 47,373 moved it by 13 weeks.
+
+    Likelihood selection fixes most of that. The three highest-likelihood runs of eight agree
+    to within five weeks, and they are the runs that recover the component cleanly; the 2024
+    outlier is the worst-likelihood fit, where the component is mixed with something else and
+    peaks at 40% rather than 70%. Higher likelihood also means a later birth, consistently,
+    because a better fit attributes the early tail elsewhere rather than to a component that
+    had barely started.
+
+    The spread across restarts is returned rather than discarded, because the birth week is
+    the headline number here and quoting one to the week would be over-claiming.
+    """
+    runs = []
+    for i in range(n_init):
+        W, pi, tau, ll = fit(X, week_of, T, k, lam, outer, seed + i, log=lambda *_: None)
+        runs.append((ll, W, pi, tau))
+        log(f"  restart {i + 1}/{n_init}  loglik {ll:,.0f}  "
+            f"latest birth week {int(tau.max())}")
+    runs.sort(key=lambda r: -r[0])
+    ll, W, pi, tau = runs[0]
+
+    # match every other run's components to the best run's by profile similarity, so that
+    # "this component's birth moved by N weeks" is a statement about the same component
+    # over the better half of the restarts, not all of them: a fit rejected on likelihood
+    # is not evidence about the parameter, and including it inflates the interval with a
+    # solution we would not have used
+    keep = runs[:max(2, (n_init + 1) // 2)]
+    norm = W / np.maximum(np.linalg.norm(W, axis=1, keepdims=True), 1e-12)
+    spread = []
+    for c in range(k):
+        seen = []
+        for _, W_i, _, tau_i in keep:
+            n_i = W_i / np.maximum(np.linalg.norm(W_i, axis=1, keepdims=True), 1e-12)
+            seen.append(int(tau_i[int(np.argmax(n_i @ norm[c]))]))
+        spread.append((min(seen), max(seen)))
+    log(f"  kept loglik {ll:,.0f}; birth intervals over the top {len(keep)} of "
+        f"{n_init} restarts")
+    return W, pi, tau, ll, spread
+
+
 # --------------------------------------------------------------------------- out
 
-def pack(X, week_of, weeks, vocab, W, pi, tau, ll, lam):
+def pack(X, week_of, weeks, vocab, W, pi, tau, ll, lam, spread=None):
     overall = np.asarray(X.sum(axis=0)).ravel()
     overall = overall / overall.sum()
     words_per_week = np.zeros(len(weeks))
@@ -266,6 +317,7 @@ def pack(X, week_of, weeks, vocab, W, pi, tau, ll, lam):
                 / max(words_per_week[t], 1)
 
     order = np.argsort(tau)                        # youngest last, oldest first
+    spread = spread or [(int(t), int(t)) for t in tau]
     comps = []
     for c in order:
         lift = W[c] / np.maximum(overall, 1e-12)
@@ -274,6 +326,11 @@ def pack(X, week_of, weeks, vocab, W, pi, tau, ll, lam):
             "id": int(c),
             "birth": weeks[int(tau[c])],
             "birth_index": int(tau[c]),
+            # the same component's birth across EM restarts; the estimate is worth about
+            # this much, not the week it happens to land on
+            "birth_low": weeks[spread[c][0]],
+            "birth_high": weeks[spread[c][1]],
+            "birth_spread_weeks": spread[c][1] - spread[c][0],
             "share": round(float(pi[:, c].mean()), 5),
             "peak": round(float(pi[:, c].max()), 5),
             "peak_week": weeks[int(np.argmax(pi[:, c]))],
@@ -284,7 +341,7 @@ def pack(X, week_of, weeks, vocab, W, pi, tau, ll, lam):
                       for j in rank[:WORDS_CHARTED]],
             "word_list": [vocab[j] for j in rank[:WORDS_LISTED]],
         })
-    return {"generated": date.today().isoformat(), "weeks": weeks,
+    return {"generated": date.today().isoformat(), "weeks": weeks, "n_init": N_INIT,
             "documents": int(X.shape[0]), "appearances": int(X.sum()),
             "vocab": len(vocab), "k": len(comps), "lambda": lam,
             "loglik": round(ll, 1), "components": comps}
@@ -325,6 +382,7 @@ def main():
     ap.add_argument("--k", type=int, default=K)
     ap.add_argument("--lam", type=float, default=LAMBDA)
     ap.add_argument("--outer", type=int, default=OUTER)
+    ap.add_argument("--n-init", type=int, default=N_INIT, dest="n_init")
     ap.add_argument("--out", default="births.js")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
@@ -332,9 +390,9 @@ def main():
         return selftest()
 
     X, week_of, weeks, vocab = documents()
-    W, pi, tau, ll = fit(X, week_of, len(weeks), k=args.k, lam=args.lam,
-                         outer=args.outer)
-    out = pack(X, week_of, weeks, vocab, W, pi, tau, ll, args.lam)
+    W, pi, tau, ll, spread = fit_best(X, week_of, len(weeks), k=args.k, lam=args.lam,
+                                      outer=args.outer, n_init=args.n_init)
+    out = pack(X, week_of, weeks, vocab, W, pi, tau, ll, args.lam, spread)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("window.BIRTHS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
@@ -342,8 +400,8 @@ def main():
     print(f"\nloglik {ll:,.0f}, wrote {args.out} "
           f"({os.path.getsize(args.out)/1e3:.0f} kB)\n")
     for c in out["components"]:
-        print(f"  born {c['birth']}  mean {c['share']:6.1%}  peak {c['peak']:5.1%} "
-              f"at {c['peak_week']}")
+        print(f"  born {c['birth']} (restarts {c['birth_low']}..{c['birth_high']})  "
+              f"mean {c['share']:6.1%}  peak {c['peak']:5.1%} at {c['peak_week']}")
         print("        " + ", ".join(w["word"][:20] for w in c["words"][:9]))
 
 
