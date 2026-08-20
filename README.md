@@ -111,100 +111,83 @@ on `the`. This formulation does not need it, because the interpretation step doe
 instead: `W`'s columns are *allowed* to be dominated by common words, since they are
 distributions over real text, and the lift term is what recovers what is characteristic.
 
-## An alternative model, in `births.py`
+## An alternative model, in `mixture.py`
 
-Same corpus, a different question. Instead of penalising the weekly curve into sparsity,
-give each component an unknown **birth week** and make it *impossible* before then, so the
-empty stretch is a parameter the model estimates rather than a shape a penalty was asked to
-produce.
+Same corpus, a different shape of question. Rather than factorising a week × word matrix,
+attribute each *document* to one of `k` ways of writing:
 
 ```
-W_k                 a fixed distribution over the vocabulary
-tau_k               the birth week, unknown
-pi_tk               prevalence in week t, sum_k pi_tk = 1, and pi_tk = 0 for t < tau_k
-z_d ~ Cat(pi_t)     which component wrote document d
+W_k                   a fixed distribution over the vocabulary
+pi_tk                 how much of week t was written that way, sum_k pi_tk = 1
+z_d ~ Cat(pi_t)       which component wrote document d
 x_d ~ Mult(n_d, W_k)  its words
 ```
 
-After birth the only thing asked of the curve is smoothness, `lambda * sum_t (pi_tk -
-pi_{t-1,k})^2`. Fitted by alternating: attribute documents, refit the word distributions,
-refit the prevalences under the birth constraint, re-read the births.
+The only thing asked of a prevalence curve is smoothness, `lambda * sum_t (pi_tk -
+pi_{t-1,k})^2` — nothing requires a component to rise, to fall, or to be absent early. Fitted
+by EM, restarted ten times and keeping the highest likelihood, because EM finds different
+local optima here and the worst of them mix a component with something else and give it two
+thirds of the peak the good fits find.
+
+```bash
+python mixture.py           # writes mixture.js
+open mixture.html           # stacked, absolute and as a share
+```
 
 **That penalty works, where the L1 in `analyze.py` does not** — and the difference is
 structural rather than a matter of coefficient. There `W`'s columns are normalised *after*
 fitting, so an L1 on `H` can be satisfied by shrinking `H` and inflating `W` at no cost, and
 the rescaling undoes it exactly. Here `pi` sums to 1 in every week by construction, so the
-scale is not free and there is nothing to game. Swept at `k = 12`, total squared
-week-to-week change:
+scale is not free and there is nothing to game. Swept at `k = 12`, total squared week-to-week
+change:
 
 | `lambda` | 0 | 10 | 40 | 200 | 1000 |
 |---|---|---|---|---|---|
 | roughness | 1.870 | 1.765 | 1.517 | 0.909 | **0.333** |
 
-A 5.6-fold reduction, monotone, costing 0.002% of the log-likelihood at the far end — and
-the finding is untouched across the range: the one late birth stays at week 89 and its peak
-within 1% of 67%. The default sits at the low end, because the aim is to take the jitter off
-the curve rather than to flatten it.
+A 5.6-fold reduction, monotone, costing 0.002% of the log-likelihood at the far end. An L1 on
+`pi` *itself* would do nothing for a third reason: on the simplex `||pi_t||_1 = 1` identically,
+so it is a constant with zero gradient — L1 induces sparsity by trading against magnitude, and
+on a simplex the magnitude is already spent.
 
-**One correction to the recipe, and it matters.** Choosing `tau_k` by trying candidates and
-keeping the highest regularised likelihood cannot work: a later birth is a strictly tighter
-constraint, so it can only *lower* the likelihood, and the search returns week zero every
-time. Making the optimiser prefer lateness would need a per-live-week cost invented for the
-purpose. Instead each birth is read off an *unconstrained* fit of the same curve — the first
-week a component reaches a twentieth of its eventual peak and holds it — and the constrained
-fit is then redone. Re-deriving from the free fit each pass is what lets a birth move earlier
-as well as later; thresholding an already-masked curve could only ratchet forward, so one
-early mistake would be permanent. A planted birth week is recovered exactly on synthetic
-data (`--selftest`).
+### Absolute, not share
 
-The result on the corpus, with `k = 12`: **eleven components were there the whole time, and
-one was born.** It reaches **68%** of the week's documents by 2026-08-10 and its most
-representative word is **`load-bearing`**, followed by `seam, byte-identical, refuses, lands,
-genuine, folded, --all-targets`.
+`mixture.html` reports absolute counts everywhere, and the two stacked views side by side are
+the argument for it. The corpus caps documents at 350 a week, so the document count is flat by
+construction (it only varies 329 to 350) — but the words inside them are not capped and swing
+**3.2-fold**, from 23,597 a week to 75,541. Descriptions got longer. So the absolute view is in
+word appearances, and it shows total volume nearly tripling with one component driving all of
+it; the share view shows the same data with the volume divided out, where a band can shrink
+because the corpus grew around it rather than because it shrank.
 
-**Its birth is dated 2026-02-09, and that number is worth about four months, not a week.**
-The component is stable across EM restarts — the same words, a peak between 66% and 73% —
-but the birth week is not: single runs put it anywhere from 2024-01-29 to 2026-02-09, a
-23-month spread, because the birth threshold sits in the near-zero tail where a handful of
-documents decides whether a week clears it. Dropping 75 documents of 47,373 moved it thirteen
-weeks. So the fit runs ten times and keeps the highest likelihood, which fixes most of it —
-the accepted fits agree to within 18 weeks, and higher likelihood consistently prefers a
-*later* birth, because a better fit attributes the early tail elsewhere rather than to a
-component that had barely started. The surviving spread is reported as an interval next to
-every birth, and eleven of the twelve are stable to within four weeks.
+Of twelve components, two end the window at least twice the size they started. The larger goes
+from 0.2% to 63.8% of the week, and its most representative word is **`load-bearing`**,
+followed by `seam, byte-identical, lands, refuses, --all-targets, genuine, folded, adversarial`.
 
-### Does the weekly total throw anything away?
+### What was removed, and why
 
-No, and this is checkable rather than a matter of taste. Given the responsibilities, the
-M-step for `pi_t` depends on the documents only through the column sums `C_tk`, so `C_t` is
-the **sufficient statistic** — collapsing is exact, not an approximation. Three things were
-measured to confirm the assumptions it rests on:
+An earlier version gave each component an unknown **birth week** and held its prevalence at
+exactly zero before then, so the empty stretch was a parameter rather than a shape a penalty
+was asked to produce. The constraint worked, and a planted birth was recovered exactly on
+synthetic data. It was still removed, because **on this corpus the birth week was not
+identified**: single runs put one component's birth anywhere across a 23-month range, and
+dropping 75 documents of 47,373 moved it thirteen weeks. The threshold that defined a birth sat
+in the near-zero tail, where a handful of documents decides whether a week clears it.
+Likelihood selection over restarts narrowed it to about four months, but a curve that starts
+near zero says the same thing without claiming a date. It is in the git history if wanted.
 
-- **One source per document is a fair description.** 84% of documents have a maximum
-  responsibility above 0.9 and only 2.1% are genuinely split; mean entropy is 0.21 bits of a
-  possible 3.58. An admixture model, assigning a component per *word*, would be solving a
-  problem this corpus does not have.
-- **Long documents do not dominate.** Every document contributes exactly 1.0 to `C`
-  regardless of length, so the shortest half supplies 50% of the count and the longest tenth
-  supplies 10%. Length only makes an assignment more confident, which is correct.
-- **Documents are not quite independent.** Two documents from the same repository agree on
-  their component 63% of the time against 16% by chance (ICC 0.56; by author, 0.65). But the
-  design effect is only 1.17, because the three-per-author cap already keeps clusters tiny —
-  so the effective sample is about 296 documents a week rather than 346. That affects how
-  sharply `tau` is pinned, which is exactly the fragility the restarts are there to measure.
+Also worth recording, since it is checkable rather than a matter of taste: **the weekly total
+throws nothing away.** Given the responsibilities, the M-step for `pi_t` depends on the
+documents only through the column sums, so the weekly count is the *sufficient statistic*.
+Three assumptions behind that were measured — 84% of documents have a maximum responsibility
+above 0.9 and only 2.1% are genuinely split, so one-source-per-document is fair and an
+admixture model would be solving a problem this corpus does not have; every document
+contributes exactly 1.0 to the count regardless of length, so the shortest half supplies 50% of
+it; and two documents from the same repository agree on their component 63% of the time against
+16% by chance (ICC 0.56), but the design effect is only 1.17 because the three-per-author cap
+already keeps clusters tiny.
 
-```bash
-python births.py            # writes births.js
-open births.html            # a stacked view: what was already here, and what was born
-```
-
-`births.html` uses colour for meaning rather than identity: twelve stacked bands cannot each
-have a hue — a twelve-step single-hue ramp cannot hold adequate lightness gaps *and* keep
-both ends visible against the surface — so the bands are one muted tone separated by
-hairlines, and the accent is reserved for a component absent for at least a tenth of the
-window.
-
-## Why not GH Archive
+## Why not GH Archive## Why not GH Archive
 
 Because it no longer works. Its feed has carried almost only `PushEvent` since mid-2025: a
 complete hour of 2024-08-12 holds 13,555 `IssueCommentEvent` against 86 for the same hour

@@ -1,0 +1,291 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Twelve ways of writing</title>
+<script src="mixture.js"></script>
+<style>
+/* Two colours carry meaning, not identity. Twelve stacked bands cannot each have a hue -- a
+   twelve-step single-hue ramp holds neither adequate lightness gaps nor both ends visible
+   against the surface, and twelve categorical hues is past any palette's limit. So the bands
+   are one muted tone separated by hairline gaps, and the accent marks a component that grew.
+   Both colours are contrast-checked against both surfaces. */
+:root {
+  --ground:#f4f1ea; --ink:#14110f; --muted:#6b6459; --accent:#e8452c;
+  --hairline:#ddd7ca; --band:#c9c1b2; --fill:#e8452c2e;
+  --sans: ui-sans-serif, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ground:#14110f; --ink:#f4f1ea; --muted:#a39b8e; --accent:#f0563a;
+          --hairline:#302b26; --band:#3d372f; --fill:#f0563a33; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--ground); color:var(--ink);
+       font:400 18px/1.55 var(--sans); -webkit-font-smoothing:antialiased; }
+.wrap { max-width:1020px; margin:0 auto; padding:0 24px 96px; }
+header { padding:72px 0 0; }
+h1 { margin:0; font-weight:900; letter-spacing:-0.035em; line-height:0.92;
+     font-size:clamp(2.4rem,7.5vw,5rem); text-transform:uppercase; }
+h1 em { font-style:normal; color:var(--accent); }
+.standfirst { margin:28px 0 0; max-width:64ch; font-size:clamp(1.05rem,2.1vw,1.28rem); }
+.label { font:500 11px/1.3 var(--mono); text-transform:uppercase;
+         letter-spacing:0.12em; color:var(--muted); }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+         margin:44px 0 0; border-top:4px solid var(--ink); border-bottom:4px solid var(--ink); }
+.stat { padding:18px 20px 16px; border-right:1px solid var(--hairline); }
+.stat:last-child { border-right:0; }
+.stat b { display:block; font-size:2rem; font-weight:900; letter-spacing:-0.02em; }
+
+section { border-top:4px solid var(--ink); margin-top:56px; padding-top:22px; }
+h2 { font:900 clamp(1.4rem,3vw,2rem)/1.1 var(--sans); letter-spacing:-0.025em; margin:0 0 6px; }
+.note { color:var(--muted); max-width:66ch; margin:0 0 20px; font-size:0.95rem; }
+.stack svg { display:block; width:100%; height:260px; }
+.axis { position:relative; height:15px; margin-top:6px; }
+.axis span { position:absolute; top:0; white-space:nowrap; }
+.axis .last { right:0; }
+
+.row { display:grid; grid-template-columns:132px 1fr; gap:16px; align-items:center;
+       padding:12px 0; border-top:1px solid var(--hairline); }
+.row.up { background:var(--fill); }
+.when { font:500 11px/1.45 var(--mono); color:var(--muted); }
+.when b { display:block; font:900 1.15rem/1.15 var(--sans); letter-spacing:-0.02em;
+          color:var(--ink); }
+.row.up .when b { color:var(--accent); }
+.row svg { display:block; width:100%; height:40px; }
+.words { grid-column:1/-1; margin-top:2px; }
+.chip { display:inline-block; font:500 12px/1 var(--mono); padding:5px 7px;
+        border:1px solid var(--hairline); margin:0 4px 4px 0; max-width:30ch;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+.row.up .chip { border-color:var(--accent); }
+#tip { position:fixed; pointer-events:none; opacity:0; z-index:10; background:var(--ink);
+       color:var(--ground); padding:7px 9px; font:500 11px/1.45 var(--mono);
+       white-space:nowrap; }
+#tip.on { opacity:1; }
+footer { border-top:4px solid var(--ink); margin-top:56px; padding-top:24px; }
+footer p { max-width:66ch; margin:0 0 14px; }
+footer code { font:500 0.9em var(--mono); }
+</style>
+
+<div class="wrap" id="app"></div>
+<div id="tip"></div>
+
+<script>
+const B = window.MIXTURE;
+const app = document.getElementById("app");
+const tip = document.getElementById("tip");
+const fmt = n => Math.round(n).toLocaleString("en-US");
+const pc = v => (v * 100 >= 10 ? (v * 100).toFixed(0) : (v * 100).toFixed(1)) + "%";
+const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const short = w => w.length > 26 ? w.slice(0, 25) + "…" : w;
+
+/* A component counts as having grown if it ends at least twice the size it started AND is
+   worth at least a twentieth of the week by the end. The doubling alone would also flag
+   things that went from negligible to slightly less negligible. */
+const grew = c => c.end_share >= 2 * c.start_share && c.end_share >= 0.05;
+
+/* One stacked chart. `key` picks the series -- absolute appearances, or share of the week --
+   and the bands are separated by a hairline of the surface so twelve of them stay countable
+   without twelve colours. */
+function stack(svg, key, unit) {
+  const w = svg.clientWidth || 800, h = svg.clientHeight || 260, T = B.weeks.length;
+  const totals = B.weeks.map((_, i) =>
+    B.components.reduce((s, c) => s + c[key][i], 0));
+  const hi = Math.max(...totals);
+  const x = i => (i / (T - 1)) * w;
+  let acc = new Array(T).fill(0), out = "";
+  B.components.forEach(c => {
+    const top = c[key].map((v, i) => acc[i] + v);
+    let d = `M0,${(h - acc[0] / hi * h).toFixed(1)}`;
+    for (let i = 0; i < T; i++) d += `L${x(i).toFixed(1)},${(h - top[i] / hi * h).toFixed(1)}`;
+    for (let i = T - 1; i >= 0; i--) d += `L${x(i).toFixed(1)},${(h - acc[i] / hi * h).toFixed(1)}`;
+    out += `<path d="${d}Z" fill="${grew(c) ? "var(--accent)" : "var(--band)"}"
+             stroke="var(--ground)" stroke-width="0.6"/>`;
+    acc = top;
+  });
+  let years = "";
+  B.weeks.forEach((wk, i) => {
+    if (i && wk.slice(0, 4) !== B.weeks[i - 1].slice(0, 4)) {
+      years += `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="0" y2="${h}"
+                 stroke="var(--ground)" stroke-width="1" opacity="0.6"/>`;
+    }
+  });
+  svg.innerHTML = out + years +
+    `<line class="cross" x1="0" x2="0" y1="0" y2="${h}" stroke="var(--ink)"
+      stroke-width="1" opacity="0"/>`;
+  svg.__hover = ev => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(T - 1,
+      Math.round(((ev.clientX - r.left) / r.width) * (T - 1))));
+    const cr = svg.querySelector(".cross");
+    cr.setAttribute("x1", ((i / (T - 1)) * r.width).toFixed(1));
+    cr.setAttribute("x2", ((i / (T - 1)) * r.width).toFixed(1));
+    cr.setAttribute("opacity", "0.6");
+    const top = [...B.components].sort((a, b) => b[key][i] - a[key][i]).slice(0, 3)
+      .map(c => `${key === "prevalence" ? pc(c[key][i]) : fmt(c[key][i])} ${c.words[0].word.slice(0, 14)}`);
+    tip.textContent = `${B.weeks[i]}  ·  ${fmt(totals[i])} ${unit}  ·  ${top.join("   ")}`;
+    tip.classList.add("on");
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.min(innerWidth - tw - 8, Math.max(8, ev.clientX - tw / 2)) + "px";
+    tip.style.top = Math.max(8, r.top - tip.offsetHeight - 8) + "px";
+  };
+}
+
+/* One component's absolute weekly appearances, twice.
+   The filled area is on an axis shared with every other row, so the rows are comparable and
+   a small component looks small. That is honest and it is also unreadable for ten of the
+   twelve, whose curves are then flat lines a pixel high -- so the same series is drawn again
+   as a hairline scaled to its own peak, which carries the shape. Solid for magnitude,
+   hairline for shape; the numbers beside it say which peak the hairline reaches. */
+function curve(svg, c, hi) {
+  const w = svg.clientWidth || 300, h = svg.clientHeight || 40, T = B.weeks.length;
+  const own = Math.max(...c.appearances) || 1;
+  const x = i => (i / (T - 1)) * w;
+  const path = (scale) => {
+    const y = v => h - (v / scale) * (h - 2);
+    let d = `M0,${y(c.appearances[0]).toFixed(1)}`;
+    c.appearances.forEach((v, i) => { d += `L${x(i).toFixed(1)},${y(v).toFixed(1)}`; });
+    return d;
+  };
+  const shared = path(hi), scaled = path(own);
+  const col = grew(c) ? "var(--accent)" : "var(--muted)";
+  svg.innerHTML =
+    `<path d="${scaled}" fill="none" stroke="${col}" stroke-width="0.75" opacity="0.5"/>` +
+    `<path d="${shared}L${w},${h}L0,${h}Z" fill="${col}" opacity="0.3"/>` +
+    `<path d="${shared}" fill="none" stroke="${col}" stroke-width="1.5"/>` +
+    `<line x1="0" x2="${w}" y1="${h}" y2="${h}" stroke="var(--hairline)" stroke-width="1"/>`;
+}
+
+function axis() {
+  let out = `<span>${B.weeks[0]}</span>`;
+  B.weeks.forEach((wk, i) => {
+    if (i && wk.slice(0, 4) !== B.weeks[i - 1].slice(0, 4)) {
+      const p = (i / (B.weeks.length - 1)) * 100;
+      if (p > 8 && p < 88) out += `<span style="left:${p.toFixed(1)}%">${wk.slice(0, 4)}</span>`;
+    }
+  });
+  return out + `<span class="last">${B.weeks[B.weeks.length - 1]}</span>`;
+}
+
+function build() {
+  const up = B.components.filter(grew);
+  const wpw = B.words_per_week, dpw = B.docs_per_week;
+  const hiRow = Math.max(...B.components.map(c => Math.max(...c.appearances)));
+
+  let html = `<header>
+    <h1>Twelve ways<br>of <em>writing</em></h1>
+    <p class="standfirst">Every pull request description on GitHub, sampled evenly week by
+      week for two and a half years. The model splits them into ${B.k} ways of writing, each
+      a distribution over the vocabulary, and says how much of each week was written each
+      way. ${up.length} of the ${B.k} end the window larger than they started.</p>
+    <div class="stats">
+      <div class="stat"><b>${fmt(B.documents)}</b><span class="label">documents</span></div>
+      <div class="stat"><b>${B.weeks.length}</b><span class="label">weeks</span></div>
+      <div class="stat"><b>${B.k}</b><span class="label">components</span></div>
+      <div class="stat"><b>${up.length}</b><span class="label">that grew</span></div>
+    </div></header>
+
+    <section>
+      <h2>Everything written, week by week</h2>
+      <p class="note">Each band is one way of writing; the bands stack to the whole. Ordered
+        by when each peaks, so the chart reads left to right. Accent marks a component that
+        ended the window at least twice the size it started.</p>
+
+      <p class="label">word appearances a week &nbsp;·&nbsp; absolute &nbsp;·&nbsp;
+        0 to ${fmt(Math.max(...wpw))}</p>
+      <div class="stack"><svg id="abs"></svg><div class="axis label">${axis()}</div></div>
+      <p class="note" style="margin:14px 0 0">The corpus takes at most
+        ${fmt(Math.max(...dpw))} descriptions from any week, so the number of
+        <em>documents</em> is flat by construction &mdash; it only varies between
+        ${fmt(Math.min(...dpw))} and ${fmt(Math.max(...dpw))}. The words inside them are not
+        capped, and they swing ${(Math.max(...wpw) / Math.min(...wpw)).toFixed(1)}-fold:
+        descriptions got longer. That is why the absolute view is in appearances rather than
+        documents.</p>
+
+      <p class="label" style="margin:34px 0 0">share of the week &nbsp;·&nbsp; each week
+        normalised to 1</p>
+      <div class="stack"><svg id="stack"></svg><div class="axis label">${axis()}</div></div>
+      <p class="note" style="margin:14px 0 0">The same data with the volume divided out.
+        Good for composition, misleading on its own: a band can shrink here while holding
+        steady above, because the corpus grew around it rather than because it shrank.</p>
+    </section>
+
+    <section>
+      <h2>Each way of writing</h2>
+      <p class="note">One row per component, in the order they peak. Every curve is absolute
+        &mdash; word appearances attributable to that component that week &mdash; on an axis
+        shared with every other row, so the rows are directly comparable and a small
+        component looks small. Because that leaves most of them flat, each is also drawn as a
+        hairline scaled to its own peak, which carries the shape: solid for magnitude,
+        hairline for shape, and the peak beside it says what the hairline reaches. Words are
+        ranked by how much more probable they are under the component than in the corpus at
+        large.</p>
+      ` + B.components.map((c, i) => `
+        <div class="row${grew(c) ? " up" : ""}">
+          <span class="when"><b>${fmt(mean(c.appearances))}</b>a week on average<br>
+            peak ${fmt(Math.max(...c.appearances))}<br>at ${c.peak_week}</span>
+          <svg data-curve="${i}" role="img"
+               aria-label="${fmt(mean(c.appearances))} appearances a week on average,
+                           peaking ${c.peak_week}"></svg>
+          <div class="words">` +
+            c.word_list.slice(0, 22).map(w =>
+              `<span class="chip" title="${esc(w)}">${esc(short(w))}</span>`).join("") +
+          `</div></div>`).join("") + `</section>
+
+    <footer>
+      <h2>The model</h2>
+      <p>Each component <code>k</code> is a fixed distribution <code>W&#8342;</code> over the
+        vocabulary &mdash; one way of writing. A document from week <code>t</code> picks a
+        component from that week's prevalences <code>&pi;&#8348;</code>, which sum to one, and
+        then draws its words from that component's distribution. The only thing asked of a
+        prevalence curve is smoothness, &lambda; = ${B["lambda"]} on squared week-to-week
+        change; nothing requires a component to rise, to fall, or to be absent early. The
+        shapes are whatever the documents say they are.</p>
+      <p>Fitted by expectation-maximisation: attribute each document to components, refit the
+        word distributions from those attributions, refit the prevalences. Run
+        ${B.n_init} times from different starting points, keeping the highest likelihood,
+        because EM finds different local optima here and the worst of them mix a component
+        with something else and give it two thirds of the peak the good fits find.</p>
+      <p>An earlier version of this gave each component an unknown <em>birth week</em> and
+        held it at exactly zero before then. It was removed. The constraint worked and the
+        planted case was recovered exactly on synthetic data, but on this corpus the birth
+        week was not identified to better than a few months: single runs put one component's
+        birth anywhere across a 23&#8209;month range, and dropping 75 documents of
+        ${fmt(B.documents)} moved it thirteen weeks. The threshold that defined a birth sat
+        in the near-zero tail, where a handful of documents decides whether a week clears it.
+        A curve that starts near zero says the same thing without claiming a date.</p>
+      <p class="label">generated ${B.generated} &nbsp;·&nbsp; log-likelihood
+        ${fmt(B.loglik)} &nbsp;·&nbsp; ${fmt(B.appearances)} word appearances over
+        ${fmt(B.vocab)} words</p>
+    </footer>`;
+
+  app.innerHTML = html;
+  render();
+  let t;
+  addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
+  for (const [id, key, unit] of [["abs", "appearances", "appearances"],
+                                 ["stack", "prevalence", "of the week"]]) {
+    const s = document.getElementById(id);
+    s.addEventListener("pointermove", ev => s.__hover && s.__hover(ev));
+    s.addEventListener("pointerleave", () => {
+      tip.classList.remove("on");
+      const c = s.querySelector(".cross"); if (c) c.setAttribute("opacity", "0");
+    });
+  }
+}
+
+function render() {
+  stack(document.getElementById("abs"), "appearances", "appearances");
+  stack(document.getElementById("stack"), "prevalence", "of the week");
+  const hi = Math.max(...B.components.map(c => Math.max(...c.appearances)));
+  B.components.forEach((c, i) =>
+    curve(app.querySelector(`svg[data-curve="${i}"]`), c, hi));
+}
+
+if (!B) {
+  app.innerHTML = '<p style="padding:80px 0;font-family:ui-monospace,monospace">'
+    + 'mixture.js not found.<br>Run <b>python mixture.py</b> first.</p>';
+} else {
+  build();
+}
+</script>
