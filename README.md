@@ -111,6 +111,52 @@ on `the`. This formulation does not need it, because the interpretation step doe
 instead: `W`'s columns are *allowed* to be dominated by common words, since they are
 distributions over real text, and the lift term is what recovers what is characteristic.
 
+## An alternative model, in `births.py`
+
+Same corpus, a different question. Instead of penalising the weekly curve into sparsity,
+give each component an unknown **birth week** and make it *impossible* before then, so the
+empty stretch is a parameter the model estimates rather than a shape a penalty was asked to
+produce.
+
+```
+W_k                 a fixed distribution over the vocabulary
+tau_k               the birth week, unknown
+pi_tk               prevalence in week t, sum_k pi_tk = 1, and pi_tk = 0 for t < tau_k
+z_d ~ Cat(pi_t)     which component wrote document d
+x_d ~ Mult(n_d, W_k)  its words
+```
+
+After birth the only thing asked of the curve is smoothness. Fitted by alternating:
+attribute documents, refit the word distributions, refit the prevalences under the birth
+constraint, re-read the births.
+
+**One correction to the recipe, and it matters.** Choosing `tau_k` by trying candidates and
+keeping the highest regularised likelihood cannot work: a later birth is a strictly tighter
+constraint, so it can only *lower* the likelihood, and the search returns week zero every
+time. Making the optimiser prefer lateness would need a per-live-week cost invented for the
+purpose. Instead each birth is read off an *unconstrained* fit of the same curve — the first
+week a component reaches a twentieth of its eventual peak and holds it — and the constrained
+fit is then redone. Re-deriving from the free fit each pass is what lets a birth move earlier
+as well as later; thresholding an already-masked curve could only ratchet forward, so one
+early mistake would be permanent. A planted birth week is recovered exactly on synthetic
+data (`--selftest`).
+
+The result on the corpus, with `k = 12`, in eight seconds: **eleven components were there the
+whole time, and one was born**. Its estimated birth is **2025-09-29**, it reaches **65.8%**
+of the week's documents by 2026-08-03, and it is made of `framing, refuses, byte-identical,
+load-bearing, genuine, carries, refusal, lands, folded`.
+
+```bash
+python births.py            # writes births.js
+open births.html            # a stacked view: what was already here, and what was born
+```
+
+`births.html` uses colour for meaning rather than identity: twelve stacked bands cannot each
+have a hue — a twelve-step single-hue ramp cannot hold adequate lightness gaps *and* keep
+both ends visible against the surface — so the bands are one muted tone separated by
+hairlines, and the accent is reserved for a component absent for at least a tenth of the
+window.
+
 ## Why not GH Archive
 
 Because it no longer works. Its feed has carried almost only `PushEvent` since mid-2025: a
@@ -164,9 +210,15 @@ in one description contributes three.
 
 Order matters, and each step exists because of what the previous one broke:
 
-1. **Links first, whole.** `[bugbot](https://cursor.com/x)` gives `bugbot` and the link.
-   Splitting on punctuation first produced `bugbot](https` and a trail of fragments, and
-   those fragments were ranking among components' most representative words.
+1. **Links first, each collapsed to its domain.** `[bugbot](https://cursor.com/x)` gives
+   `bugbot` and `[cursor-url]`. Splitting on punctuation first produced `bugbot](https` and
+   a trail of fragments, and those fragments ranked among components' most representative
+   words. Keeping links whole was little better: a tool that puts a per-item link in every
+   description gets one word per *item* instead of one word, and Snyk's vulnerability links
+   alone were the top words of eight of sixteen components. `[snyk-url]`, `[claude-url]`,
+   `[github-url]` say the useful thing in one token that can clear the frequency floors.
+   The registrable domain is taken as the second-to-last label — wrong for `example.co.uk`,
+   right for everything that turns up here.
 2. **Then HTML tags, whole.** Splitting them character by character turned
    `<sup>reviewed</sup>` into `sup, reviewed, sup` and made `li`, `br`, `td` and `href` six
    of one component's twelve commonest words. The pattern requires a letter or slash after
@@ -178,12 +230,30 @@ Order matters, and each step exists because of what the previous one broke:
    underscore is allowed *inside* a word. A trailing hyphen goes for the same reason; a
    leading one stays, so `--all-targets` is not quietly turned into `all-targets`.
 
+Snyk advisory identifiers collapse the same way, `snyk-js-axios-6144788` to `[snyk-id]`,
+because they are the same problem one level down: 1,401 distinct tokens, 113 of them past
+the floors, between them occupying seven of sixteen components. Afterwards, none. The
+trailing run of digits is what tells an identifier from `snyk-top-banner`. CVE and GHSA ids
+have the same shape and are left alone — five and one of them clear the floors.
+
 Requiring a letter drops what is left of numbers and rules — `27.49`, `589/1000`,
 `2025-06-24`, `-------` — along with the arrow and `+`. **The em dash is the one exception**,
 taken before the split and counted as a word of its own. It earns that: 0.0 appearances per
 10,000 words in early 2024 against 123.0 in mid-2026, the sharpest single signal here. It is
 counted separately rather than added to the word characters because it is as often unspaced
 as spaced, and inside the character class `foo—bar` would become one token instead of three.
+
+**No author may contribute more than three documents to a week.** This is what finds
+mass-produced descriptions without a blocklist, and it works because they concentrate by
+*author* rather than by repository: `copilot` wrote 197 of the 198 descriptions carrying
+GitHub's coding-agent survey link, across 192 repositories, and `vercel[bot]` wrote all 85
+carrying one particular CVE. It catches what the `[bot]` suffix misses — `copilot`,
+`pyup-bot`, `scala-steward` and `regro-cf-autotick-bot` are ordinary logins — and it applies
+to humans on the same terms, which is why it is a cap and not an exclusion. Across the
+corpus 36,503 authors write 48,086 documents, so a cap of three costs 4.4% of them. It does
+nothing about Snyk, whose 3,714 descriptions come from 2,197 authors because each
+repository's integration runs under its own login; that needed the identifier collapse
+above.
 
 Two documents with the identical word set count once, within each week — one ordinary account once posted 147 copies of the same sentence inside
 a fortnight, 16% of it, and every word of its template moved with it. That collapse is

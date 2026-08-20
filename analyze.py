@@ -45,6 +45,12 @@ URL_RE = re.compile(r"https?://[^\s<>\"'`)\]}]+")
 TAG_RE = re.compile(r"<[a-z/!][^<>]*>")   # html markup, not prose: `a > b` is not a tag
 EM_DASH = "\u2014"                       # a word by fiat; see `tokens`
 WORD_RE = re.compile(r"[a-z0-9_-]*[a-z][a-z0-9_-]*")
+# One vulnerability identifier per advisory, the same shape of problem as one link per
+# item: `snyk-js-axios-6144788` and 1,400 siblings, 113 of them clearing the frequency
+# floors, between them occupying seven of sixteen components. Collapsed to one token,
+# which says the useful thing -- that the description cites a Snyk advisory at all.
+# The trailing run of digits is what distinguishes an identifier from `snyk-top-banner`.
+SNYK_ID_RE = re.compile(r"^snyk-.+-\d{4,}$")
 MIN_WORDS = 5                      # a body needs this many distinct words to be prose
 MIN_TF = 45                        # a word needs this many total appearances. Set by the
                                    # rarest word worth naming: `load-bearing` appears 51
@@ -57,13 +63,13 @@ MIN_DF = 25                        # and this many distinct documents. Total app
                                    # word someone repeated. The ceiling is `load-bearing`
                                    # again, in 45 documents.
 DOCS_PER_WEEK = 350                # see the note in `read_week`
+MAX_PER_AUTHOR = 3                 # per author per week; see `read_week`
 
 # ----------------------------------------------------------------------------- model
 
 K = 16
-LOSS = "kl"                        # "kl" or "l2"; see `fit` -- they trade separation
-                                   # against a working L1
-ALPHA_H = 2e-2                     # L1 on the weekly activations; see `fit`
+LOSS = "l2"                        # "l2" (squared error) or "kl"; see `fit`
+ALPHA_H = 0.2                      # L1 on the weekly activations; see `fit`
 MAX_ITER = 600
 SEED = 0
 WORDS_CHARTED = 16
@@ -71,13 +77,34 @@ WORDS_LISTED = 40
 WORDS_MOST_USED = 12
 
 
+def domain_token(url):
+    """A link becomes one token naming its domain: `[cursor-url]`, `[snyk-url]`.
+
+    Kept whole, every distinct link was its own word, and a tool that puts a
+    per-item link in each description got one word per item instead of one word.
+    Snyk alone contributed thousands: its vulnerability links were the most
+    representative words of eight of sixteen components, each holding a different
+    handful of them. Collapsing by domain says the useful thing -- that a
+    description links to Snyk at all -- in one token that can then clear the
+    frequency floors and be compared across weeks.
+
+    The registrable domain is taken as the second-to-last label, which is wrong
+    for `example.co.uk` and right for everything that turns up here.
+    """
+    host = url.split("//", 1)[-1].split("/", 1)[0].split("@")[-1].split(":")[0]
+    labels = [x for x in host.split(".") if x and x != "www"]
+    name = labels[-2] if len(labels) >= 2 else (labels[0] if labels else "link")
+    return f"[{name}-url]"
+
+
 def tokens(body):
     """Every appearance of every word in one document.
 
-    Links are taken first, whole: `[bugbot](https://cursor.com/x)` yields `bugbot` and the
-    link, where splitting on punctuation first would have produced `bugbot](https` and a
-    trail of fragments. Those fragments were real: they used to rank among a component's
-    most representative words.
+    Links are taken first, each becoming one token naming its domain:
+    `[bugbot](https://cursor.com/x)` yields `bugbot` and `[cursor-url]`. Splitting on
+    punctuation first would have produced `bugbot](https` and a trail of fragments, and
+    those fragments used to rank among a component's most representative words. See
+    `domain_token` for why the domain rather than the link.
 
     HTML tags go next, whole, for the same reason: splitting them character by character
     turned `<sup>reviewed</sup>` into `sup`, `reviewed`, `sup` and made `li`, `br`, `td` and
@@ -92,6 +119,9 @@ def tokens(body):
     same reason; a leading one stays, so `--all-targets` is not quietly turned into
     `all-targets`.
 
+    Snyk advisory identifiers collapse to `[snyk-id]` for the same reason links collapse
+    to their domain -- see `SNYK_ID_RE`.
+
     Requiring a letter drops what is left of numbers and rules: `27.49`, `589/1000`,
     `2025-06-24`, `-------`. The arrow and `+` go with them. The em dash is the one
     exception, taken before the split and counted as a word of its own -- it earns that by
@@ -99,7 +129,7 @@ def tokens(body):
     sharpest single signal here.
     """
     body = body.lower()
-    out = [m.group(0).rstrip(".,;:!?") for m in URL_RE.finditer(body)]
+    out = [domain_token(m.group(0)) for m in URL_RE.finditer(body)]
     # the em dash counts as a word. It is punctuation, so the rule above would drop it,
     # and it is the sharpest single signal in the corpus: 0.0 appearances per 10,000 words
     # in early 2024 against 123.0 in mid-2026. Counted separately rather than added to the
@@ -112,7 +142,7 @@ def tokens(body):
     for w in WORD_RE.findall(rest):
         w = w.strip("_").rstrip("-")
         if w and any(c.isalpha() for c in w):
-            out.append(w)
+            out.append("[snyk-id]" if SNYK_ID_RE.match(w) else w)
     return out
 
 
@@ -133,14 +163,20 @@ def read_week(path):
     after this, which is why the model reports H as a share of the week rather than raw.
     """
     seen, kept, counts, docs = set(), 0, Counter(), Counter()
+    by_author = Counter()
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
-            t = tokens(json.loads(line)["body"])
+            row = json.loads(line)
+            t = tokens(row["body"])
             if len(set(t)) < MIN_WORDS:
                 continue
             key = frozenset(t)
             if key in seen:
                 continue
+            author = row.get("author") or ""
+            if by_author[author] >= MAX_PER_AUTHOR:
+                continue
+            by_author[author] += 1
             seen.add(key)
             kept += 1
             if kept > DOCS_PER_WEEK:
@@ -182,34 +218,39 @@ def build(log=print):
 def fit(X, k=K, alpha_h=ALPHA_H, seed=SEED, max_iter=MAX_ITER, loss=LOSS):
     """Factorise X into word distributions and weekly activations.
 
-    **Why Kullback-Leibler and not squared error.** X holds counts and the columns of W are
-    probability distributions over words; together that is a multinomial mixture, and KL is
-    its likelihood. Squared error instead assumes Gaussian noise of constant variance,
-    which counts do not have -- the variance of a count grows with its mean, so squared
-    error treats a swing of 50 in a word appearing 200,000 times as equally surprising as a
-    swing of 50 in a word appearing 60 times. It is also better on the only test that
-    matters, at k=16 with this vocabulary:
+    **Squared error, with an L1 on H.** The first version of this used a Kullback-Leibler
+    loss, on the argument that X holds counts and the columns of W are distributions over
+    words, so the pair is a multinomial mixture and KL is its likelihood. That argument is
+    still true and it is still the wrong choice here, for two reasons that only showed up
+    on the output.
 
-                             register component        exact zeros in H
-        KL                   13.5% of mass, 0.001 -> 0.725        0%
-        squared error         7.3% of mass, 0.009 -> 0.420       22%
+    The first is that KL needs the multiplicative solver, which updates by multiplication
+    and so approaches zero without reaching it -- and worse, this parameterisation cancels
+    an L1 on H outright. NMF fixes W H only up to a diagonal rescaling, and the
+    normalisation below pins that scale *after* fitting, so the optimiser can satisfy the
+    penalty by shrinking H and inflating W at no cost, and the rescaling then undoes the
+    shrinkage exactly. Measured: alpha_H from 0 to 10 moved sum(H) by 0.7% and the shape of
+    H by 0.0085. An L1 only means something where the scale is not free.
 
-    **The cost, stated plainly: under KL the L1 on H does nothing.** KL needs the
-    multiplicative solver, which approaches zero without reaching it, so no exact zeros.
-    Worse, this parameterisation cancels the penalty outright. NMF fixes W H only up to a
-    diagonal rescaling, and the normalisation below pins that scale *after* fitting -- so
-    the optimiser can satisfy an L1 on H by shrinking H uniformly and inflating W, which
-    costs it nothing, and the rescaling then undoes the shrinkage exactly. Measured:
-    alpha_H from 0 to 10 moves sum(H) by 0.7% and the per-week shape of H by 0.0085.
-    An L1 is only meaningful where the scale is not free.
+    The second is interpretability, and it is the reason for the switch. Both losses find
+    the register, but KL folds a vendor's PR footer into the same component -- four
+    cursor.com links are its top four representative words -- which inflates its mass to
+    13.8% and muddies what the component is. Squared error separates them:
 
-    With `loss="l2"` the penalty does bite -- 22% of H exactly zero at alpha_H=0, 25% at
-    0.02, 47% at 0.2 -- at the cost of the separation in the table above. The knob is here
-    so that trade is one line, not a rewrite.
+        loss                 the register component        exact zeros in H
+        KL, a=0.02      13.8% of mass, 36 -> 43,703/wk           0%
+        squared, a=0     7.3% of mass, 268 -> 26,029/wk         22%
+        squared, a=0.02  6.7% of mass, 183 -> 24,908/wk         25%
+        squared, a=0.2   3.4% of mass,   0 -> 18,980/wk         47%
+
+    At a=0.2 the component's sixteen most representative words are prose with no links at
+    all -- `refusal, deliberately, byte-identical, load-bearing, genuine, carries, refuses,
+    inert, claimed, fail-closed` -- and its activation is *exactly* zero for two years
+    before it rises, which is the shape the penalty was for.
 
     W is rescaled after fitting so each column sums to 1, which fixes the free scale at the
     one place it carries meaning and pushes it into H, whose column sums then recover each
-    week's word count.
+    week's word count -- verified against the corpus to within 0.73%.
     """
     kw = dict(n_components=k, init="nndsvda", alpha_H=alpha_h, l1_ratio=1.0,
               max_iter=max_iter, random_state=seed)
@@ -282,13 +323,17 @@ def pack(X, weeks, vocab, W, H):
 
 def selftest():
     """The invariants whose silent failure would invalidate the result."""
+    # Sized to the real regime on purpose: the L1 is scaled by the vocabulary size and
+    # weighed against a squared error, so a fixture with far denser cells than the corpus
+    # puts the default ALPHA_H in a different regime and tests nothing about it. The corpus
+    # averages ~6.5 appearances per word-week over ~6,400 words.
     rng = np.random.default_rng(0)
-    V, T, on, size = 300, 60, 30, 12
+    V, T, on, size = 2000, 60, 30, 12
     p = rng.uniform(0.2, 3.0, size=V)
     rate = np.tile(p[:, None], (1, T))
     rate[:size, on:] *= 6.0                        # a bundle arriving at week `on`
     rate[-20:, :] = 60.0                           # words as common as `the`
-    X = rng.poisson(rate * 300).astype(float)
+    X = rng.poisson(rate * 4).astype(float)
     vocab = [f"w{j}" for j in range(V)]
 
     W, H, err = fit(X, k=4, max_iter=400)
@@ -319,6 +364,10 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--k", type=int, default=K, help=f"components (default {K})")
+    ap.add_argument("--loss", default=LOSS, choices=("kl", "l2"),
+                    help=f"kl separates better, l2 makes the L1 bite (default {LOSS})")
+    ap.add_argument("--alpha", type=float, default=ALPHA_H,
+                    help=f"L1 on H; inert under kl (default {ALPHA_H})")
     ap.add_argument("--out", default="analysis.js")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
@@ -326,8 +375,9 @@ def main():
         return selftest()
 
     X, weeks, vocab = build()
-    W, H, err = fit(X, k=args.k)
+    W, H, err = fit(X, k=args.k, alpha_h=args.alpha, loss=args.loss)
     out = pack(X, weeks, vocab, W, H)
+    out["loss"], out["alpha_h"] = args.loss, args.alpha
 
     if out["components"][0]["mass"] > 0.55:
         print(f"WARNING largest component holds {out['components'][0]['mass']:.0%} of "
@@ -338,7 +388,9 @@ def main():
         fh.write("window.ANALYSIS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
         fh.write(";\n")
-    print(f"KL divergence {err:.1f}, wrote {args.out} "
+    zeros = (H == 0).mean()
+    print(f"{'KL divergence' if args.loss == 'kl' else 'Frobenius error'} {err:.1f}, "
+          f"{zeros:.0%} of H exactly zero, wrote {args.out} "
           f"({os.path.getsize(args.out)/1e3:.0f} kB)\n")
     for c in out["components"]:
         print(f"  {c['mass']:5.1%}  peak {c['peak_week']}  "
