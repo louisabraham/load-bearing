@@ -150,10 +150,33 @@ A 5.6-fold reduction, monotone, costing 0.002% of the log-likelihood at the far 
 so it is a constant with zero gradient — L1 induces sparsity by trading against magnitude, and
 on a simplex the magnitude is already spent.
 
+### How a word relates to a component
+
+No word is *assigned* to a component. `W_kv = P(word v | component k)` is positive for every
+pair, so every word belongs a little to all of them. What the page shows is a **ranking**, by
+how much more probable a word is under one component than in the corpus at large:
+
+```
+lift(v, k) = P(v | k) / P(v)
+```
+
+For `load-bearing` at `k = 12` the ranking is not close, which is worth showing because it is
+not guaranteed:
+
+| component | `P(word｜comp)` | lift | its rank there |
+|---|---|---|---|
+| 3 | 6.89 × 10⁻⁵ | **6.58** | **1st of 6,207** |
+| 0 | 1.50 × 10⁻⁶ | 0.14 | 5,491st |
+| the other ten | ≤ 1.1 × 10⁻⁷ | ≤ 0.01 | 1,887th – 5,825th |
+
+One component gives it 46 times the probability of the next best, and it is that component's
+single most representative word. But that is a fact about this word. A word with lift near 1
+everywhere belongs to no component in particular, and the ranking will still put it 40th
+somewhere — the list is a top-40, not a test.
+
 ### How many components
 
-`--k` sets it, `--out` names the file, and `mixture.html?k=N` reads whichever fit you ask
-for, so the sweep is one loop:
+`--k` sets it, `--out` names the file, and `mixture.html?k=N` reads whichever fit you ask for:
 
 ```bash
 for k in 4 6 8 12 16 24 32; do
@@ -161,33 +184,43 @@ for k in 4 6 8 12 16 24 32; do
 done
 ```
 
-The register is found at **every** k tried, always as one component until it starts to split.
-Measured by how many of 22 words known to belong to it are recovered, all fits at six
-restarts so the comparison is fair:
+**Neither likelihood picks a k.** Training likelihood rises with k because more parameters
+always fit better, and held-out likelihood — fit on 90% of documents, scored on the other 10%
+— rises too, all the way to 32:
 
-| `k` | log-likelihood | pieces | markers | mass | ends at | biggest piece's top words |
-|---|---|---|---|---|---|---|
-| 4 | −32,630,676 | 1 | 4/22 | 39.4% | 82.3% | `refusal, subagent, nixpkgs-update…` |
-| 6 | −32,323,292 | 1 | 18/22 | 16.8% | 69.3% | `load-bearing, optimole, imgbot, octocat` |
-| 8 | −32,089,443 | 1 | 20/22 | 8.6% | 61.0% | `[webkit-url], byte-identical, load-bearing, ews` |
-| **12** | −31,794,747 | **1** | **20/22** | 10.0% | 65.9% | `load-bearing, --all-targets, byte-identical, seam` |
-| 16 | −31,637,956 | 1 | 17/22 | 8.3% | 57.0% | `load-bearing, 2100s, dhi, 600s` |
-| 24 | −31,347,611 | **2** | 18/22 | 10.3% | 31.5% | `non-profit, dhi, [exercism-url], syncer` |
-| 32 | −31,171,090 | **2** | 20/22 | 11.1% | 42.2% | `load-bearing, genuine, carries, latent` |
+| `k` | 4 | 6 | 8 | 12 | 16 | 24 | 32 |
+|---|---|---|---|---|---|---|---|
+| train, bits/word | −9.458 | −9.370 | −9.302 | −9.240 | −9.180 | −9.097 | −9.045 |
+| **held out** | −9.481 | −9.405 | −9.338 | **−9.291** | −9.246 | −9.181 | **−9.149** |
 
-Three regimes. **Below k = 6 it is absorbed**: at k = 4 one component holds 39% of the corpus
-and only 4 of the 22 marker words, so the register is in there but diluted with everything
-else. **From 6 to 16 it is one undivided component** recovering 17 to 21 of the markers, with
-`load-bearing` its single most representative word at k = 6, 12, 16 and 32. **From about 24 it
-splits in two**, and the pieces stay identifiable rather than dissolving.
+The train-to-held-out gap widens from 0.022 to 0.096 bits, which is overfitting appearing, but
+it has not overtaken the gain anywhere in this range. So the data supports more components than
+the default. **`k = 12` is a legibility choice, not a statistical one** — twelve rows a reader
+can scan — and the sweep is one command away.
 
-Log-likelihood rises monotonically with k, as it must with more parameters, so it cannot pick
-one. What does distinguish them is marker recovery, which peaks around k = 12 — a mild
-justification for the default, not a strong one. The finding does not depend on the choice: a
-component going from near nothing to roughly two thirds of the week, with these words, is
-there at every k from 6 to 32.
+What the sweep does show, without depending on any scoring choice, is the register's condition
+at each k:
 
-### Absolute, not share
+| `k` | pieces | the biggest piece's top words |
+|---|---|---|
+| 4 | 1 | `refusal, subagent, nixpkgs-update…` — 39% of the corpus, diluted with everything else |
+| 6 | 1 | `load-bearing, optimole, imgbot, octocat` |
+| 8 | 1 | `[webkit-url], byte-identical, load-bearing, ews` |
+| 12 | 1 | `load-bearing, --all-targets, byte-identical, seam` |
+| 16 | 1 | `load-bearing, 2100s, dhi, 600s` |
+| 24 | **2** | splits; pieces stay identifiable |
+| 32 | **2** | `load-bearing, genuine, carries, latent` |
+
+Three regimes: below 6 the register is absorbed into a large component along with unrelated
+vocabulary; from 6 to 16 it is one undivided component with `load-bearing` its most
+representative word at 6, 12, 16 and 32; from about 24 it splits in two without dissolving.
+
+**A retraction.** An earlier version of this table scored each k by how many of 22 "marker
+words" it recovered, and reported that the count peaked at 12. That metric was circular: the 22
+words were chosen by reading the k = 12 output, so it measured agreement with k = 12 rather
+than quality of fit. Held-out likelihood is the non-circular version, and it does not favour 12.
+
+### Absolute, not share### Absolute, not share
 
 `mixture.html` reports absolute counts everywhere, and the two stacked views side by side are
 the argument for it. The corpus caps documents at 350 a week, so the document count is flat by
