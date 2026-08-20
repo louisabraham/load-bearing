@@ -59,6 +59,10 @@ h2 { font:900 clamp(1.4rem,3vw,2rem)/1.1 var(--sans); letter-spacing:-0.025em; m
 .row.up .when b { color:var(--accent); }
 .row svg { display:block; width:100%; height:40px; }
 .words { grid-column:1/-1; margin-top:2px; }
+.chip i { font-style:normal; color:var(--muted); margin-left:5px; font-size:0.85em; }
+.row.up .chip i { color:var(--accent); }
+.tail { display:block; margin-top:8px; font:500 11px/1.5 var(--mono);
+        letter-spacing:0.06em; color:var(--muted); }
 .chip { display:inline-block; font:500 12px/1 var(--mono); padding:5px 7px;
         border:1px solid var(--hairline); margin:0 4px 4px 0; max-width:30ch;
         overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
@@ -235,7 +239,9 @@ function build() {
         hairline scaled to its own peak, which carries the shape: solid for magnitude,
         hairline for shape, and the peak beside it says what the hairline reaches. Words are
         ranked by how much more probable they are under the component than in the corpus at
-        large.</p>
+        large, with that multiple beside each. The count of twenty-two is arbitrary and the
+        line under each row says so: lift declines smoothly with rank, with no cliff to cut
+        at, so the words shown are the head of a long tail rather than a closed set.</p>
       ` + B.components.map((c, i) => `
         <div class="row${grew(c) ? " up" : ""}">
           <span class="when"><b>${fmt(mean(c.appearances))}</b>a week on average<br>
@@ -244,8 +250,14 @@ function build() {
                aria-label="${fmt(mean(c.appearances))} appearances a week on average,
                            peaking ${c.peak_week}"></svg>
           <div class="words">` +
-            c.word_list.slice(0, 22).map(w =>
-              `<span class="chip" title="${esc(w)}">${esc(short(w))}</span>`).join("") +
+            c.word_list.slice(0, 22).map((w, j) =>
+              `<span class="chip" title="${esc(w)} — ${c.word_lift[j]}x more probable here
+                than in the corpus">${esc(short(w))}<i>${c.word_lift[j].toFixed(1)}</i>
+              </span>`).join("") +
+            `<span class="tail">lift ${c.word_lift[0].toFixed(1)} down to
+              ${c.word_lift[21].toFixed(1)} across these 22 &nbsp;·&nbsp;
+              ${fmt(c.tail[5])} words in this component pass 5&times;,
+              ${fmt(c.tail[3])} pass 3&times;, ${fmt(c.tail[2])} pass 2&times;</span>` +
           `</div></div>`).join("") + `</section>
 
     <footer>

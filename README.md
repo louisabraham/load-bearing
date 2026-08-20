@@ -184,19 +184,22 @@ for k in 4 6 8 12 16 24 32; do
 done
 ```
 
-**Neither likelihood picks a k.** Training likelihood rises with k because more parameters
-always fit better, and held-out likelihood — fit on 90% of documents, scored on the other 10%
-— rises too, all the way to 32:
+Training likelihood rises with k because more parameters always fit better, so it cannot
+choose. Held-out likelihood can: fit on 90% of documents, score the other 10%. Pushed far
+enough, it turns over.
 
-| `k` | 4 | 6 | 8 | 12 | 16 | 24 | 32 |
-|---|---|---|---|---|---|---|---|
-| train, bits/word | −9.458 | −9.370 | −9.302 | −9.240 | −9.180 | −9.097 | −9.045 |
-| **held out** | −9.481 | −9.405 | −9.338 | **−9.291** | −9.246 | −9.181 | **−9.149** |
+| `k` | 4 | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | **128** | 192 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| train | −9.458 | −9.302 | −9.240 | −9.180 | −9.097 | −9.045 | −8.969 | −8.922 | −8.862 | −8.806 | −8.739 |
+| **held out** | −9.481 | −9.338 | −9.291 | −9.246 | −9.181 | −9.149 | −9.110 | −9.095 | −9.083 | **−9.078** | −9.103 |
 
-The train-to-held-out gap widens from 0.022 to 0.096 bits, which is overfitting appearing, but
-it has not overtaken the gain anywhere in this range. So the data supports more components than
-the default. **`k = 12` is a legibility choice, not a statistical one** — twelve rows a reader
-can scan — and the sweep is one command away.
+**The data supports about 128 components**, an order of magnitude more than the default. One
+caveat that runs the right way: k ≥ 96 was fitted with two restarts against six for the small
+k, so the large fits are handicapped and the true optimum may be higher still. The turnover is
+real regardless, because 128 and 192 had the same two restarts and 192 is worse.
+
+So **`k = 12` is a legibility choice, not a statistical one** — twelve rows a reader can scan,
+against 128 nobody will read. What the smaller k buys is a summary; what it costs is resolution.
 
 What the sweep does show, without depending on any scoring choice, is the register's condition
 at each k:
@@ -214,6 +217,30 @@ at each k:
 Three regimes: below 6 the register is absorbed into a large component along with unrelated
 vocabulary; from 6 to 16 it is one undivided component with `load-bearing` its most
 representative word at 6, 12, 16 and 32; from about 24 it splits in two without dissolving.
+
+**And the split at k = 32 is worth reading, because it is not a degradation.** The two pieces
+are different registers that arrived five months apart:
+
+| | prose, peaks 2026-08-10 | tooling, peaks 2026-03-09 |
+|---|---|---|
+| share of the week | 0.0% → 42.2% | 0.1% → 17.5% |
+| lift 1 → 40 | 9.1 → 6.7 | 11.9 → 6.5 |
+| words | `load-bearing, genuine, carries, latent, lands, folded, seam, refuses, drives, framing, byte-identical, deliberately, identically, surfaced, survives, refusal, honest, reproduces, proves, verdict, measured, defects, untouched, inert, asserting, holds` | `pythonpath, py_compile, workbench, -q, --filter, worktrees, --test, --lib, --all-features, compileall, modulenotfounderror, cjs, --check, --workspace, runbook, unittest, subcommands, jsonl, sha-256, --locked, --all-targets, redaction, fail-closed, handoff, pytest, cargo, harness, orchestration, mvp, governance, gpt-5, [chatgpt-url]` |
+
+One is the vocabulary of asserting what is true about a change; the other is command-line flags
+and agent scaffolding. At `k = 12` they are one component, and the tooling half is why
+`--all-targets` sits third in its word list.
+
+### The word lists are a window, not a set
+
+Forty is arbitrary, and the numbers say so plainly. Lift declines smoothly with rank and there
+is no cliff to cut at — for the prose component at `k = 32`, rank 1 is 9.1× and rank 80 is
+still 6.0×, with **187 words above 5×, 803 above 3× and 1,743 above 2×**. So a top-40 is the
+head of a long tail rather than a closed group.
+
+The page therefore prints each word's lift beside it, and a line under every row saying how far
+the tail runs. Nothing about the model changes; what changes is that a reader can see the list
+is a window and where it was cut.
 
 **A retraction.** An earlier version of this table scored each k by how many of 22 "marker
 words" it recovered, and reported that the count peaked at 12. That metric was circular: the 22

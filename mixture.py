@@ -258,6 +258,11 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
                        "per10k": [round(float(v), 2) for v in per10k[j]]}
                       for j in rank[:WORDS_CHARTED]],
             "word_list": [vocab[j] for j in rank[:WORDS_LISTED]],
+            "word_lift": [round(float(lift[j]), 2) for j in rank[:WORDS_LISTED]],
+            # how long the tail is. The listed words are the head of a smooth decline, not a
+            # natural group: lift falls from about 9 at rank 1 to about 6 at rank 80 with no
+            # cliff anywhere, so any cut is arbitrary and the reader should see the numbers.
+            "tail": {t: int((lift >= t).sum()) for t in (5, 3, 2)},
         })
     return {"generated": date.today().isoformat(), "weeks": weeks, "n_init": N_INIT,
             "documents": int(X.shape[0]), "appearances": int(X.sum()),
