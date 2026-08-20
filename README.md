@@ -37,15 +37,17 @@ X  ≈  W H        W: words × k, each column summing to 1
 Each column of `W` is a probability distribution over the vocabulary — a way of writing.
 Each row of `H` says how much of that way of writing was in the air each week. Because the
 columns of `W` are normalised, the column sums of `H` recover the week's word count, so
+**`H[c, t]` is a count: the number of word appearances in week `t` attributable to component
+`c`.** Measured against the corpus, that identity holds to within 0.73%.
 
-```
-H[c, t] / Σ_c H[c, t]
-```
+`H` is reported as it is, not divided through by the week. Dividing would hide how much was
+written, and the weeks differ threefold in length even after the document cap. Component 1
+is the case that makes the point: as a share of the week it falls from 33% to 14%, but in
+appearances it barely moves — 9,996 a week to 8,631. It did not shrink; the corpus grew
+around it. Meanwhile the component that rises goes from 36 appearances a week to 43,703.
 
-is genuinely component `c`'s **share of everything written that week**. That is why all
-eight charts on the page share one axis instead of each being scaled to its own peak: the
-shares sum to 1, so the components are directly comparable and you can watch one overtake
-another.
+Every component's curve is therefore in the same units, which is why all sixteen charts on
+the page share one axis instead of each being scaled to its own peak.
 
 NMF fixes `W H` only up to a diagonal rescaling — `W H = (W D)(D⁻¹ H)` for any positive
 diagonal `D` — so normalising the columns of `W` pins that free scale at the one place it

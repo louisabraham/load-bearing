@@ -228,7 +228,11 @@ def pack(X, weeks, vocab, W, H):
     """Shape the fit into the structure the page reads."""
     words_per_week = X.sum(axis=0)
     overall = X.sum(axis=1) / X.sum()                    # corpus word distribution
-    share = H / np.maximum(H.sum(axis=0), 1e-12)         # component share of each week
+    # H is reported as it is, in word appearances. Because the columns of W sum to 1, a
+    # column of H sums to that week's word count -- so H[c, t] is the number of appearances
+    # in week t attributable to component c, and every component's curve is in the same
+    # units. Not divided through by the week: that would hide how much was written, and
+    # the weeks differ threefold in length even after the document cap.
     mass = H.sum(axis=1) / H.sum()
     per10k = 1e4 * X / np.maximum(words_per_week, 1)     # a word's rate, comparable
 
@@ -252,10 +256,10 @@ def pack(X, weeks, vocab, W, H):
         components.append({
             "id": int(c),
             "mass": round(float(mass[c]), 4),
-            "peak_week": weeks[int(np.argmax(share[c]))],
-            "start_share": round(float(share[c][:8].mean()), 4),
-            "end_share": round(float(share[c][-8:].mean()), 4),
-            "weight": r(share[c], 5),
+            "peak_week": weeks[int(np.argmax(H[c]))],
+            "start": int(round(H[c][:8].mean())),        # appearances a week, first/last
+            "end": int(round(H[c][-8:].mean())),         # two months
+            "weight": [int(round(v)) for v in H[c]],     # absolute, in appearances
             "words": [{"word": vocab[j],
                        "prob": round(float(p[j]), 6),
                        "lift": round(float(lift[j]), 2),
@@ -295,19 +299,20 @@ def selftest():
     assert abs(sum(c["mass"] for c in out["components"]) - 1.0) < 1e-3
     assert all(len(c["weight"]) == T for c in out["components"])
     assert all(len(w["per10k"]) == T for c in out["components"] for w in c["words"])
-    # the share of a week must be a share
+    # W's columns summing to 1 means H's columns must recover the week's word count
     tot = np.sum([np.array(c["weight"]) for c in out["components"]], axis=0)
-    assert np.allclose(tot, 1.0, atol=1e-3), "weekly shares do not sum to 1"
+    want = X.sum(axis=0)
+    assert np.allclose(tot, want, rtol=0.05), "H does not reconstruct the week's total"
 
     moved = {f"w{j}" for j in range(size)}
     hit = [c for c in out["components"]
            if len(moved & set(c["word_list"] + c["most_used"])) >= 4]
     assert hit, "the arriving bundle did not become a component"
-    w = np.array(hit[0]["weight"])
-    assert w[:on].mean() < 0.5 * w[on:].mean(), "its share does not rise"
+    w = np.array(hit[0]["weight"], dtype=float)
+    assert w[:on].mean() < 0.5 * w[on:].mean(), "its activation does not rise"
 
     assert err >= 0
-    print(f"selftest: ok  (W columns sum to 1, weekly shares sum to 1, "
+    print(f"selftest: ok  (W columns sum to 1, H recovers each week's total, "
           f"bundle recovered at {hit[0]['mass']:.0%} of mass)")
 
 
@@ -337,7 +342,7 @@ def main():
           f"({os.path.getsize(args.out)/1e3:.0f} kB)\n")
     for c in out["components"]:
         print(f"  {c['mass']:5.1%}  peak {c['peak_week']}  "
-              f"share {c['start_share']:.3f} -> {c['end_share']:.3f}")
+              f"{c['start']:,} -> {c['end']:,} appearances a week")
         print("         " + ", ".join(w["word"][:20] for w in c["words"][:8]))
         print("         most used:   " + ", ".join(w[:20] for w in c["most_used"][:8]))
 

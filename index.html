@@ -280,7 +280,7 @@ function build() {
 
   html += `<p class="label" style="margin:40px 0 10px">the ${A.k} ways of writing
     &nbsp;·&nbsp; pick one &nbsp;·&nbsp; every graph on the same 0 to
-    ${(TOP * 100).toFixed(0)}% axis</p>
+    ${fmt(TOP)} appearances axis</p>
     <div class="pick" role="tablist">` + A.components.map((c, rank) => `
       <button class="card" role="tab" data-pick="${rank}"
               aria-current="${rank === 0}"
@@ -318,11 +318,10 @@ function build() {
         <span class="numeral">${rank + 1}</span>
         <span class="mass">${(c.mass * 100).toFixed(1)}% of mass</span>
         <span class="meta">peaks ${c.peak_week} &nbsp;·&nbsp;
-          share of the week ${(c.start_share * 100).toFixed(1)}%
-          &rarr; ${(c.end_share * 100).toFixed(1)}%</span>
+          ${fmt(c.start)} &rarr; ${fmt(c.end)} appearances a week</span>
       </div>
-      <p class="label" style="margin:22px 0 0">share of the week's words &nbsp;·&nbsp;
-        axis 0 to ${(TOP * 100).toFixed(0)}%, the same for every component</p>
+      <p class="label" style="margin:22px 0 0">word appearances a week &nbsp;·&nbsp;
+        axis 0 to ${fmt(TOP)}, the same for every component</p>
       <div class="big">
         <svg data-weight="${rank}" role="img"
              aria-label="component ${rank + 1} weekly weight, peaking ${c.peak_week}"></svg>
@@ -355,10 +354,14 @@ function build() {
       of words by weeks is factorised into <code>W</code>, whose columns are probability
       distributions over the vocabulary, and <code>H</code>, which says how much of each
       distribution was in the air each week. Because the columns of <code>W</code> sum to
-      one, the column sums of <code>H</code> recover the week's word count, so a
-      component's row of <code>H</code> divided by that total is genuinely its share of
-      everything written that week &mdash; which is why all eight charts share one axis
-      instead of each being scaled to its own peak.</p>
+      one, the column sums of <code>H</code> recover the week's word count &mdash; so a row
+      of <code>H</code> is a count of word appearances, in the same units for every
+      component, which is why they all share one axis instead of each being scaled to its
+      own peak. They are left as counts rather than divided through by the week, because
+      dividing hides how much was written, and the weeks differ threefold in length even
+      after the document cap. Component 1 is a case in point: as a share of the week it
+      falls from 33% to 14%, but in appearances it barely moves. It did not shrink; the
+      corpus grew around it.</p>
     <p>The loss is Kullback&ndash;Leibler rather than squared error, because counts drawn
       from a mixture of distributions is a multinomial model and KL is its likelihood. A
       slight L1 penalty on <code>H</code> pulls the quiet weeks down; the solver that KL
@@ -453,7 +456,7 @@ function render() {
   const svg = app.querySelector(`svg[data-weight="${current}"]`);
   if (!svg) return;
   draw(svg, c.weight, { rules: true, years: true, pad: 6, sw: 2, max: TOP });
-  hover(svg, v => `${(v * 100).toFixed(1)}% of the week`);
+  hover(svg, v => `${fmt(v)} appearances`);
   c.words.forEach((w, j) => {
     const s = app.querySelector(`svg[data-series="${current}:${j}"]`);
     draw(s, w.per10k, { sw: 1.5 });
