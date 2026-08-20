@@ -198,7 +198,32 @@ caveat that runs the right way: k ≥ 96 was fitted with two restarts against si
 k, so the large fits are handicapped and the true optimum may be higher still. The turnover is
 real regardless, because 128 and 192 had the same two restarts and 192 is worse.
 
-So **`k = 12` is a legibility choice, not a statistical one** — twelve rows a reader can scan,
+`mixture.html?k=128` shows it. Above twenty components a full-width row each is unreadable —
+at 128 it would run to twenty-five thousand pixels — so the page switches to a grid of small
+multiples, six across, each with its mean, its peak and its four most representative words.
+Five of the 128 grow: `firewall, workbench, sha-256, publication, hermes, idempotency`;
+`--all-targets, --workspace, reproduces, cwd, envelope`; `reconnect, one-shot, drain,
+reconcile, 24h, forever`; `leg, asserted, refuses, killed, refusal, throws, nobody`; and
+`ancestor, backfill, tensor, dataclass, torch`. The register at k = 12 is these, plus the
+tooling half, plus more.
+
+**And this is where `load-bearing` stops owning a component.** Its lift and its rank in the
+component that gives it most, at each k:
+
+| `k` | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 128 |
+|---|---|---|---|---|---|---|---|---|
+| best lift | 2.4 | 4.3 | 6.5 | 6.1 | 7.2 | 8.6 | 9.1 | **26.2** |
+| its rank there | 6th | **1st** | 3rd | **1st** | **1st** | 19th | **1st** | 19th |
+| next-best lift | 0.00 | 0.01 | 0.15 | 0.01 | 0.02 | 4.07 | 0.44 | **12.6** |
+
+At k = 6 to 32 one component holds it almost exclusively — the gap to the runner-up is 21 to
+610-fold, so the word belongs somewhere. At k = 128 the lift is four times higher, because
+narrower components can concentrate a word much harder, but the gap collapses to 2.1-fold and
+it appears with lift above 4 in at least six components: `shim, pilot, stdio, mcp` (26.2),
+`leg, asserted, refuses, killed` (12.6), `reconnect, one-shot, drain` (9.1), and on. The word
+is real at every resolution; what it *belongs to* is only well defined at coarse ones.
+
+That is the trade in one line. **`k = 12` is a legibility choice, not a statistical one** — twelve rows a reader can scan,
 against 128 nobody will read. What the smaller k buys is a summary; what it costs is resolution.
 
 What the sweep does show, without depending on any scoring choice, is the register's condition

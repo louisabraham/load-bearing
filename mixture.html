@@ -67,6 +67,17 @@ h2 { font:900 clamp(1.4rem,3vw,2rem)/1.1 var(--sans); letter-spacing:-0.025em; m
         border:1px solid var(--hairline); margin:0 4px 4px 0; max-width:30ch;
         overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
 .row.up .chip { border-color:var(--accent); }
+
+/* Small multiples, for fits with too many components to give each a full-width row. At
+   k = 128 the row layout would run to twenty-five thousand pixels; this runs to three. */
+.cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr)); gap:1px; }
+.card { padding:9px 10px 7px; box-shadow:inset 0 0 0 1px var(--hairline); }
+.card.up { background:var(--fill); box-shadow:inset 0 0 0 1px var(--accent); }
+.card b { display:block; font:900 1.05rem/1.1 var(--sans); letter-spacing:-0.02em; }
+.card.up b { color:var(--accent); }
+.card svg { display:block; width:100%; height:30px; margin:5px 0 4px; }
+.card .w { font:500 10.5px/1.45 var(--mono); color:var(--muted); word-break:break-all;
+           display:block; max-height:4.4em; overflow:hidden; }
 #tip { position:fixed; pointer-events:none; opacity:0; z-index:10; background:var(--ink);
        color:var(--ground); padding:7px 9px; font:500 11px/1.45 var(--mono);
        white-space:nowrap; }
@@ -98,6 +109,10 @@ const short = w => w.length > 26 ? w.slice(0, 25) + "…" : w;
    worth at least a twentieth of the week by the end. The doubling alone would also flag
    things that went from negligible to slightly less negligible. */
 const grew = c => c.end_share >= 2 * c.start_share && c.end_share >= 0.05;
+
+/* Above this many components a full-width row each is not readable -- at k = 128 it would
+   run to twenty-five thousand pixels -- so the section switches to small multiples. */
+const COMPACT = () => B.k > 20;
 
 /* One stacked chart. `key` picks the series -- absolute appearances, or share of the week --
    and the bands are separated by a hairline of the surface so twelve of them stay countable
@@ -137,7 +152,7 @@ function stack(svg, key, unit) {
     cr.setAttribute("x2", ((i / (T - 1)) * r.width).toFixed(1));
     cr.setAttribute("opacity", "0.6");
     const top = [...B.components].sort((a, b) => b[key][i] - a[key][i]).slice(0, 3)
-      .map(c => `${key === "prevalence" ? pc(c[key][i]) : fmt(c[key][i])} ${c.words[0].word.slice(0, 14)}`);
+      .map(c => `${key === "prevalence" ? pc(c[key][i]) : fmt(c[key][i])} ${c.word_list[0].slice(0, 14)}`);
     tip.textContent = `${B.weeks[i]}  ·  ${fmt(totals[i])} ${unit}  ·  ${top.join("   ")}`;
     tip.classList.add("on");
     const tw = tip.offsetWidth;
@@ -201,7 +216,7 @@ function build() {
     </div>
     <p class="label" style="margin:22px 0 8px">components in this fit &nbsp;·&nbsp;
       pick another</p>
-    <div class="pick">${[4, 6, 8, 12, 16, 24, 32].map(n =>
+    <div class="pick">${[4, 6, 8, 12, 16, 24, 32, 128].map(n =>
       `<a href="${n === 12 ? "?" : "?k=" + n}"${n === B.k ? ' aria-current="true"' : ""}
         >${n}</a>`).join("")}</div></header>
 
@@ -232,33 +247,47 @@ function build() {
 
     <section>
       <h2>Each way of writing</h2>
-      <p class="note">One row per component, in the order they peak. Every curve is absolute
-        &mdash; word appearances attributable to that component that week &mdash; on an axis
-        shared with every other row, so the rows are directly comparable and a small
-        component looks small. Because that leaves most of them flat, each is also drawn as a
-        hairline scaled to its own peak, which carries the shape: solid for magnitude,
-        hairline for shape, and the peak beside it says what the hairline reaches. Words are
-        ranked by how much more probable they are under the component than in the corpus at
-        large, with that multiple beside each. The count of twenty-two is arbitrary and the
-        line under each row says so: lift declines smoothly with rank, with no cliff to cut
-        at, so the words shown are the head of a long tail rather than a closed set.</p>
-      ` + B.components.map((c, i) => `
-        <div class="row${grew(c) ? " up" : ""}">
-          <span class="when"><b>${fmt(mean(c.appearances))}</b>a week on average<br>
-            peak ${fmt(Math.max(...c.appearances))}<br>at ${c.peak_week}</span>
-          <svg data-curve="${i}" role="img"
-               aria-label="${fmt(mean(c.appearances))} appearances a week on average,
-                           peaking ${c.peak_week}"></svg>
-          <div class="words">` +
-            c.word_list.slice(0, 22).map((w, j) =>
-              `<span class="chip" title="${esc(w)} — ${c.word_lift[j]}x more probable here
-                than in the corpus">${esc(short(w))}<i>${c.word_lift[j].toFixed(1)}</i>
-              </span>`).join("") +
-            `<span class="tail">lift ${c.word_lift[0].toFixed(1)} down to
-              ${c.word_lift[21].toFixed(1)} across these 22 &nbsp;·&nbsp;
-              ${fmt(c.tail[5])} words in this component pass 5&times;,
-              ${fmt(c.tail[3])} pass 3&times;, ${fmt(c.tail[2])} pass 2&times;</span>` +
-          `</div></div>`).join("") + `</section>
+      <p class="note">One ${COMPACT() ? "card" : "row"} per component, in the order they peak.
+        Every curve is absolute &mdash; word appearances attributable to that component that
+        week &mdash; on an axis shared with every other, so a small component looks small.
+        Because that leaves most of them flat, each is also drawn as a hairline scaled to its
+        own peak: solid for magnitude, hairline for shape, and the number beside it says what
+        the hairline reaches.${COMPACT()
+          ? ` With ${B.k} components there is no room for a full row each, so this is a grid
+              of small multiples showing the four most representative words. Open a smaller
+              fit above for the full word lists and their lift values.`
+          : ` Words are ranked by how much more probable they are under the component than in
+              the corpus at large, with that multiple beside each. The count of twenty-two is
+              arbitrary and the line under each row says so: lift declines smoothly with rank,
+              with no cliff to cut at, so the words shown are the head of a long tail rather
+              than a closed set.`}</p>
+      ` + (COMPACT()
+        ? `<div class="cards">` + B.components.map((c, i) => `
+            <div class="card${grew(c) ? " up" : ""}">
+              <b>${fmt(mean(c.appearances))}</b>
+              <span class="label" style="font-size:9.5px">a week · peak
+                ${fmt(Math.max(...c.appearances))}</span>
+              <svg data-curve="${i}"></svg>
+              <span class="w">${c.word_list.slice(0, 4).map(w =>
+                esc(short(w))).join(", ")}</span>
+            </div>`).join("") + `</div>`
+        : B.components.map((c, i) => `
+            <div class="row${grew(c) ? " up" : ""}">
+              <span class="when"><b>${fmt(mean(c.appearances))}</b>a week on average<br>
+                peak ${fmt(Math.max(...c.appearances))}<br>at ${c.peak_week}</span>
+              <svg data-curve="${i}" role="img"
+                   aria-label="${fmt(mean(c.appearances))} appearances a week on average,
+                               peaking ${c.peak_week}"></svg>
+              <div class="words">` +
+                c.word_list.slice(0, 22).map((w, j) =>
+                  `<span class="chip" title="${esc(w)} — ${c.word_lift[j]}x more probable here
+                    than in the corpus">${esc(short(w))}<i>${c.word_lift[j].toFixed(1)}</i>
+                  </span>`).join("") +
+                `<span class="tail">lift ${c.word_lift[0].toFixed(1)} down to
+                  ${c.word_lift[21].toFixed(1)} across these 22 &nbsp;·&nbsp;
+                  ${fmt(c.tail[5])} words in this component pass 5&times;,
+                  ${fmt(c.tail[3])} pass 3&times;, ${fmt(c.tail[2])} pass 2&times;</span>` +
+              `</div></div>`).join("")) + `</section>
 
     <footer>
       <h2>The model</h2>

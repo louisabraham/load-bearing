@@ -39,8 +39,7 @@ LAMBDA = 40.0                       # smoothness; see `fit_pi`
 OUTER = 12                          # EM passes per restart
 N_INIT = 10                         # restarts; see `fit_best`
 SEED = 0
-WORDS_LISTED = 40
-WORDS_CHARTED = 16
+WORDS_LISTED = 40                   # per component; the cut is arbitrary and `tail` says so
 
 
 # ------------------------------------------------------------------------- corpus
@@ -230,12 +229,6 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
     docs_per_week = np.bincount(week_of, minlength=len(weeks))
     words_per_week = np.zeros(len(weeks))
     np.add.at(words_per_week, week_of, np.asarray(X.sum(axis=1)).ravel())
-    per10k = np.zeros((len(vocab), len(weeks)))
-    for t in range(len(weeks)):
-        sel = week_of == t
-        if sel.any():
-            per10k[:, t] = 1e4 * np.asarray(X[sel].sum(axis=0)).ravel() \
-                / max(words_per_week[t], 1)
 
     # ordered by when each component peaks, so the stacked view reads left to right
     order = np.argsort([int(np.argmax(pi[:, c])) for c in range(W.shape[0])])
@@ -253,10 +246,6 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
             "prevalence": [round(float(v), 5) for v in pi[:, c]],
             "count": [round(float(v), 1) for v in C[:, c]],   # documents, absolute
             "appearances": [int(round(v)) for v in A[:, c]],   # absolute, length-weighted
-            "words": [{"word": vocab[j], "lift": round(float(lift[j]), 2),
-                       "prob": round(float(W[c][j]), 6),
-                       "per10k": [round(float(v), 2) for v in per10k[j]]}
-                      for j in rank[:WORDS_CHARTED]],
             "word_list": [vocab[j] for j in rank[:WORDS_LISTED]],
             "word_lift": [round(float(lift[j]), 2) for j in rank[:WORDS_LISTED]],
             # how long the tail is. The listed words are the head of a smooth decline, not a
@@ -336,7 +325,7 @@ def main():
     for c in out["components"]:
         print(f"  peaks {c['peak_week']}  mean {c['share']:6.1%}  peak {c['peak']:5.1%}  "
               f"{c['start_share']:.1%} -> {c['end_share']:.1%}")
-        print("        " + ", ".join(w["word"][:20] for w in c["words"][:9]))
+        print("        " + ", ".join(w[:20] for w in c["word_list"][:9]))
 
 
 if __name__ == "__main__":
