@@ -138,141 +138,36 @@ open mixture.html           # stacked, absolute and as a share
 structural rather than a matter of coefficient. There `W`'s columns are normalised *after*
 fitting, so an L1 on `H` can be satisfied by shrinking `H` and inflating `W` at no cost, and
 the rescaling undoes it exactly. Here `pi` sums to 1 in every week by construction, so the
-scale is not free and there is nothing to game. Swept at `k = 12`, total squared week-to-week
-change:
+scale is not free. An L1 on `pi` itself would still do nothing: on the simplex
+`||pi_t||_1 = 1` identically, a constant with zero gradient.
 
-| `lambda` | 0 | 10 | 40 | 200 | 1000 |
-|---|---|---|---|---|---|
-| roughness | 1.870 | 1.765 | 1.517 | 0.909 | **0.333** |
+**`lambda` is set by held-out likelihood, and made scale-free in `k`.** The difference is
+penalised relative to `1/K` rather than absolutely, because without that the right `lambda`
+moves by two orders of magnitude with `k` for a purely mechanical reason: prevalences sum to
+one, so a typical `pi` is about `1/K` and a typical squared difference about `1/K²`. Held-out
+likelihood puts the optimum at 5,000 for `k = 12` and 500,000 for `k = 128` — and
+`(128/12)² × 5,000 = 568,889`, one grid step away. So the entire k-dependence is that factor,
+and absorbing `K²` leaves one constant that is right at both: `5,000/144 = 34.7` and
+`500,000/16,384 = 30.5`. Set to 32, it reproduces both per-k optima exactly, −9.2944 and
+−9.0728 bits per word.
 
-A 5.6-fold reduction, monotone, costing 0.002% of the log-likelihood at the far end. An L1 on
-`pi` *itself* would do nothing for a third reason: on the simplex `||pi_t||_1 = 1` identically,
-so it is a constant with zero gradient — L1 induces sparsity by trading against magnitude, and
-on a simplex the magnitude is already spent.
+| `lambda` at k=128 | 0 | 1,000 | 25,000 | 100,000 | **500,000** | 2 M | 10 M |
+|---|---|---|---|---|---|---|---|
+| held out | −9.0782 | −9.0770 | −9.0742 | −9.0734 | **−9.0728** | −9.0738 | −9.0760 |
+| train | −8.8055 | −8.8053 | −8.8064 | −8.8070 | −8.8072 | −8.8079 | −8.8099 |
 
-### How a word relates to a component
+Train getting worse while held-out gets better is the regularisation signature, and it only
+appears at the larger `k`, where there are 17,536 prevalences to fit rather than 1,644. At
+`k = 12` held-out is flat to four decimals across four orders of magnitude, so there the
+penalty is free rather than helpful — worth taking anyway, since it cuts roughness twentyfold
+for nothing.
 
-No word is *assigned* to a component. `W_kv = P(word v | component k)` is positive for every
-pair, so every word belongs a little to all of them. What the page shows is a **ranking**, by
-how much more probable a word is under one component than in the corpus at large:
+Held-out likelihood cannot see over-smoothing, so the shape was checked separately. At
+`k = 12` the register rises 0.4% → 65.4% at the old default and 0.3% → 63.8% at the new one,
+but only 0.4% → **47.0%** at a hundred times that — the peak dragged down toward the early
+weeks. The chosen value is the largest that leaves the shape alone.
 
-```
-lift(v, k) = P(v | k) / P(v)
-```
-
-For `load-bearing` at `k = 12` the ranking is not close, which is worth showing because it is
-not guaranteed:
-
-| component | `P(word｜comp)` | lift | its rank there |
-|---|---|---|---|
-| 3 | 6.89 × 10⁻⁵ | **6.58** | **1st of 6,207** |
-| 0 | 1.50 × 10⁻⁶ | 0.14 | 5,491st |
-| the other ten | ≤ 1.1 × 10⁻⁷ | ≤ 0.01 | 1,887th – 5,825th |
-
-One component gives it 46 times the probability of the next best, and it is that component's
-single most representative word. But that is a fact about this word. A word with lift near 1
-everywhere belongs to no component in particular, and the ranking will still put it 40th
-somewhere — the list is a top-40, not a test.
-
-### How many components
-
-`--k` sets it, `--out` names the file, and `mixture.html?k=N` reads whichever fit you ask for:
-
-```bash
-for k in 4 6 8 12 16 24 32; do
-  python mixture.py --k $k --n-init 6 --out mixture-k$k.js
-done
-```
-
-Training likelihood rises with k because more parameters always fit better, so it cannot
-choose. Held-out likelihood can: fit on 90% of documents, score the other 10%. Pushed far
-enough, it turns over.
-
-| `k` | 4 | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | **128** | 192 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| train | −9.458 | −9.302 | −9.240 | −9.180 | −9.097 | −9.045 | −8.969 | −8.922 | −8.862 | −8.806 | −8.739 |
-| **held out** | −9.481 | −9.338 | −9.291 | −9.246 | −9.181 | −9.149 | −9.110 | −9.095 | −9.083 | **−9.078** | −9.103 |
-
-**The data supports about 128 components**, an order of magnitude more than the default. One
-caveat that runs the right way: k ≥ 96 was fitted with two restarts against six for the small
-k, so the large fits are handicapped and the true optimum may be higher still. The turnover is
-real regardless, because 128 and 192 had the same two restarts and 192 is worse.
-
-`mixture.html?k=128` shows it. Above twenty components a full-width row each is unreadable —
-at 128 it would run to twenty-five thousand pixels — so the page switches to a grid of small
-multiples, six across, each with its mean, its peak and its four most representative words.
-Five of the 128 grow: `firewall, workbench, sha-256, publication, hermes, idempotency`;
-`--all-targets, --workspace, reproduces, cwd, envelope`; `reconnect, one-shot, drain,
-reconcile, 24h, forever`; `leg, asserted, refuses, killed, refusal, throws, nobody`; and
-`ancestor, backfill, tensor, dataclass, torch`. The register at k = 12 is these, plus the
-tooling half, plus more.
-
-**And this is where `load-bearing` stops owning a component.** Its lift and its rank in the
-component that gives it most, at each k:
-
-| `k` | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 128 |
-|---|---|---|---|---|---|---|---|---|
-| best lift | 2.4 | 4.3 | 6.5 | 6.1 | 7.2 | 8.6 | 9.1 | **26.2** |
-| its rank there | 6th | **1st** | 3rd | **1st** | **1st** | 19th | **1st** | 19th |
-| next-best lift | 0.00 | 0.01 | 0.15 | 0.01 | 0.02 | 4.07 | 0.44 | **12.6** |
-
-At k = 6 to 32 one component holds it almost exclusively — the gap to the runner-up is 21 to
-610-fold, so the word belongs somewhere. At k = 128 the lift is four times higher, because
-narrower components can concentrate a word much harder, but the gap collapses to 2.1-fold and
-it appears with lift above 4 in at least six components: `shim, pilot, stdio, mcp` (26.2),
-`leg, asserted, refuses, killed` (12.6), `reconnect, one-shot, drain` (9.1), and on. The word
-is real at every resolution; what it *belongs to* is only well defined at coarse ones.
-
-That is the trade in one line. **`k = 12` is a legibility choice, not a statistical one** — twelve rows a reader can scan,
-against 128 nobody will read. What the smaller k buys is a summary; what it costs is resolution.
-
-What the sweep does show, without depending on any scoring choice, is the register's condition
-at each k:
-
-| `k` | pieces | the biggest piece's top words |
-|---|---|---|
-| 4 | 1 | `refusal, subagent, nixpkgs-update…` — 39% of the corpus, diluted with everything else |
-| 6 | 1 | `load-bearing, optimole, imgbot, octocat` |
-| 8 | 1 | `[webkit-url], byte-identical, load-bearing, ews` |
-| 12 | 1 | `load-bearing, --all-targets, byte-identical, seam` |
-| 16 | 1 | `load-bearing, 2100s, dhi, 600s` |
-| 24 | **2** | splits; pieces stay identifiable |
-| 32 | **2** | `load-bearing, genuine, carries, latent` |
-
-Three regimes: below 6 the register is absorbed into a large component along with unrelated
-vocabulary; from 6 to 16 it is one undivided component with `load-bearing` its most
-representative word at 6, 12, 16 and 32; from about 24 it splits in two without dissolving.
-
-**And the split at k = 32 is worth reading, because it is not a degradation.** The two pieces
-are different registers that arrived five months apart:
-
-| | prose, peaks 2026-08-10 | tooling, peaks 2026-03-09 |
-|---|---|---|
-| share of the week | 0.0% → 42.2% | 0.1% → 17.5% |
-| lift 1 → 40 | 9.1 → 6.7 | 11.9 → 6.5 |
-| words | `load-bearing, genuine, carries, latent, lands, folded, seam, refuses, drives, framing, byte-identical, deliberately, identically, surfaced, survives, refusal, honest, reproduces, proves, verdict, measured, defects, untouched, inert, asserting, holds` | `pythonpath, py_compile, workbench, -q, --filter, worktrees, --test, --lib, --all-features, compileall, modulenotfounderror, cjs, --check, --workspace, runbook, unittest, subcommands, jsonl, sha-256, --locked, --all-targets, redaction, fail-closed, handoff, pytest, cargo, harness, orchestration, mvp, governance, gpt-5, [chatgpt-url]` |
-
-One is the vocabulary of asserting what is true about a change; the other is command-line flags
-and agent scaffolding. At `k = 12` they are one component, and the tooling half is why
-`--all-targets` sits third in its word list.
-
-### The word lists are a window, not a set
-
-Forty is arbitrary, and the numbers say so plainly. Lift declines smoothly with rank and there
-is no cliff to cut at — for the prose component at `k = 32`, rank 1 is 9.1× and rank 80 is
-still 6.0×, with **187 words above 5×, 803 above 3× and 1,743 above 2×**. So a top-40 is the
-head of a long tail rather than a closed group.
-
-The page therefore prints each word's lift beside it, and a line under every row saying how far
-the tail runs. Nothing about the model changes; what changes is that a reader can see the list
-is a window and where it was cut.
-
-**A retraction.** An earlier version of this table scored each k by how many of 22 "marker
-words" it recovered, and reported that the count peaked at 12. That metric was circular: the 22
-words were chosen by reading the k = 12 output, so it measured agreement with k = 12 rather
-than quality of fit. Held-out likelihood is the non-circular version, and it does not favour 12.
-
-### Absolute, not share### Absolute, not share
+### Absolute, not share### Absolute, not share### Absolute, not share
 
 `mixture.html` reports absolute counts everywhere, and the two stacked views side by side are
 the argument for it. The corpus caps documents at 350 a week, so the document count is flat by

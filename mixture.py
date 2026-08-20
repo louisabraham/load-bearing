@@ -35,7 +35,7 @@ from scipy.sparse import csr_matrix
 import analyze                      # the corpus rules live there and are shared verbatim
 
 K = 12
-LAMBDA = 40.0                       # smoothness; see `fit_pi`
+LAMBDA = 32.0                       # smoothness, scale-free in k; see `fit_pi`
 OUTER = 12                          # EM passes per restart
 N_INIT = 10                         # restarts; see `fit_best`
 SEED = 0
@@ -110,23 +110,45 @@ def fit_pi(C, lam=LAMBDA):
     it directly rather than needing a projection at every step.
 
     The smoothness term exists because weekly counts are noisy at a few hundred documents a
-    week, not because a component is expected to be monotone. It binds, and for a structural
-    reason worth contrasting with the L1 in analyze.py, which does not: there the columns of
-    W are normalised *after* fitting, so an L1 on H could be satisfied by shrinking H and
-    inflating W at no cost and the rescaling undid it exactly. Here pi sums to 1 in every
-    week by construction, so the scale is not free and there is nothing to game. Swept on
-    the corpus at k=12, total squared week-to-week change:
+    week, not because a component is expected to be monotone.
 
-        lambda        0      10      40     200    1000
-        roughness  1.870   1.765   1.517   0.909   0.333
+    **The penalty is on the difference measured against 1/K, not on the difference itself.**
+    Without that, the right lambda changes by two orders of magnitude with K, and for a
+    mechanical reason: prevalences sum to one, so a typical pi is about 1/K and a typical
+    squared difference about 1/K^2. Held-out likelihood -- fit on 90% of documents, score the
+    other 10%, in bits per word -- puts the optimum at 5,000 for K=12 and 500,000 for K=128,
+    and (128/12)^2 x 5,000 = 568,889. One grid step from the observed optimum, so the whole
+    K-dependence is that factor. Absorbing K^2 into the penalty leaves a single constant that
+    is right at both: 5,000/12^2 = 34.7 and 500,000/128^2 = 30.5.
 
-    A 5.6-fold reduction, monotone, costing 0.002% of the log-likelihood at the far end.
-    LAMBDA sits at the low end because the aim is to take the jitter off the curve rather
-    than to flatten it.
+    The sweeps, at K=12:
 
-    An L1 on pi itself would do nothing at all, for a third reason: on the simplex
-    ||pi_t||_1 = 1 identically, so it is a constant with zero gradient. L1 induces sparsity
-    by trading against magnitude, and on a simplex the magnitude is already spent.
+        lambda        0      40     200    1000    5000   25000  100000
+        held out  -9.2947 -9.2946 -9.2946 -9.2945 -9.2944 -9.2944 -9.2945
+        roughness  1.891   1.524   0.895   0.311   0.074   0.022   0.009
+
+    and at K=128, where there are 17,536 prevalences to fit rather than 1,644 and the penalty
+    has real work to do:
+
+        lambda        0    1000    5000   25000  100000  500000    2e6    1e7
+        held out  -9.0782 -9.0770 -9.0749 -9.0742 -9.0734 -9.0728 -9.0738 -9.0760
+        train     -8.8055 -8.8053 -8.8056 -8.8064 -8.8070 -8.8072 -8.8079 -8.8099
+
+    Train getting worse while held-out gets better is the regularisation signature, and it is
+    only visible at the larger K. At K=12 held-out is flat to four decimal places across four
+    orders of magnitude, so there the penalty is free rather than helpful -- worth taking
+    anyway, because it cuts roughness twenty-fold for nothing.
+
+    Held-out likelihood does not see over-smoothing directly, so the shape was checked too. At
+    K=12 the register's rise is 0.4% to 65.4% at lambda=40 and 0.3% to 63.8% at the chosen
+    setting, but 0.4% to 47.0% at a hundred times that -- the peak dragged down toward the
+    early weeks. The chosen value is the largest that leaves the shape alone.
+
+    It binds, unlike the L1 in analyze.py, and for a structural reason: there the columns of W
+    are normalised *after* fitting, so an L1 on H could be satisfied by shrinking H and
+    inflating W at no cost, and the rescaling undid it exactly. Here pi sums to 1 in every
+    week by construction, so the scale is not free. An L1 on pi itself would still do nothing
+    -- on the simplex ||pi_t||_1 = 1 identically, a constant with zero gradient.
     """
     T, K_ = C.shape
 
@@ -138,11 +160,14 @@ def fit_pi(C, lam=LAMBDA):
     def neg(v):
         pi = softmax(v.reshape(T, K_))
         p = np.maximum(pi, 1e-12)
+        # the difference is measured against 1/K, not absolutely, which is what makes one
+        # lambda work at every K -- see the docstring
+        w = lam * K_ * K_
         d = np.diff(pi, axis=0)
-        obj = (C * np.log(p)).sum() - lam * (d ** 2).sum()
+        obj = (C * np.log(p)).sum() - w * (d ** 2).sum()
         g = C / p
-        g[1:] -= 2 * lam * d
-        g[:-1] += 2 * lam * d
+        g[1:] -= 2 * w * d
+        g[:-1] += 2 * w * d
         gt = pi * (g - (pi * g).sum(axis=1, keepdims=True))   # through the softmax
         return -obj, -gt.ravel()
 
