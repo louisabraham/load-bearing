@@ -126,9 +126,25 @@ z_d ~ Cat(pi_t)     which component wrote document d
 x_d ~ Mult(n_d, W_k)  its words
 ```
 
-After birth the only thing asked of the curve is smoothness. Fitted by alternating:
-attribute documents, refit the word distributions, refit the prevalences under the birth
-constraint, re-read the births.
+After birth the only thing asked of the curve is smoothness, `lambda * sum_t (pi_tk -
+pi_{t-1,k})^2`. Fitted by alternating: attribute documents, refit the word distributions,
+refit the prevalences under the birth constraint, re-read the births.
+
+**That penalty works, where the L1 in `analyze.py` does not** — and the difference is
+structural rather than a matter of coefficient. There `W`'s columns are normalised *after*
+fitting, so an L1 on `H` can be satisfied by shrinking `H` and inflating `W` at no cost, and
+the rescaling undoes it exactly. Here `pi` sums to 1 in every week by construction, so the
+scale is not free and there is nothing to game. Swept at `k = 12`, total squared
+week-to-week change:
+
+| `lambda` | 0 | 10 | 40 | 200 | 1000 |
+|---|---|---|---|---|---|
+| roughness | 1.870 | 1.765 | 1.517 | 0.909 | **0.333** |
+
+A 5.6-fold reduction, monotone, costing 0.002% of the log-likelihood at the far end — and
+the finding is untouched across the range: the one late birth stays at week 89 and its peak
+within 1% of 67%. The default sits at the low end, because the aim is to take the jitter off
+the curve rather than to flatten it.
 
 **One correction to the recipe, and it matters.** Choosing `tau_k` by trying candidates and
 keeping the highest regularised likelihood cannot work: a later birth is a strictly tighter

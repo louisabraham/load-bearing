@@ -130,6 +130,20 @@ def fit_pi(C, tau, lam=LAMBDA, T=None):
     The smoothness term is the only thing asked of the curve after birth. It exists because
     weekly counts are noisy at a few hundred documents a week, not because a component is
     expected to be monotone: nothing here stops one rising and falling again.
+
+    Unlike the L1 in analyze.py, this penalty actually bites, and for a structural reason.
+    There the columns of W are normalised *after* fitting, so the optimiser could satisfy an
+    L1 on H by shrinking H and inflating W at no cost, and the rescaling undid it exactly.
+    Here pi sums to 1 in every week by construction, so the scale is not free and there is
+    nothing to game. Swept on the corpus at k=12, total squared week-to-week change:
+
+        lambda        0      10      40     200    1000
+        roughness  1.870   1.765   1.517   0.909   0.333
+
+    A 5.6-fold reduction, monotone, and it costs 0.002% of the log-likelihood at the far
+    end. The finding is untouched across the whole range: the one late birth stays at week
+    89 and its peak within 1% of 67%. LAMBDA is set at the low end because the aim is to
+    take the week-to-week jitter off the curve, not to flatten it.
     """
     T = T or C.shape[0]
     K_ = C.shape[1]
