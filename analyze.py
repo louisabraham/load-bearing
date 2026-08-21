@@ -197,9 +197,13 @@ def tokens(body):
     # `<a href="...">text</a>` is `text` and not `a`, `href`, `text`, `a`
     rest = TAG_RE.sub(" ", URL_RE.sub(" ", body))
     for w in WORD_RE.findall(rest):
+        # no letter test is needed: WORD_RE already requires one, and trimming only ever
+        # removes `_`, `/` and `-`, so a token that had a letter still has it. The `startswith`
+        # guard is not cosmetic either -- without it the Snyk pattern is matched against every
+        # one of seven million tokens instead of the few hundred that could possibly match.
         w = w.strip("_/").rstrip("-")
-        if w and any(c.isalpha() for c in w):
-            out.append("[snyk-id]" if SNYK_ID_RE.match(w) else w)
+        if w:
+            out.append("[snyk-id]" if w.startswith("snyk-") and SNYK_ID_RE.match(w) else w)
     return out
 
 
