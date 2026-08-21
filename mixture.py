@@ -34,12 +34,15 @@ from scipy.sparse import csr_matrix
 
 import analyze                      # the corpus rules live there and are shared verbatim
 
-K = 12
+K = 16
 LAMBDA = 32.0                       # smoothness, scale-free in k; see `fit_pi`
 OUTER = 12                          # EM passes per restart
 N_INIT = 10                         # restarts; see `fit_best`
 SEED = 0
 WORDS_LISTED = 40                   # per component; the cut is arbitrary and `tail` says so
+WORDS_LEAD = 1000                   # for the one component that arrives; see `pack`
+LEAD_RATIO = 100                    # it must end at least this many times its starting size
+LEAD_FLOOR = 0.05                   # and be worth at least this much of the final weeks
 
 
 # ------------------------------------------------------------------------- corpus
@@ -260,25 +263,40 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
     # bottom where its shape is easiest to follow. The last week is one week and therefore
     # noisy, which is the price of answering "what is biggest now" exactly.
     order = np.argsort(-C[-1, :])
+
+    start, end = pi[:8].mean(axis=0), pi[-8:].mean(axis=0)
+    # Exactly one component arrives: it ends at least a hundred times its starting size and
+    # is worth at least a twentieth of the final weeks. The margin is not close -- that one
+    # ends 5,759 times its start and the next largest ratio in the fit is 4.1 -- so this is
+    # an assertion rather than a search. If it ever fires, the claim the page is built on has
+    # stopped being true, and the page should not be published from that fit.
+    lead = np.flatnonzero((end >= LEAD_RATIO * start) & (end >= LEAD_FLOOR))
+    assert len(lead) == 1, (
+        f"expected exactly one component ending >= {LEAD_RATIO}x its start and >= "
+        f"{LEAD_FLOOR:.0%} of the final weeks, found {len(lead)}"
+        + (": " + ", ".join(f"{start[c]:.4f}->{end[c]:.4f}" for c in lead) if len(lead) else ""))
+    lead = int(lead[0])
+
     comps = []
     for c in order:
         lift = W[c] / np.maximum(overall, 1e-12)
         rank = np.argsort(-lift)
+        # the arriving component gets a long list, because it is the one anybody will read
+        # past the first handful of, and the cut has to fall somewhere
+        n = WORDS_LEAD if c == lead else WORDS_LISTED
         comps.append({
             "id": int(c),
+            "lead": bool(c == lead),
             "share": round(float(pi[:, c].mean()), 5),
             "peak": round(float(pi[:, c].max()), 5),
             "peak_week": weeks[int(np.argmax(pi[:, c]))],
-            "start_share": round(float(pi[:8, c].mean()), 5),
-            "end_share": round(float(pi[-8:, c].mean()), 5),
+            "start_share": round(float(start[c]), 5),
+            "end_share": round(float(end[c]), 5),
             "prevalence": [round(float(v), 5) for v in pi[:, c]],
-            "count": [round(float(v), 1) for v in C[:, c]],   # documents, absolute
-            "appearances": [int(round(v)) for v in A[:, c]],   # absolute, length-weighted
-            "word_list": [vocab[j] for j in rank[:WORDS_LISTED]],
-            "word_lift": [round(float(lift[j]), 2) for j in rank[:WORDS_LISTED]],
-            # how long the tail is. The listed words are the head of a smooth decline, not a
-            # natural group: lift falls from about 9 at rank 1 to about 6 at rank 80 with no
-            # cliff anywhere, so any cut is arbitrary and the reader should see the numbers.
+            "count": [round(float(v), 1) for v in C[:, c]],
+            "appearances": [int(round(v)) for v in A[:, c]],
+            "word_list": [vocab[j] for j in rank[:n]],
+            "word_lift": [round(float(lift[j]), 2) for j in rank[:n]],
             "tail": {t: int((lift >= t).sum()) for t in (5, 3, 2)},
         })
     return {"generated": date.today().isoformat(), "weeks": weeks, "n_init": N_INIT,

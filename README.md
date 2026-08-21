@@ -126,9 +126,22 @@ local optima here and the worst of them mix a component with something else and 
 thirds of the peak the good fits find.
 
 ```bash
-python mixture.py           # writes mixture.js
-open mixture.html           # stacked, absolute and as a share
+python mixture.py           # writes mixture.js, k = 16
+open mixture.html           # the arrival, against everything else
 ```
+
+**`mixture.py` asserts that exactly one component arrives** — ends at least a hundred times
+its starting size while being worth at least a twentieth of the final weeks. That is not a
+close call: the one that qualifies ends **5,759 times** its start, and the next largest ratio
+anywhere in the fit is 4.1. It is an assertion rather than a search, and if it ever fires the
+claim the page is built on has stopped being true, so the page should not be published from
+that fit.
+
+The page shows that one component and not the other fifteen: the stack draws all sixteen
+because they sum to the week, with the arrival in colour and the rest together in grey, and
+then the arrival's **thousand most characteristic words** are laid out as a wall, sized and
+shaded by how much more probable each is inside it than in the corpus — 6.95× for the first,
+2.69× for the thousandth. It goes from under one description a week to **226 of 350**.
 
 **That penalty works, where the L1 in `analyze.py` does not** — and the difference is
 structural rather than a matter of coefficient. There `W`'s columns are normalised *after*
