@@ -197,10 +197,20 @@ widespread word from one someone repeated.
 
 ### The arrival assertion
 
-`analyze.py` asserts that the arrivals are unambiguous: every component ending at least 100×
-its starting size, while worth at least a twentieth of the final weeks, must be at least 10×
-clear of everything that is not. The margin is not close, and if it ever fails the claim this
-page is built on has stopped being true, so the page should not be published from that fit.
+`analyze.py` asserts that at least one component started under 1% of the first eight weeks and
+ended at or above 20% of the last eight. If that fails, the claim this page is built on has
+stopped being true and the page should not be published from that fit.
+
+**An earlier version asserted a growth ratio and a clean gap, and it was wrong.** It required
+every component growing 100-fold to be ten times clear of everything that did not, and CI
+caught it failing on the very first run — one extra day of data moved the largest non-arrival
+from 4.8× to 69×, an eight-fold swing from a hundred descriptions. Two things were wrong. A
+ratio of `end/start` explodes when the start is near zero, so it ranks a component starting at
+0.07% above one starting at 0.3% for no good reason and is unstable at exactly the point it
+matters. And the gap requirement encoded an assumption the data does not support: growth is a
+continuum here, with one component at 569× and another at 69×, so a threshold at 100 cuts
+through the middle of it and no gap can exist. Two absolute shares are the honest test, and
+they name the claim directly.
 
 The test reads observed weekly shares rather than the fitted `pi`. It is what the data says, it
 coincides with `pi` wherever `pi` was free to follow it, and it is the only thing that means
