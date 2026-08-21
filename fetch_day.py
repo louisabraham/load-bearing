@@ -1,7 +1,8 @@
 """Fetch one day's sample of GitHub pull request descriptions. One request, one file.
 
 Designed to run once a day from CI, so the corpus grows by a single append-only file that is
-committed to the repository. A day's file is written once and never touched again.
+committed to the repository. A day's file is written once and never touched again, and is left
+uncompressed so that it can be read and grepped in place -- about 180 kB a day.
 
 Not from GH Archive. Since mid-2025 its feed carries almost only PushEvent -- a complete hour
 of 2024-08-12 holds 13,555 IssueCommentEvent against 86 for the same hour of 2026-08-10, and
@@ -22,7 +23,6 @@ response carries the full body. One randomly placed five-minute window a day is 
 """
 
 import argparse
-import gzip
 import json
 import os
 import random
@@ -64,7 +64,7 @@ def window(day):
 
 
 def path(day):
-    return os.path.join(OUT, f"{day.isoformat()}.jsonl.gz")
+    return os.path.join(OUT, f"{day.isoformat()}.jsonl")
 
 
 def search(start, token):
@@ -117,7 +117,7 @@ def fetch(day, token):
 
     os.makedirs(OUT, exist_ok=True)
     tmp = path(day) + ".tmp"
-    with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+    with open(tmp, "w", encoding="utf-8") as fh:
         for row in sorted(rows, key=lambda r: r["ts"]):
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     os.replace(tmp, path(day))       # never leave a half-written day behind

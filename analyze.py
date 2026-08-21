@@ -22,7 +22,6 @@ run is not enough.
 
 import argparse
 import glob
-import gzip
 import json
 import os
 import re
@@ -53,7 +52,7 @@ LEAD_END = 0.20                     # and at least this much of the last eight
 ANCHOR = date(2024, 12, 30)        # the Monday that starts the first week of 2025. Weeks
                                    # beginning mid-week would straddle two partial weekends
                                    # and mix the author mix
-DAY_GLOB = "data/days/*.jsonl.gz"
+DAY_GLOB = "data/days/*.jsonl"
 
 # A word is a run of letters, digits, hyphens and underscores containing at least one
 # letter -- so `load-bearing`, `snake_case` and `--all-targets` survive whole, while `/`,
@@ -195,7 +194,7 @@ def documents(log=print):
     for t, group in enumerate(groups):
         seen, kept, by_author = set(), 0, Counter()
         for f in group:
-            with gzip.open(f, "rt", encoding="utf-8") as fh:
+            with open(f, encoding="utf-8") as fh:
                 for line in fh:
                     row = json.loads(line)
                     toks = tokens(row["body"])
@@ -549,7 +548,9 @@ def main():
     X, week_of, weeks, vocab = documents()
     W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, lam=args.lam,
                                outer=args.outer, n_init=args.n_init, flat=args.flat)
-    variant = "one mixture for the window" if args.flat else "default"
+    variant = ("one mixture for the window" if args.flat else
+               "no smoothing" if args.lam == 0 else
+               f"smoothing {args.lam:g}" if args.lam != LAMBDA else "default")
     out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, args.lam,
                strict=(variant == "default"))
     out["variant"] = variant

@@ -45,13 +45,14 @@ jobs:
         run: |
           python analyze.py --selftest
           python analyze.py --out analysis.js
+          python analyze.py --lam 0 --out analysis-nol2.js
           python analyze.py --flat --out analysis-flat.js
 
       - name: Commit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/days analysis.js analysis-flat.js
+          git add data/days analysis.js analysis-nol2.js analysis-flat.js
           # nothing to say if the day was already present and the fit is unchanged
           git diff --cached --quiet && echo "no change" && exit 0
           git commit -m "Sample $(date -u -d yesterday +%F) and rebuild"

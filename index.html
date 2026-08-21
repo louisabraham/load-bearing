@@ -25,6 +25,10 @@
 body { margin:0; background:var(--ground); color:var(--ink);
        font:400 18px/1.55 var(--sans); -webkit-font-smoothing:antialiased; }
 .wrap { max-width:1020px; margin:0 auto; padding:0 24px 96px; }
+.exp { background:var(--accent); color:var(--ground); padding:14px 24px;
+       font:500 13px/1.55 var(--mono); }
+.exp b { font-weight:700; } .exp a { color:var(--ground); }
+.exp.warn { background:var(--ink); }
 header { padding:72px 0 0; }
 h1 { margin:0; font-weight:900; letter-spacing:-0.035em; line-height:0.9;
      font-size:clamp(2.2rem,6.6vw,4.4rem); text-transform:uppercase; }
@@ -81,8 +85,13 @@ footer a:hover { color:var(--accent); }
 <div id="tip"></div>
 
 <script>
-const K_PARAM = new URLSearchParams(location.search).get("k");
-const DATA = K_PARAM ? `analysis-k${encodeURIComponent(K_PARAM)}.js` : "analysis.js";
+/* `?v=nol2` or `?v=flat` loads analysis-nol2.js or analysis-flat.js -- the ablations, on the
+   same page rather than in copies of it. Keeping them as separate HTML files meant two copies
+   that fell behind: one still said "137 weeks" after the corpus was cut to 86. Undocumented on
+   the page itself because it is for checking the model, not for reading. */
+const VARIANT = (new URLSearchParams(location.search).get("v") || "")
+  .replace(/[^a-z0-9-]/gi, "");
+const DATA = VARIANT ? `analysis-${VARIANT}.js` : "analysis.js";
 let A = null;
 const app = document.getElementById("app");
 const tip = document.getElementById("tip");
@@ -204,6 +213,7 @@ function axis() {
 }
 
 function build() {
+  if (VARIANT) banner();
   const months = Math.round(A.weeks.length * 7 / 30.44);
   const span = months >= 24
     ? `for ${(months / 12).toFixed(1).replace(/\.0$/, "")} years`
@@ -384,6 +394,26 @@ function build() {
       wall.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
       probe(i, null);
     }));
+}
+
+/* Shown only for an ablation. The description comes from the fit itself, and the verdict from
+   whether it still meets the arrival test, so nothing here has to be kept in step by hand. */
+function banner() {
+  const bar = document.createElement("div");
+  bar.className = "exp";
+  bar.innerHTML = `<b>Ablation &mdash; ${esc(A.variant || VARIANT)}.</b> `
+    + `The same corpus and the same ${A.k} components, fitted differently. `
+    + `<a href="?">Back to the default.</a>`;
+  document.body.insertBefore(bar, document.body.firstChild);
+  if (A.arrived === false) {
+    const v = document.createElement("div");
+    v.className = "exp warn";
+    v.innerHTML = `<b>This fit fails the arrival test.</b> No component started under 1% of `
+      + `the first eight weeks and ended at or above 20% of the last eight, so what follows `
+      + `is the largest-ending component as a stand-in. Whether the rise is still plain is `
+      + `the thing to look at.`;
+    document.body.insertBefore(v, bar.nextSibling);
+  }
 }
 
 function render() {

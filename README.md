@@ -8,10 +8,9 @@ is about a third of the corpus by the middle of 2026.
 
 | file | what it is |
 |---|---|
-| `fetch_day.py` | one request a day to GitHub's search API, one `data/days/*.jsonl.gz`. Standard library only. |
+| `fetch_day.py` | one request a day to GitHub's search API, one `data/days/YYYY-MM-DD.jsonl`. Standard library only. |
 | `analyze.py` | reads the days, groups them into weeks, fits the model, writes `analysis.js`. Needs `numpy`, `scipy`, `scikit-learn`. |
-| `index.html` | reads `analysis.js`. No build step. Open it. |
-| `experiment-flat.html` | the same page over `analysis-flat.js`, the one ablation kept. |
+| `index.html` | reads `analysis.js`. No build step. Open it. `?v=nol2` and `?v=flat` load the ablations on the same page. |
 | `.github/workflows/daily.yml` | does all of the above, daily, and commits the result. |
 
 ```bash
@@ -21,6 +20,7 @@ export GITHUB_TOKEN=$(gh auth token)
 python fetch_day.py                       # yesterday, one request
 python fetch_day.py --backfill 30         # and the last 30 days, if missing
 python analyze.py                         # ~15 s
+python analyze.py --lam 0 --out analysis-nol2.js
 python analyze.py --flat --out analysis-flat.js
 open index.html
 ```
@@ -35,7 +35,9 @@ something.
 **Days are the unit of collection, weeks the unit of analysis.** CI makes one request a day —
 a single randomly placed five-minute window of newly opened pull requests — and commits the
 result as an immutable file under `data/days`. Nothing rewrites an earlier day, so the history
-of the repository is the history of the sample. A hundred descriptions is too thin to compare
+of the repository is the history of the sample. The files are left uncompressed so they can be
+read and grepped in place: about 210 kB a day, 58 MB for the twenty months so far, and roughly
+77 MB a year from here. A hundred descriptions is too thin to compare
 against another hundred, so analysis groups seven days into a week.
 
 Weeks run from the first present to the last with no gaps, so a week that was never collected
@@ -227,23 +229,31 @@ and at `k = 32` the register visibly splits into prose and command-line tooling.
 The finding does not depend on the choice: a component going from near nothing to roughly a
 third of the week, with these words, is there at every `k` from 6 to 32.
 
-## The ablation
+## The ablations
 
-`python analyze.py --flat` fits **one mixture for the whole window** instead of one per week,
-so the model has no way to represent time at all. The weekly curves it produces are therefore
-purely observed. A component still goes from 0.67% to 32% of the week — a 48-fold rise, which
-fails the 100× arrival threshold and the page says so, but is unmistakable with the model given
-no freedom to fit it. **That is the strongest available evidence that the pattern is in the
-words and not in the fitting.**
+Two are kept, and `index.html?v=nol2` and `?v=flat` show them on the same page — the page reads
+its own `variant` field for the banner, so nothing has to be kept in step by hand. Separate HTML
+files were tried and fell behind: one still said "137 weeks" after the corpus was cut to 86.
 
-Four other ablations were run and removed, and their results are worth recording: with the
-smoothing off, or 150× too strong, the component is still found and still reaches about half
-the corpus, so `lambda` changes readability rather than substance; hard assignment costs 13,000
-nats out of 31.6 million, as the responsibilities predict, since 84% of descriptions already
-concentrate above 0.9 on one component; and LDA — letting each *word* pick its own component
-rather than each description — costs four million nats and its leading component blends a
-vendor's footer with the prose the document-level model keeps apart. They are in the git
-history.
+**`--lam 0`, no smoothing.** The finding survives untouched: two components still start under
+0.1% and end at 68% of the last week between them. What `lambda` buys is a readable curve —
+roughness 1.82 against 0.06 — and not the result. Worth having as the page you can point at when
+someone asks whether the smoothing made the shape.
+
+**`--flat`, one mixture for the whole window.** The model fits a single mixture over components
+for all weeks at once, so it has no way to represent time at all and the weekly curves it
+produces are purely observed. A component still goes from under 1% to 27% of the last week. It
+fails the arrival test and the page says so, but the rise is plain with the model given no
+freedom to fit it. **That is the strongest available evidence that the pattern is in the words
+and not in the fitting.**
+
+Three others were run and removed, and their results are worth recording. Smoothing 150× too
+strong still finds the component but drags its peak down, which is what over-smoothing looks
+like. Hard assignment — each description to its single best component — costs 13,000 nats out of
+31.6 million, as the responsibilities predict, since 84% of descriptions already concentrate
+above 0.9 on one. And LDA, letting each *word* pick its own component rather than each
+description, costs four million nats and its leading component blends a vendor's footer with the
+prose the document-level model keeps apart. They are in the git history.
 
 ## On the title
 
