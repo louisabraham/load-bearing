@@ -223,8 +223,9 @@ function build() {
     <section>
       <h2>Everything written, week by week</h2>
       <p class="note">Each band is one way of writing; the bands stack to the whole. Ordered
-        by when each peaks, so the chart reads left to right. Accent marks a component that
-        ended the window at least twice the size it started.</p>
+        by size in the final week, largest at the bottom &mdash; so the band that dominates
+        the corpus now is the one whose shape is easiest to follow. Accent marks a component
+        that ended the window at least twice the size it started.</p>
 
       <p class="label">word appearances a week &nbsp;·&nbsp; absolute &nbsp;·&nbsp;
         0 to ${fmt(Math.max(...wpw))}</p>
@@ -247,7 +248,8 @@ function build() {
 
     <section>
       <h2>Each way of writing</h2>
-      <p class="note">One ${COMPACT() ? "card" : "row"} per component, in the order they peak.
+      <p class="note">One ${COMPACT() ? "card" : "row"} per component, largest in the final
+        week first.
         Every curve is absolute &mdash; word appearances attributable to that component that
         week &mdash; on an axis shared with every other, so a small component looks small.
         Because that leaves most of them flat, each is also drawn as a hairline scaled to its

@@ -255,8 +255,11 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
     words_per_week = np.zeros(len(weeks))
     np.add.at(words_per_week, week_of, np.asarray(X.sum(axis=1)).ravel())
 
-    # ordered by when each component peaks, so the stacked view reads left to right
-    order = np.argsort([int(np.argmax(pi[:, c])) for c in range(W.shape[0])])
+    # ordered by size in the final week, largest first: what a reader wants first is what
+    # the corpus looks like now, and the stack then puts the currently-dominant band at the
+    # bottom where its shape is easiest to follow. The last week is one week and therefore
+    # noisy, which is the price of answering "what is biggest now" exactly.
+    order = np.argsort(-C[-1, :])
     comps = []
     for c in order:
         lift = W[c] / np.maximum(overall, 1e-12)

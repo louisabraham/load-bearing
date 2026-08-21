@@ -53,30 +53,25 @@ NMF fixes `W H` only up to a diagonal rescaling — `W H = (W D)(D⁻¹ H)` for 
 diagonal `D` — so normalising the columns of `W` pins that free scale at the one place it
 carries meaning, and pushes it into `H`.
 
-**Why Kullback–Leibler and not squared error.** `X` holds counts and the columns of `W` are
-probability distributions over words; together that is a multinomial mixture, and KL is its
-likelihood. Squared error instead assumes Gaussian noise of constant variance, which counts
-do not have — the variance of a count grows with its mean, so squared error treats a swing
-of 50 in a word appearing 200,000 times as equally surprising as a swing of 50 in a word
-appearing 60 times. Measured at `k = 16` on this vocabulary:
+**The loss is squared error, and the argument against it is worth knowing.** `X` holds counts
+and the columns of `W` are distributions over words, which together make a multinomial mixture
+— so Kullback–Leibler is the likelihood and squared error is not. Squared error assumes
+Gaussian noise of constant variance, which counts do not have: the variance of a count grows
+with its mean, so it treats a swing of 50 in a word appearing 200,000 times as equally
+surprising as the same swing in a word appearing 60. That objection is correct and it is
+overruled by two things the output showed.
 
-| loss | the register component | exact zeros in `H` |
-|---|---|---|
-| **KL** | **13.8% of mass, 0.001 → 0.732** | 0% |
-| squared error | 7.3% of mass, 0.009 → 0.420 | 22% |
+First, **KL folds a vendor's footer into the register.** Under KL the rising component's top
+four representative words are `cursor.com` links, which inflates its mass and muddies what the
+component is; squared error separates the links from the prose. Second, **KL cancels the L1**.
+It needs the multiplicative solver, which approaches zero without reaching it, and worse: `W H`
+is fixed only up to a diagonal rescaling, so normalising `W`'s columns *after* fitting lets the
+optimiser satisfy an L1 on `H` by shrinking `H` and inflating `W` at no cost, and the rescaling
+undoes it exactly. Measured, `alpha_H` from 0 to 10 moves `sum(H)` by 0.7% and the per-week
+shape of `H` by 0.0085. **An L1 is only meaningful where the scale is not free.**
 
-**And the cost, stated plainly: under KL the L1 on `H` does nothing.** Two reasons. KL needs
-the multiplicative solver, which approaches zero without reaching it, so there are no exact
-zeros. And this parameterisation cancels the penalty outright: NMF fixes `W H` only up to a
-diagonal rescaling, and normalising `W`'s columns pins that scale *after* fitting — so the
-optimiser can satisfy an L1 on `H` by shrinking `H` uniformly and inflating `W`, which costs
-it nothing, and the rescaling then undoes the shrinkage exactly. Measured: `alpha_H` from 0
-to 10 moves `sum(H)` by 0.7% and the per-week *shape* of `H` by 0.0085. **An L1 is only
-meaningful where the scale is not free.**
-
-With `LOSS = "l2"` the penalty does bite — 22% of `H` exactly zero at `alpha_H = 0`, 25% at
-0.02, 47% at 0.2 — at the cost of the separation in the table above. That trade is one
-constant, not a rewrite.
+Under squared error it bites: 22% of `H` exactly zero at `alpha_H = 0`, 25% at 0.02, 47% at
+0.2. `LOSS = "kl"` switches back, one constant.
 
 ### Two rankings, because there are two questions
 
@@ -98,12 +93,12 @@ separately, must appear in 25 distinct documents. Appearances alone are not brea
 `multi-draw` appears 101 times inside a single description, `m₀` 140 times, and both were
 ranking among a component's most representative words, because a ratio cannot tell a
 widespread word from a word someone repeated. Both ceilings are set by `load-bearing`
-itself — 51 appearances across 45 documents — which under this ranking comes out 8th of
-40 in the component that rises through 2026.
+itself — 51 appearances across 45 documents — which under this ranking comes out 24th of 40
+in the component that rises through 2026.
 
 There is deliberately no *probability* floor. Flooring on probability throws away exactly
-the rare-but-concentrated words the ratio is for: `load-bearing` ranks 8th with no floor
-and 6,062nd with one at the 80th percentile.
+the rare-but-concentrated words the ratio is for: `load-bearing` ranks in the top 40 with no
+floor and 6,062nd with one at the 80th percentile.
 
 An earlier version of this counted one appearance per document and needed each word divided
 by its own average across the window before fitting — without that, every fit spent itself
@@ -123,8 +118,9 @@ z_d ~ Cat(pi_t)       which component wrote document d
 x_d ~ Mult(n_d, W_k)  its words
 ```
 
-The only thing asked of a prevalence curve is smoothness, `lambda * sum_t (pi_tk -
-pi_{t-1,k})^2` — nothing requires a component to rise, to fall, or to be absent early. Fitted
+The only thing asked of a prevalence curve is smoothness — `lambda * K² * sum_t (pi_tk -
+pi_{t-1,k})²`, the `K²` making one `lambda` correct at every `k`, for the reason below.
+Nothing requires a component to rise, to fall, or to be absent early. Fitted
 by EM, restarted ten times and keeping the highest likelihood, because EM finds different
 local optima here and the worst of them mix a component with something else and give it two
 thirds of the peak the good fits find.
@@ -140,6 +136,55 @@ fitting, so an L1 on `H` can be satisfied by shrinking `H` and inflating `W` at 
 the rescaling undoes it exactly. Here `pi` sums to 1 in every week by construction, so the
 scale is not free. An L1 on `pi` itself would still do nothing: on the simplex
 `||pi_t||_1 = 1` identically, a constant with zero gradient.
+
+### How many components
+
+`--k` sets it, `--out` names the file, and `mixture.html?k=N` reads whichever fit you ask for:
+
+```bash
+for k in 4 6 8 12 16 24 32 128; do
+  python mixture.py --k $k --n-init 4 --out mixture-k$k.js
+done
+```
+
+Training likelihood rises with k because more parameters always fit better, so it cannot
+choose. Held-out likelihood can: fit on 90% of documents, score the other 10%.
+
+| `k` | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | **128** | 192 | 256 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| train | −9.313 | −9.243 | −9.189 | −9.106 | −9.054 | −8.970 | −8.923 | −8.862 | −8.807 | −8.741 | −8.685 |
+| **held out** | −9.357 | −9.294 | −9.254 | −9.187 | −9.151 | −9.108 | −9.091 | −9.077 | **−9.073** | −9.094 | −9.083 |
+| gap | 0.044 | 0.052 | 0.065 | 0.081 | 0.097 | 0.138 | 0.168 | 0.215 | 0.266 | 0.354 | 0.397 |
+
+**The data supports around 128 components**, an order of magnitude more than the default, and
+that answer did not move when `lambda` was tuned — it was 128 before as well. The
+train-to-held-out gap widens monotonically from 0.044 to 0.397 bits, which is overfitting
+arriving steadily; the held-out curve turns over once the gap outruns the gain.
+
+Two caveats. `k ≥ 96` was fitted with two restarts against three or four for the smaller k, so
+the large fits are handicapped and the optimum may be slightly higher. And 192 scores worse
+than 256, which is impossible for a well-fitted sequence — restart noise at those sizes is now
+comparable to the differences being resolved, so "around 128" is as precise as this gets.
+
+`mixture.html?k=128` displays it. Above twenty components a full-width row each is unreadable
+— at 128 it would run to twenty-five thousand pixels — so the page switches to a grid of small
+multiples, six across, each with its mean, its peak and its four most representative words.
+
+**This is also where `load-bearing` stops owning a component.** Its lift, and its rank in the
+component that gives it most, at each k:
+
+| `k` | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 128 |
+|---|---|---|---|---|---|---|---|---|
+| best lift | 2.4 | 4.3 | 6.5 | 6.1 | 7.2 | 8.6 | 9.1 | **26.2** |
+| its rank there | 6th | **1st** | 3rd | **1st** | **1st** | 19th | **1st** | 19th |
+| next-best lift | 0.00 | 0.01 | 0.15 | 0.01 | 0.02 | 4.07 | 0.44 | **12.6** |
+
+From k = 6 to 32 one component holds it almost exclusively — the gap to the runner-up is 21 to
+610-fold. At k = 128 the lift is four times higher, because narrower components can concentrate
+a word much harder, but the gap collapses to 2.1-fold and it appears above lift 4 in at least
+six components. The word is real at every resolution; what it *belongs to* is only well defined
+at coarse ones. **So `k = 12` is a legibility choice, not a statistical one** — twelve rows a
+reader can scan, against 128 nobody will read.
 
 **`lambda` is set by held-out likelihood, and made scale-free in `k`.** The difference is
 penalised relative to `1/K` rather than absolutely, because without that the right `lambda`
@@ -167,7 +212,7 @@ Held-out likelihood cannot see over-smoothing, so the shape was checked separate
 but only 0.4% → **47.0%** at a hundred times that — the peak dragged down toward the early
 weeks. The chosen value is the largest that leaves the shape alone.
 
-### Absolute, not share### Absolute, not share### Absolute, not share
+### Absolute, not share
 
 `mixture.html` reports absolute counts everywhere, and the two stacked views side by side are
 the argument for it. The corpus caps documents at 350 a week, so the document count is flat by
@@ -204,7 +249,7 @@ it; and two documents from the same repository agree on their component 63% of t
 16% by chance (ICC 0.56), but the design effect is only 1.17 because the three-per-author cap
 already keeps clusters tiny.
 
-## Why not GH Archive## Why not GH Archive
+## Why not GH Archive
 
 Because it no longer works. Its feed has carried almost only `PushEvent` since mid-2025: a
 complete hour of 2024-08-12 holds 13,555 `IssueCommentEvent` against 86 for the same hour
