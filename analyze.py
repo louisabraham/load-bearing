@@ -290,8 +290,28 @@ def responsibilities(logits, pi, week_of):
     return e / s, float((np.log(s) + m).sum())
 
 
-def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, log=print):
-    """One EM run. Returns (W, pi, log-likelihood)."""
+def harden(r):
+    """One-hot the responsibilities: each description goes wholly to its best component.
+
+    Classification EM rather than EM. It optimises a different thing -- the likelihood of the
+    best labelling instead of the likelihood of the data -- and is the natural comparison here
+    because on this corpus 84% of descriptions already have a responsibility above 0.9, so
+    hardening should cost little. Whether it does is worth measuring rather than assuming.
+    """
+    out = np.zeros_like(r)
+    out[np.arange(len(r)), r.argmax(axis=1)] = 1.0
+    return out
+
+
+def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, hard=False,
+        flat=False, log=print):
+    """One EM run. Returns (W, pi, C, A, log-likelihood).
+
+    `flat=True` fits one mixture for the whole window instead of one per week, so the model has
+    no way to represent time at all. The weekly counts that come out of the attribution are
+    then purely observed, which is the point: if a component still shows the same rise, the
+    rise is in the words rather than in the freedom the model was given to fit it.
+    """
     rng = np.random.default_rng(seed)
     D, V = X.shape
 
@@ -309,6 +329,8 @@ def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, log=print):
     for it in range(outer):
         logits = X @ np.log(np.maximum(W, 1e-12)).T          # 1. attribute
         r, ll = responsibilities(logits, pi, week_of)
+        if hard:
+            r = harden(r)
 
         W = np.asarray((r.T @ X) + 0.01)                      # 2. word distributions
         W /= W.sum(axis=1, keepdims=True)
@@ -316,11 +338,19 @@ def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, log=print):
         C = np.zeros((T, k))                                  # 3. weekly counts
         np.add.at(C, week_of, r)
 
-        pi = fit_pi(C, lam)                                   # 4. prevalences
+        if flat:                                              # 4. prevalences
+            share = C.sum(axis=0)
+            pi = np.tile(share / max(share.sum(), 1e-12), (T, 1))
+        else:
+            pi = fit_pi(C, lam)
         log(f"  iter {it + 1:2d}  loglik {ll:,.0f}")
 
+    # the reported likelihood is always the soft one, so that a hard fit and a soft fit are
+    # scored on the same quantity and the comparison means something
     logits = X @ np.log(np.maximum(W, 1e-12)).T
     r, ll = responsibilities(logits, pi, week_of)
+    if hard:
+        r = harden(r)
     C = np.zeros((T, k))
     np.add.at(C, week_of, r)
     # and the same attribution weighted by document length, which is the quantity that
@@ -331,8 +361,42 @@ def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, log=print):
     return W, pi, C, A, ll
 
 
+def fit_lda(X, week_of, T, k=K, seed=SEED, max_iter=40, log=print):
+    """The same corpus under Latent Dirichlet Allocation, for comparison.
+
+    LDA asks a different question. This model gives each description one component; LDA gives
+    each *word token* one, so a description can be a blend. That is a weaker assumption and on
+    this corpus a mostly unnecessary one -- 84% of descriptions already concentrate above 0.9
+    on a single component -- so the interesting question is what the extra freedom buys.
+
+    Its output is mapped onto the same shape so the same page renders it: a topic's word
+    distribution becomes a column of W, and a week's prevalence becomes the mean topic mixture
+    of the descriptions written that week. The reported likelihood is then computed the same
+    way as every other variant's, from those W and pi, so the numbers are comparable.
+    """
+    from sklearn.decomposition import LatentDirichletAllocation
+    model = LatentDirichletAllocation(n_components=k, learning_method="batch",
+                                      max_iter=max_iter, random_state=seed)
+    theta = model.fit_transform(X)                      # documents by topics
+    theta = theta / np.maximum(theta.sum(axis=1, keepdims=True), 1e-12)
+    W = model.components_ / model.components_.sum(axis=1, keepdims=True)
+
+    pi = np.zeros((T, k))
+    for t in range(T):
+        sel = week_of == t
+        pi[t] = theta[sel].mean(axis=0) if sel.any() else 1.0 / k
+    pi = pi / np.maximum(pi.sum(axis=1, keepdims=True), 1e-12)
+
+    logits = X @ np.log(np.maximum(W, 1e-12)).T
+    r, ll = responsibilities(logits, pi, week_of)
+    C = np.zeros((T, k)); np.add.at(C, week_of, r)
+    A = np.zeros((T, k)); np.add.at(A, week_of, r * np.asarray(X.sum(axis=1)))
+    log(f"  lda: {k} topics, {max_iter} passes")
+    return W, pi, C, A, ll
+
+
 def fit_best(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, n_init=N_INIT,
-             seed=SEED, log=print):
+             seed=SEED, hard=False, flat=False, log=print):
     """Fit `n_init` times from different seeds and keep the highest likelihood.
 
     One run is not enough: EM finds different local optima here, and the worst of them mix a
@@ -342,7 +406,7 @@ def fit_best(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, n_init=N_INIT,
     """
     best = None
     for i in range(n_init):
-        W, pi, C, A, ll = fit(X, week_of, T, k, lam, outer, seed + i,
+        W, pi, C, A, ll = fit(X, week_of, T, k, lam, outer, seed + i, hard, flat,
                               log=lambda *_: None)
         log(f"  restart {i + 1}/{n_init}  loglik {ll:,.0f}")
         if best is None or ll > best[-1]:
@@ -353,7 +417,7 @@ def fit_best(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, n_init=N_INIT,
 
 # --------------------------------------------------------------------------- out
 
-def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
+def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam, strict=True):
     # Each component's share of all word appearances, used to build the baseline below.
     mass_c = A.sum(axis=0)
     mass_c = mass_c / max(mass_c.sum(), 1e-12)
@@ -372,7 +436,8 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
     # noisy, which is the price of answering "what is biggest now" exactly.
     order = np.argsort(-C[-1, :])
 
-    start, end = pi[:8].mean(axis=0), pi[-8:].mean(axis=0)
+    obs = C / np.maximum(C.sum(axis=1, keepdims=True), 1e-12)
+    start, end = obs[:8].mean(axis=0), obs[-8:].mean(axis=0)
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = np.where(start > 0, end / np.maximum(start, 1e-12), np.inf)
 
@@ -385,13 +450,20 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
     # ever fires, the arrivals have stopped being separable from ordinary drift and the page
     # should not be published from that fit.
     lead = np.flatnonzero((ratio >= LEAD_RATIO) & (end >= LEAD_FLOOR))
-    assert len(lead) >= 1, "no component arrived"
     rest = np.setdiff1d(np.arange(len(end)), lead)
-    lo = float(ratio[lead].min())
+    lo = float(ratio[lead].min()) if len(lead) else 0.0
     hi = float(ratio[rest].max()) if len(rest) else 0.0
-    assert lo >= LEAD_GAP * hi, (
-        f"the {len(lead)} arrivals are not clear of the rest: weakest arrival grew "
-        f"{lo:.1f}x, largest non-arrival {hi:.1f}x, needed a {LEAD_GAP}x gap")
+    arrived = len(lead) >= 1 and lo >= LEAD_GAP * hi
+    if strict:
+        assert len(lead) >= 1, "no component arrived"
+        assert lo >= LEAD_GAP * hi, (
+            f"the {len(lead)} arrivals are not clear of the rest: weakest arrival grew "
+            f"{lo:.1f}x, largest non-arrival {hi:.1f}x, needed a {LEAD_GAP}x gap")
+    elif not arrived:
+        # A variant is allowed to fail the test -- that is often the finding -- but it still
+        # has to render, so the fastest-growing component stands in and is labelled as a
+        # stand-in rather than an arrival.
+        lead = np.array([int(np.argmax(np.where(end >= 0.02, ratio, -np.inf)))])
     lead = set(int(c) for c in lead)
 
     comps = []
@@ -418,6 +490,7 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
             "peak_week": weeks[int(np.argmax(pi[:, c]))],
             "start_share": round(float(start[c]), 5),
             "end_share": round(float(end[c]), 5),
+            "flat_pi": bool(np.allclose(pi[:, c], pi[0, c])),
             "prevalence": [round(float(v), 5) for v in pi[:, c]],
             "count": [round(float(v), 1) for v in C[:, c]],
             "appearances": [int(round(v)) for v in A[:, c]],
@@ -431,6 +504,9 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
             "tail": {t: int((lift >= t).sum()) for t in (5, 3, 2)},
         })
     return {"generated": date.today().isoformat(), "weeks": weeks, "n_init": N_INIT,
+            "arrived": bool(arrived),
+            "lead_ratio": round(float(ratio[list(lead)].min()), 1) if len(lead) else None,
+            "rest_ratio": round(hi, 1),
             "documents": int(X.shape[0]), "appearances": int(X.sum()),
             "docs_per_week": [int(v) for v in docs_per_week],
             "words_per_week": [int(v) for v in words_per_week],
@@ -484,15 +560,32 @@ def main():
     ap.add_argument("--outer", type=int, default=OUTER)
     ap.add_argument("--n-init", type=int, default=N_INIT, dest="n_init")
     ap.add_argument("--out", default="analysis.js")
+    ap.add_argument("--flat", action="store_true",
+                    help="one mixture for the whole window instead of one per week")
+    ap.add_argument("--lda", action="store_true",
+                    help="fit Latent Dirichlet Allocation instead, for comparison")
+    ap.add_argument("--hard", action="store_true",
+                    help="one-hot the responsibilities (classification EM)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
         return selftest()
 
     X, week_of, weeks, vocab = documents()
-    W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, lam=args.lam,
-                               outer=args.outer, n_init=args.n_init)
-    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, args.lam)
+    if args.lda:
+        W, pi, C, A, ll = fit_lda(X, week_of, len(weeks), k=args.k)
+    else:
+        W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, lam=args.lam,
+                                   outer=args.outer, n_init=args.n_init, hard=args.hard,
+                                   flat=args.flat)
+    variant = ("LDA" if args.lda else
+               "one mixture for the window" if args.flat else
+               "hard assignment" if args.hard else
+               "no smoothing" if args.lam == 0 else
+               f"smoothing {args.lam:g}" if args.lam != LAMBDA else "default")
+    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, args.lam,
+               strict=(variant == "default"))
+    out["variant"] = variant
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("window.ANALYSIS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))

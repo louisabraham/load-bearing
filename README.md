@@ -262,6 +262,52 @@ it; and two documents from the same repository agree on their component 63% of t
 16% by chance (ICC 0.56), but the design effect is only 1.17 because the three-per-author cap
 already keeps clusters tiny.
 
+## Experiments
+
+Five ablations, each a page of its own. All six fits come from identical code, which matters —
+comparing runs made by different versions of the script means nothing.
+
+```bash
+python analyze.py                 --out analysis.js         # default
+python analyze.py --lam 0         --out analysis-nol2.js    # no smoothing
+python analyze.py --lam 5000      --out analysis-smooth.js  # heavy smoothing
+python analyze.py --hard          --out analysis-hard.js    # classification EM
+python analyze.py --flat          --out analysis-flat.js    # one mixture for the window
+python analyze.py --lda           --out analysis-lda.js     # a different model
+```
+
+| variant | log-likelihood | roughness | arrival | leader |
+|---|---|---|---|---|
+| **default** | −31,631,379 | 0.06 | 68,790× | 0.00% → 60%  `load-bearing, byte-identical, seam` |
+| no smoothing | −31,631,274 | 1.82 | 429× | 0.13% → 54%  `[webkit-url], ews, load-bearing` |
+| heavy smoothing | −31,636,397 | 0.00 | 228× | 0.23% → 52%  `[webkit-url], ews, load-bearing` |
+| hard assignment | −31,644,354 | 0.07 | 385× | 0.15% → 56%  `ews, [webkit-url], load-bearing` |
+| one mixture for the window | −31,644,173 | 0.00 | **73× — fails** | 0.69% → 51%  `[webkit-url], ews, load-bearing` |
+| LDA | −35,622,280 | 0.88 | 103× | 0.56% → 57%  `[cursor-url], clippy, carries, bugbot` |
+
+**The ablation that matters is the flat one.** With one mixture for all 137 weeks the model has no
+way to represent time at all, so the weekly curves it produces are purely observed — and a
+component still goes from 0.69% to 51% of the week. It misses the 100× arrival threshold, at 73×,
+and the page says so; but the rise is plainly there without the model being given any freedom to
+fit it. That is the strongest available evidence that the pattern is in the words rather than in
+the fitting.
+
+**Smoothing is not load-bearing here.** Off (λ = 0) or 150× too strong (λ = 5,000), the component
+is still found and still rises to about half the corpus. What λ changes is roughness — 1.82 to
+0.00 — and the readability of the curve.
+
+**Hard assignment costs almost nothing**, as the responsibilities predicted: 84% of descriptions
+already concentrate above 0.9 on one component, and forcing the rest costs 13,000 nats out of 31.6
+million with the leader essentially unchanged.
+
+**LDA is the one real loser.** Letting each *word* pick its own component rather than each
+description costs four million nats, and its leading component is a blend —
+`[cursor-url], clippy, carries, bugbot, lands` mixes a vendor's footer with the prose that the
+document-level model keeps apart.
+
+One reading note: the default's 68,790× is an artifact of dividing by a starting share that is
+essentially zero, not a meaningfully larger effect than the others.
+
 ## Why not GH Archive
 
 Because it no longer works. Its feed has carried almost only `PushEvent` since mid-2025: a
