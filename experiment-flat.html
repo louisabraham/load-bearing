@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>One mixture for the whole window &mdash; experiment</title>
+<title>One mixture for the whole window &mdash; ablation</title>
 <link rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
@@ -81,14 +81,14 @@ footer a:hover { color:var(--accent); }
 #tip.on { opacity:1; }
 </style>
 
-<div class="exp"><b>Experiment &mdash; One mixture for the whole window.</b> The model fits a single mixture over components for all 137 weeks instead of one per week, so it has no way to represent time at all. The weekly curves shown are therefore purely observed. If the rise survives this, it is in the words and not in the fit. Compare against <a href="index.html">the default</a>.</div>
+<div class="exp"><b>Ablation &mdash; one mixture for the whole window.</b> The model fits a single mixture over components for every week at once instead of one per week, so it has no way to represent time at all. The weekly curves below are therefore purely observed. If the rise survives this, it is in the words and not in the fit. Compare against <a href="index.html">the default</a>.</div>
 <div class="exp warn" id="verdict" hidden></div>
 <div class="wrap" id="app"></div>
 <div id="tip"></div>
 
 <script>
 const K_PARAM = new URLSearchParams(location.search).get("k");
-const DATA = "analysis-flat.js";   // generated variant; regenerate with the README loop
+const DATA = "analysis-flat.js";   // generated from index.html; see the README
 let A = null;
 const app = document.getElementById("app");
 const tip = document.getElementById("tip");
@@ -213,18 +213,11 @@ function build() {
   const v = document.getElementById("verdict");
   if (v && A.arrived === false) {
     v.hidden = false;
-    v.innerHTML = `<b>This variant fails the arrival test.</b> No component ends at least `
-      + `100&times; its starting size while holding a twentieth of the final weeks and `
-      + `staying 10&times; clear of everything else`
-      + (A.lead_ratio ? ` &mdash; the best grew ${A.lead_ratio}&times;, `
-         + `against ${A.rest_ratio}&times; for the largest non-arrival` : "")
-      + `. What follows is the fastest-growing component as a stand-in, so the fit can be `
-      + `read; it is not an arrival.`;
-  } else if (v && A.arrived === true) {
-    v.hidden = false;
-    v.innerHTML = `<b>This variant still passes the arrival test.</b> `
-      + `One component grew ${A.lead_ratio}&times; against ${A.rest_ratio}&times; for the `
-      + `largest that did not.`;
+    v.innerHTML = `<b>This ablation fails the arrival test.</b> No component ends at least `
+      + `100&times; its starting size while holding a twentieth of the final weeks and staying `
+      + `10&times; clear of everything else &mdash; the best grew ${A.lead_ratio}&times;. What `
+      + `follows is that fastest-growing component as a stand-in. The threshold is not met; `
+      + `the rise is still plain.`;
   }
   const leads = A.components.filter(c => c.lead);
   const first = leads[0];
@@ -258,11 +251,11 @@ function build() {
 
   app.innerHTML = `<header>
     <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
-    <p class="standfirst">Every pull request description opened on GitHub, sampled evenly week
-      by week for two and a half years. A model splits them into ${A.k} ways of writing.
-      ${leads.length === 1 ? "One of them barely existed" : `${leads.length} of them barely
-      existed`} at the start and ${leads.length === 1 ? "is" : "are"} most of the corpus by
-      the end.</p>
+    <p class="standfirst">Every pull request description opened on GitHub, one randomly
+      placed five-minute window a day, ${span}. A model splits them into ${A.k} ways of
+      writing. ${leads.length === 1 ? "One of them" : `${leads.length} of them`} barely
+      existed at the start and ${leads.length === 1 ? "is" : "are"}
+      ${pc(lastWeek / A.docs_per_week[A.docs_per_week.length - 1])} of the last week.</p>
     <div class="stats">
       <div class="stat"><b>${fmt(A.documents)}</b><span class="label">descriptions</span></div>
       <div class="stat"><b>${A.weeks.length}</b><span class="label">weeks</span></div>

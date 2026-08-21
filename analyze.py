@@ -27,7 +27,7 @@ import json
 import os
 import re
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 from scipy.optimize import minimize
@@ -47,9 +47,10 @@ LEAD_GAP = 10                       # and is this far clear of everything that i
 
 # ------------------------------------------------------------------------- corpus
 
-ANCHOR = date(2024, 1, 1)          # a Monday; weeks starting mid-week would straddle
-                                   # two partial weekends and mix the author mix
-WEEK_GLOB = "data/weeks/*.jsonl.gz"
+ANCHOR = date(2024, 12, 30)        # the Monday that starts the first week of 2025. Weeks
+                                   # beginning mid-week would straddle two partial weekends
+                                   # and mix the author mix
+DAY_GLOB = "data/days/*.jsonl.gz"
 
 # A word is a run of letters, digits, hyphens and underscores containing at least one
 # letter -- so `load-bearing`, `snake_case` and `--all-targets` survive whole, while `/`,
@@ -59,7 +60,7 @@ WEEK_GLOB = "data/weeks/*.jsonl.gz"
 URL_RE = re.compile(r"https?://[^\s<>\"'`)\]}]+")
 TAG_RE = re.compile(r"<[a-z/!][^<>]*>")   # html markup, not prose: `a > b` is not a tag
 EM_DASH = "\u2014"                       # a word by fiat; see `tokens`
-WORD_RE = re.compile(r"[a-z0-9_-]*[a-z][a-z0-9_-]*")
+WORD_RE = re.compile(r"[a-z0-9_/-]*[a-z][a-z0-9_/-]*")
 # One vulnerability identifier per advisory, the same shape of problem as one link per
 # item: `snyk-js-axios-6144788` and 1,400 siblings, 113 of them clearing the frequency
 # floors, between them occupying seven of sixteen components. Collapsed to one token,
@@ -143,51 +144,80 @@ def tokens(body):
     # `<a href="...">text</a>` is `text` and not `a`, `href`, `text`, `a`
     rest = TAG_RE.sub(" ", URL_RE.sub(" ", body))
     for w in WORD_RE.findall(rest):
-        w = w.strip("_").rstrip("-")
+        w = w.strip("_/").rstrip("-")
         if w and any(c.isalpha() for c in w):
             out.append("[snyk-id]" if SNYK_ID_RE.match(w) else w)
     return out
 
 
-def documents(log=print):
-    """One row per document. Same filters as py, applied per document.
+def week_index(day):
+    return (day - ANCHOR).days // 7
 
-    The other model aggregates each week into a bag of words; this one needs the documents
-    themselves, because a document is what gets attributed to a component.
+
+def week_files(log=print):
+    """The day files grouped by the week they fall in.
+
+    Days are the unit of collection -- one request, one file, appended by CI and committed --
+    and weeks are the unit of analysis, because a single day is a hundred descriptions and too
+    thin to compare against another. Weeks run from the first present to the last with no gaps,
+    so a week that was never collected shows as an empty week rather than being quietly closed
+    up and shifting everything after it.
     """
-    files = sorted(glob.glob(WEEK_GLOB))
+    files = sorted(glob.glob(DAY_GLOB))
     if not files:
-        raise SystemExit(f"no weeks in {WEEK_GLOB} -- run `python fetch_week.py`")
-    weeks = [os.path.basename(f)[:10] for f in files]
+        raise SystemExit(f"no days in {DAY_GLOB} -- run `python fetch_day.py`")
+    by_week = {}
+    for f in files:
+        d = date.fromisoformat(os.path.basename(f)[:10])
+        by_week.setdefault(week_index(d), []).append(f)
+    lo, hi = min(by_week), max(by_week)
+    weeks = [(ANCHOR + timedelta(days=7 * w)).isoformat() for w in range(lo, hi + 1)]
+    groups = [by_week.get(w, []) for w in range(lo, hi + 1)]
+    empty = sum(1 for g in groups if not g)
+    log(f"{len(files)} days over {len(weeks)} weeks from {weeks[0]}"
+        + (f", {empty} with no data" if empty else ""))
+    return weeks, groups
+
+
+def documents(log=print):
+    """One row per description, with the week it belongs to.
+
+    The filters are applied per week rather than per file, because that is the population being
+    compared: identical word sets collapse within the week, no author may contribute more than
+    a few to it, and the week is then cut off at a common size.
+    """
+    weeks, groups = week_files(log)
 
     docs, week_of, tf, df = [], [], Counter(), Counter()
-    for t, f in enumerate(files):
+    for t, group in enumerate(groups):
         seen, kept, by_author = set(), 0, Counter()
-        with gzip.open(f, "rt", encoding="utf-8") as fh:
-            for line in fh:
-                row = json.loads(line)
-                toks = tokens(row["body"])
-                if len(set(toks)) < MIN_WORDS:
-                    continue
-                key = frozenset(toks)
-                if key in seen:
-                    continue
-                author = row.get("author") or ""
-                if by_author[author] >= MAX_PER_AUTHOR:
-                    continue
-                by_author[author] += 1
-                seen.add(key)
-                kept += 1
-                if kept > DOCS_PER_WEEK:
-                    break
-                c = Counter(toks)
-                docs.append(c)
-                week_of.append(t)
-                tf.update(c)
-                df.update(key)
+        for f in group:
+            with gzip.open(f, "rt", encoding="utf-8") as fh:
+                for line in fh:
+                    row = json.loads(line)
+                    toks = tokens(row["body"])
+                    if len(set(toks)) < MIN_WORDS:
+                        continue
+                    key = frozenset(toks)
+                    if key in seen:
+                        continue
+                    author = row.get("author") or ""
+                    if by_author[author] >= MAX_PER_AUTHOR:
+                        continue
+                    by_author[author] += 1
+                    seen.add(key)
+                    kept += 1
+                    if kept > DOCS_PER_WEEK:
+                        break
+                    c = Counter(toks)
+                    docs.append(c)
+                    week_of.append(t)
+                    tf.update(c)
+                    df.update(key)
+            if kept > DOCS_PER_WEEK:
+                break
 
-    vocab = sorted(w for w, n in tf.items()
-                   if n >= MIN_TF and df[w] >= MIN_DF)
+    vocab = sorted(w for w, n in tf.items() if n >= MIN_TF and df[w] >= MIN_DF)
     index = {w: j for j, w in enumerate(vocab)}
     rows, cols, vals = [], [], []
     for i, c in enumerate(docs):
@@ -200,8 +230,7 @@ def documents(log=print):
     X = csr_matrix((vals, (rows, cols)), shape=(len(docs), len(vocab)), dtype=np.float64)
     keep = np.asarray(X.sum(axis=1)).ravel() >= MIN_WORDS
     X, week_of = X[keep], np.asarray(week_of)[keep]
-    log(f"{len(files)} weeks, {X.shape[0]:,} documents, {X.sum():,.0f} appearances, "
-        f"{len(vocab):,} words")
+    log(f"{X.shape[0]:,} descriptions, {X.sum():,.0f} appearances, {len(vocab):,} words")
     return X, week_of, weeks, vocab
 
 
@@ -290,21 +319,7 @@ def responsibilities(logits, pi, week_of):
     return e / s, float((np.log(s) + m).sum())
 
 
-def harden(r):
-    """One-hot the responsibilities: each description goes wholly to its best component.
-
-    Classification EM rather than EM. It optimises a different thing -- the likelihood of the
-    best labelling instead of the likelihood of the data -- and is the natural comparison here
-    because on this corpus 84% of descriptions already have a responsibility above 0.9, so
-    hardening should cost little. Whether it does is worth measuring rather than assuming.
-    """
-    out = np.zeros_like(r)
-    out[np.arange(len(r)), r.argmax(axis=1)] = 1.0
-    return out
-
-
-def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, hard=False,
-        flat=False, log=print):
+def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, flat=False, log=print):
     """One EM run. Returns (W, pi, C, A, log-likelihood).
 
     `flat=True` fits one mixture for the whole window instead of one per week, so the model has
@@ -329,8 +344,6 @@ def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, hard=False,
     for it in range(outer):
         logits = X @ np.log(np.maximum(W, 1e-12)).T          # 1. attribute
         r, ll = responsibilities(logits, pi, week_of)
-        if hard:
-            r = harden(r)
 
         W = np.asarray((r.T @ X) + 0.01)                      # 2. word distributions
         W /= W.sum(axis=1, keepdims=True)
@@ -345,12 +358,8 @@ def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, hard=False,
             pi = fit_pi(C, lam)
         log(f"  iter {it + 1:2d}  loglik {ll:,.0f}")
 
-    # the reported likelihood is always the soft one, so that a hard fit and a soft fit are
-    # scored on the same quantity and the comparison means something
     logits = X @ np.log(np.maximum(W, 1e-12)).T
     r, ll = responsibilities(logits, pi, week_of)
-    if hard:
-        r = harden(r)
     C = np.zeros((T, k))
     np.add.at(C, week_of, r)
     # and the same attribution weighted by document length, which is the quantity that
@@ -361,42 +370,8 @@ def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, hard=False,
     return W, pi, C, A, ll
 
 
-def fit_lda(X, week_of, T, k=K, seed=SEED, max_iter=40, log=print):
-    """The same corpus under Latent Dirichlet Allocation, for comparison.
-
-    LDA asks a different question. This model gives each description one component; LDA gives
-    each *word token* one, so a description can be a blend. That is a weaker assumption and on
-    this corpus a mostly unnecessary one -- 84% of descriptions already concentrate above 0.9
-    on a single component -- so the interesting question is what the extra freedom buys.
-
-    Its output is mapped onto the same shape so the same page renders it: a topic's word
-    distribution becomes a column of W, and a week's prevalence becomes the mean topic mixture
-    of the descriptions written that week. The reported likelihood is then computed the same
-    way as every other variant's, from those W and pi, so the numbers are comparable.
-    """
-    from sklearn.decomposition import LatentDirichletAllocation
-    model = LatentDirichletAllocation(n_components=k, learning_method="batch",
-                                      max_iter=max_iter, random_state=seed)
-    theta = model.fit_transform(X)                      # documents by topics
-    theta = theta / np.maximum(theta.sum(axis=1, keepdims=True), 1e-12)
-    W = model.components_ / model.components_.sum(axis=1, keepdims=True)
-
-    pi = np.zeros((T, k))
-    for t in range(T):
-        sel = week_of == t
-        pi[t] = theta[sel].mean(axis=0) if sel.any() else 1.0 / k
-    pi = pi / np.maximum(pi.sum(axis=1, keepdims=True), 1e-12)
-
-    logits = X @ np.log(np.maximum(W, 1e-12)).T
-    r, ll = responsibilities(logits, pi, week_of)
-    C = np.zeros((T, k)); np.add.at(C, week_of, r)
-    A = np.zeros((T, k)); np.add.at(A, week_of, r * np.asarray(X.sum(axis=1)))
-    log(f"  lda: {k} topics, {max_iter} passes")
-    return W, pi, C, A, ll
-
-
 def fit_best(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, n_init=N_INIT,
-             seed=SEED, hard=False, flat=False, log=print):
+             seed=SEED, flat=False, log=print):
     """Fit `n_init` times from different seeds and keep the highest likelihood.
 
     One run is not enough: EM finds different local optima here, and the worst of them mix a
@@ -406,7 +381,7 @@ def fit_best(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, n_init=N_INIT,
     """
     best = None
     for i in range(n_init):
-        W, pi, C, A, ll = fit(X, week_of, T, k, lam, outer, seed + i, hard, flat,
+        W, pi, C, A, ll = fit(X, week_of, T, k, lam, outer, seed + i, flat,
                               log=lambda *_: None)
         log(f"  restart {i + 1}/{n_init}  loglik {ll:,.0f}")
         if best is None or ll > best[-1]:
@@ -562,27 +537,15 @@ def main():
     ap.add_argument("--out", default="analysis.js")
     ap.add_argument("--flat", action="store_true",
                     help="one mixture for the whole window instead of one per week")
-    ap.add_argument("--lda", action="store_true",
-                    help="fit Latent Dirichlet Allocation instead, for comparison")
-    ap.add_argument("--hard", action="store_true",
-                    help="one-hot the responsibilities (classification EM)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
         return selftest()
 
     X, week_of, weeks, vocab = documents()
-    if args.lda:
-        W, pi, C, A, ll = fit_lda(X, week_of, len(weeks), k=args.k)
-    else:
-        W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, lam=args.lam,
-                                   outer=args.outer, n_init=args.n_init, hard=args.hard,
-                                   flat=args.flat)
-    variant = ("LDA" if args.lda else
-               "one mixture for the window" if args.flat else
-               "hard assignment" if args.hard else
-               "no smoothing" if args.lam == 0 else
-               f"smoothing {args.lam:g}" if args.lam != LAMBDA else "default")
+    W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, lam=args.lam,
+                               outer=args.outer, n_init=args.n_init, flat=args.flat)
+    variant = "one mixture for the window" if args.flat else "default"
     out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, args.lam,
                strict=(variant == "default"))
     out["variant"] = variant

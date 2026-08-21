@@ -1,442 +1,253 @@
-# Words that arrived together
+# The load-bearing vocabulary of Claude
 
-Groups of words whose frequency on GitHub changed at the same time, found without being
-told what to look for.
+Groups of words whose frequency in GitHub pull request descriptions changed at the same time,
+found without being told what to look for. One of them barely existed at the start of 2025 and
+is about a third of the corpus by the middle of 2026.
 
-Three files:
+**[louisabraham.github.io/load-bearing](https://louisabraham.github.io/load-bearing/)**
 
 | file | what it is |
 |---|---|
-| `fetch_week.py` | one `.jsonl.gz` per week of pull request descriptions, from GitHub's search API. Standard library only. |
-| `analyze.py` | counts the words, factorises the week × word matrix, writes `analysis.js`. Needs `numpy` and `scikit-learn`. |
-| `index.html` | reads `analysis.js`. No build step, no dependencies. Open it. Every component appears as a miniature on one shared axis; picking one shows it in full, and the choice is in the URL hash. |
+| `fetch_day.py` | one request a day to GitHub's search API, one `data/days/*.jsonl.gz`. Standard library only. |
+| `analyze.py` | reads the days, groups them into weeks, fits the model, writes `analysis.js`. Needs `numpy`, `scipy`, `scikit-learn`. |
+| `index.html` | reads `analysis.js`. No build step. Open it. |
+| `experiment-flat.html` | the same page over `analysis-flat.js`, the one ablation kept. |
+| `.github/workflows/daily.yml` | does all of the above, daily, and commits the result. |
 
 ```bash
-pip install numpy scikit-learn
+pip install numpy scipy scikit-learn
 export GITHUB_TOKEN=$(gh auth token)
 
-python fetch_week.py --all      # ~85 min; skip if data/weeks/ is populated
-python analyze.py               # ~40 s
+python fetch_day.py                       # yesterday, one request
+python fetch_day.py --backfill 30         # and the last 30 days, if missing
+python analyze.py                         # ~15 s
+python analyze.py --flat --out analysis-flat.js
 open index.html
 ```
 
-`python fetch_week.py` with no arguments fetches only the weeks that have no file yet, so
-it is what you run weekly. `python analyze.py --selftest` checks the invariants whose
-silent failure would invalidate the result.
+`python analyze.py --selftest` checks the invariants whose silent failure would invalidate the
+result: that the prevalences sum to one, that the weekly counts reconstruct each week's
+document total, that a planted component is recovered, and that the smoothness penalty does
+something.
 
-## The model
+## How the corpus is collected
 
-Let `X[v, t]` count every appearance of word `v` in week `t` — every appearance, not one
-per document. Factorise it:
+**Days are the unit of collection, weeks the unit of analysis.** CI makes one request a day —
+a single randomly placed five-minute window of newly opened pull requests — and commits the
+result as an immutable file under `data/days`. Nothing rewrites an earlier day, so the history
+of the repository is the history of the sample. A hundred descriptions is too thin to compare
+against another hundred, so analysis groups seven days into a week.
 
-```
-X  ≈  W H        W: words × k, each column summing to 1
-                 H: k × weeks, non-negative
-```
+Weeks run from the first present to the last with no gaps, so a week that was never collected
+appears as an empty week rather than being quietly closed up and shifting everything after it.
 
-Each column of `W` is a probability distribution over the vocabulary — a way of writing.
-Each row of `H` says how much of that way of writing was in the air each week. Because the
-columns of `W` are normalised, the column sums of `H` recover the week's word count, so
-**`H[c, t]` is a count: the number of word appearances in week `t` attributable to component
-`c`.** Measured against the corpus, that identity holds to within 0.73%.
+The window is seeded on the date, so the choice is reproducible and a re-run fetches the same
+window. A window holding more than one page is truncated to its earliest hundred items, which
+is not a bias in time: the placement is uniformly random, so what is sampled is still
+everything created in a uniformly random interval, its effective width varying with GitHub's
+volume.
 
-`H` is reported as it is, not divided through by the week. Dividing would hide how much was
-written, and the weeks differ threefold in length even after the document cap. Component 1
-is the case that makes the point: as a share of the week it falls from 33% to 14%, but in
-appearances it barely moves — 9,996 a week to 8,631. It did not shrink; the corpus grew
-around it. Meanwhile the component that rises goes from 36 appearances a week to 43,703.
-
-Every component's curve is therefore in the same units, which is why all sixteen charts on
-the page share one axis instead of each being scaled to its own peak.
-
-NMF fixes `W H` only up to a diagonal rescaling — `W H = (W D)(D⁻¹ H)` for any positive
-diagonal `D` — so normalising the columns of `W` pins that free scale at the one place it
-carries meaning, and pushes it into `H`.
-
-**The loss is squared error, and the argument against it is worth knowing.** `X` holds counts
-and the columns of `W` are distributions over words, which together make a multinomial mixture
-— so Kullback–Leibler is the likelihood and squared error is not. Squared error assumes
-Gaussian noise of constant variance, which counts do not have: the variance of a count grows
-with its mean, so it treats a swing of 50 in a word appearing 200,000 times as equally
-surprising as the same swing in a word appearing 60. That objection is correct and it is
-overruled by two things the output showed.
-
-First, **KL folds a vendor's footer into the register.** Under KL the rising component's top
-four representative words are `cursor.com` links, which inflates its mass and muddies what the
-component is; squared error separates the links from the prose. Second, **KL cancels the L1**.
-It needs the multiplicative solver, which approaches zero without reaching it, and worse: `W H`
-is fixed only up to a diagonal rescaling, so normalising `W`'s columns *after* fitting lets the
-optimiser satisfy an L1 on `H` by shrinking `H` and inflating `W` at no cost, and the rescaling
-undoes it exactly. Measured, `alpha_H` from 0 to 10 moves `sum(H)` by 0.7% and the per-week
-shape of `H` by 0.0085. **An L1 is only meaningful where the scale is not free.**
-
-Under squared error it bites: 22% of `H` exactly zero at `alpha_H = 0`, 25% at 0.02, 47% at
-0.2. `LOSS = "kl"` switches back, one constant.
-
-### Two rankings, because there are two questions
-
-A component's **most representative** words — the sixteen charted and the forty listed —
-are those with the highest ratio of probability under the component to probability in the
-corpus:
-
-```
-lift(v, c) = P(v | c) / P(v)
-```
-
-That ratio is what makes a word belong to a component rather than to English. Its
-counterpart, the twelve words a component is most **made of**, ranks by
-`P(v|c) · log(P(v|c) / P(v))` — the pointwise contribution to the divergence between
-component and corpus, which is why `the` can appear there and never in the first list.
-
-**Two floors keep the lift ranking honest.** A word needs 45 total appearances *and*, 
-separately, must appear in 25 distinct documents. Appearances alone are not breadth:
-`multi-draw` appears 101 times inside a single description, `m₀` 140 times, and both were
-ranking among a component's most representative words, because a ratio cannot tell a
-widespread word from a word someone repeated. Both ceilings are set by `load-bearing`
-itself — 51 appearances across 45 documents — which under this ranking comes out 24th of 40
-in the component that rises through 2026.
-
-There is deliberately no *probability* floor. Flooring on probability throws away exactly
-the rare-but-concentrated words the ratio is for: `load-bearing` ranks in the top 40 with no
-floor and 6,062nd with one at the 80th percentile.
-
-An earlier version of this counted one appearance per document and needed each word divided
-by its own average across the window before fitting — without that, every fit spent itself
-on `the`. This formulation does not need it, because the interpretation step does that work
-instead: `W`'s columns are *allowed* to be dominated by common words, since they are
-distributions over real text, and the lift term is what recovers what is characteristic.
-
-## An alternative model, in `mixture.py`
-
-Same corpus, a different shape of question. Rather than factorising a week × word matrix,
-attribute each *document* to one of `k` ways of writing:
-
-```
-W_k                   a fixed distribution over the vocabulary
-pi_tk                 how much of week t was written that way, sum_k pi_tk = 1
-z_d ~ Cat(pi_t)       which component wrote document d
-x_d ~ Mult(n_d, W_k)  its words
-```
-
-The only thing asked of a prevalence curve is smoothness — `lambda * K² * sum_t (pi_tk -
-pi_{t-1,k})²`, the `K²` making one `lambda` correct at every `k`, for the reason below.
-Nothing requires a component to rise, to fall, or to be absent early. Fitted
-by EM, restarted ten times and keeping the highest likelihood, because EM finds different
-local optima here and the worst of them mix a component with something else and give it two
-thirds of the peak the good fits find.
-
-```bash
-python mixture.py           # writes mixture.js, k = 16
-open mixture.html           # the arrival, against everything else
-```
-
-**`mixture.py` asserts that exactly one component arrives** — ends at least a hundred times
-its starting size while being worth at least a twentieth of the final weeks. That is not a
-close call: the one that qualifies ends **5,759 times** its start, and the next largest ratio
-anywhere in the fit is 4.1. It is an assertion rather than a search, and if it ever fires the
-claim the page is built on has stopped being true, so the page should not be published from
-that fit.
-
-The page shows that one component and not the other fifteen: the stack draws all sixteen
-because they sum to the week, with the arrival in colour and the rest together in grey, and
-then the arrival's **thousand most characteristic words** are laid out as a wall, sized and
-shaded by how much more probable each is inside it than in the corpus — 6.95× for the first,
-2.69× for the thousandth. It goes from under one description a week to **226 of 350**.
-
-**That penalty works, where the L1 in `analyze.py` does not** — and the difference is
-structural rather than a matter of coefficient. There `W`'s columns are normalised *after*
-fitting, so an L1 on `H` can be satisfied by shrinking `H` and inflating `W` at no cost, and
-the rescaling undoes it exactly. Here `pi` sums to 1 in every week by construction, so the
-scale is not free. An L1 on `pi` itself would still do nothing: on the simplex
-`||pi_t||_1 = 1` identically, a constant with zero gradient.
-
-### How many components
-
-`--k` sets it, `--out` names the file, and `mixture.html?k=N` reads whichever fit you ask for:
-
-```bash
-for k in 4 6 8 12 16 24 32 128; do
-  python mixture.py --k $k --n-init 4 --out mixture-k$k.js
-done
-```
-
-Training likelihood rises with k because more parameters always fit better, so it cannot
-choose. Held-out likelihood can: fit on 90% of documents, score the other 10%.
-
-| `k` | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | **128** | 192 | 256 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| train | −9.313 | −9.243 | −9.189 | −9.106 | −9.054 | −8.970 | −8.923 | −8.862 | −8.807 | −8.741 | −8.685 |
-| **held out** | −9.357 | −9.294 | −9.254 | −9.187 | −9.151 | −9.108 | −9.091 | −9.077 | **−9.073** | −9.094 | −9.083 |
-| gap | 0.044 | 0.052 | 0.065 | 0.081 | 0.097 | 0.138 | 0.168 | 0.215 | 0.266 | 0.354 | 0.397 |
-
-**The data supports around 128 components**, an order of magnitude more than the default, and
-that answer did not move when `lambda` was tuned — it was 128 before as well. The
-train-to-held-out gap widens monotonically from 0.044 to 0.397 bits, which is overfitting
-arriving steadily; the held-out curve turns over once the gap outruns the gain.
-
-Two caveats. `k ≥ 96` was fitted with two restarts against three or four for the smaller k, so
-the large fits are handicapped and the optimum may be slightly higher. And 192 scores worse
-than 256, which is impossible for a well-fitted sequence — restart noise at those sizes is now
-comparable to the differences being resolved, so "around 128" is as precise as this gets.
-
-`mixture.html?k=128` displays it. Above twenty components a full-width row each is unreadable
-— at 128 it would run to twenty-five thousand pixels — so the page switches to a grid of small
-multiples, six across, each with its mean, its peak and its four most representative words.
-
-**This is also where `load-bearing` stops owning a component.** Its lift, and its rank in the
-component that gives it most, at each k:
-
-| `k` | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 128 |
-|---|---|---|---|---|---|---|---|---|
-| best lift | 2.4 | 4.3 | 6.5 | 6.1 | 7.2 | 8.6 | 9.1 | **26.2** |
-| its rank there | 6th | **1st** | 3rd | **1st** | **1st** | 19th | **1st** | 19th |
-| next-best lift | 0.00 | 0.01 | 0.15 | 0.01 | 0.02 | 4.07 | 0.44 | **12.6** |
-
-From k = 6 to 32 one component holds it almost exclusively — the gap to the runner-up is 21 to
-610-fold. At k = 128 the lift is four times higher, because narrower components can concentrate
-a word much harder, but the gap collapses to 2.1-fold and it appears above lift 4 in at least
-six components. The word is real at every resolution; what it *belongs to* is only well defined
-at coarse ones. **So `k = 12` is a legibility choice, not a statistical one** — twelve rows a
-reader can scan, against 128 nobody will read.
-
-**`lambda` is set by held-out likelihood, and made scale-free in `k`.** The difference is
-penalised relative to `1/K` rather than absolutely, because without that the right `lambda`
-moves by two orders of magnitude with `k` for a purely mechanical reason: prevalences sum to
-one, so a typical `pi` is about `1/K` and a typical squared difference about `1/K²`. Held-out
-likelihood puts the optimum at 5,000 for `k = 12` and 500,000 for `k = 128` — and
-`(128/12)² × 5,000 = 568,889`, one grid step away. So the entire k-dependence is that factor,
-and absorbing `K²` leaves one constant that is right at both: `5,000/144 = 34.7` and
-`500,000/16,384 = 30.5`. Set to 32, it reproduces both per-k optima exactly, −9.2944 and
-−9.0728 bits per word.
-
-| `lambda` at k=128 | 0 | 1,000 | 25,000 | 100,000 | **500,000** | 2 M | 10 M |
-|---|---|---|---|---|---|---|---|
-| held out | −9.0782 | −9.0770 | −9.0742 | −9.0734 | **−9.0728** | −9.0738 | −9.0760 |
-| train | −8.8055 | −8.8053 | −8.8064 | −8.8070 | −8.8072 | −8.8079 | −8.8099 |
-
-Train getting worse while held-out gets better is the regularisation signature, and it only
-appears at the larger `k`, where there are 17,536 prevalences to fit rather than 1,644. At
-`k = 12` held-out is flat to four decimals across four orders of magnitude, so there the
-penalty is free rather than helpful — worth taking anyway, since it cuts roughness twentyfold
-for nothing.
-
-Held-out likelihood cannot see over-smoothing, so the shape was checked separately. At
-`k = 12` the register rises 0.4% → 65.4% at the old default and 0.3% → 63.8% at the new one,
-but only 0.4% → **47.0%** at a hundred times that — the peak dragged down toward the early
-weeks. The chosen value is the largest that leaves the shape alone.
-
-### Absolute, not share
-
-`mixture.html` reports absolute counts everywhere, and the two stacked views side by side are
-the argument for it. The corpus caps documents at 350 a week, so the document count is flat by
-construction (it only varies 329 to 350) — but the words inside them are not capped and swing
-**3.2-fold**, from 23,597 a week to 75,541. Descriptions got longer. So the absolute view is in
-word appearances, and it shows total volume nearly tripling with one component driving all of
-it; the share view shows the same data with the volume divided out, where a band can shrink
-because the corpus grew around it rather than because it shrank.
-
-Of twelve components, two end the window at least twice the size they started. The larger goes
-from 0.2% to 63.8% of the week, and its most representative word is **`load-bearing`**,
-followed by `seam, byte-identical, lands, refuses, --all-targets, genuine, folded, adversarial`.
-
-### What was removed, and why
-
-An earlier version gave each component an unknown **birth week** and held its prevalence at
-exactly zero before then, so the empty stretch was a parameter rather than a shape a penalty
-was asked to produce. The constraint worked, and a planted birth was recovered exactly on
-synthetic data. It was still removed, because **on this corpus the birth week was not
-identified**: single runs put one component's birth anywhere across a 23-month range, and
-dropping 75 documents of 47,373 moved it thirteen weeks. The threshold that defined a birth sat
-in the near-zero tail, where a handful of documents decides whether a week clears it.
-Likelihood selection over restarts narrowed it to about four months, but a curve that starts
-near zero says the same thing without claiming a date. It is in the git history if wanted.
-
-Also worth recording, since it is checkable rather than a matter of taste: **the weekly total
-throws nothing away.** Given the responsibilities, the M-step for `pi_t` depends on the
-documents only through the column sums, so the weekly count is the *sufficient statistic*.
-Three assumptions behind that were measured — 84% of documents have a maximum responsibility
-above 0.9 and only 2.1% are genuinely split, so one-source-per-document is fair and an
-admixture model would be solving a problem this corpus does not have; every document
-contributes exactly 1.0 to the count regardless of length, so the shortest half supplies 50% of
-it; and two documents from the same repository agree on their component 63% of the time against
-16% by chance (ICC 0.56), but the design effect is only 1.17 because the three-per-author cap
-already keeps clusters tiny.
-
-## Experiments
-
-Five ablations, each a page of its own. All six fits come from identical code, which matters —
-comparing runs made by different versions of the script means nothing.
-
-```bash
-python analyze.py                 --out analysis.js         # default
-python analyze.py --lam 0         --out analysis-nol2.js    # no smoothing
-python analyze.py --lam 5000      --out analysis-smooth.js  # heavy smoothing
-python analyze.py --hard          --out analysis-hard.js    # classification EM
-python analyze.py --flat          --out analysis-flat.js    # one mixture for the window
-python analyze.py --lda           --out analysis-lda.js     # a different model
-```
-
-| variant | log-likelihood | roughness | arrival | leader |
-|---|---|---|---|---|
-| **default** | −31,631,379 | 0.06 | 68,790× | 0.00% → 60%  `load-bearing, byte-identical, seam` |
-| no smoothing | −31,631,274 | 1.82 | 429× | 0.13% → 54%  `[webkit-url], ews, load-bearing` |
-| heavy smoothing | −31,636,397 | 0.00 | 228× | 0.23% → 52%  `[webkit-url], ews, load-bearing` |
-| hard assignment | −31,644,354 | 0.07 | 385× | 0.15% → 56%  `ews, [webkit-url], load-bearing` |
-| one mixture for the window | −31,644,173 | 0.00 | **73× — fails** | 0.69% → 51%  `[webkit-url], ews, load-bearing` |
-| LDA | −35,622,280 | 0.88 | 103× | 0.56% → 57%  `[cursor-url], clippy, carries, bugbot` |
-
-**The ablation that matters is the flat one.** With one mixture for all 137 weeks the model has no
-way to represent time at all, so the weekly curves it produces are purely observed — and a
-component still goes from 0.69% to 51% of the week. It misses the 100× arrival threshold, at 73×,
-and the page says so; but the rise is plainly there without the model being given any freedom to
-fit it. That is the strongest available evidence that the pattern is in the words rather than in
-the fitting.
-
-**Smoothing is not load-bearing here.** Off (λ = 0) or 150× too strong (λ = 5,000), the component
-is still found and still rises to about half the corpus. What λ changes is roughness — 1.82 to
-0.00 — and the readability of the curve.
-
-**Hard assignment costs almost nothing**, as the responsibilities predicted: 84% of descriptions
-already concentrate above 0.9 on one component, and forcing the rest costs 13,000 nats out of 31.6
-million with the leader essentially unchanged.
-
-**LDA is the one real loser.** Letting each *word* pick its own component rather than each
-description costs four million nats, and its leading component is a blend —
-`[cursor-url], clippy, carries, bugbot, lands` mixes a vendor's footer with the prose that the
-document-level model keeps apart.
-
-One reading note: the default's 68,790× is an artifact of dividing by a starting share that is
-essentially zero, not a meaningfully larger effect than the others.
-
-## Why not GH Archive
-
-Because it no longer works. Its feed has carried almost only `PushEvent` since mid-2025: a
-complete hour of 2024-08-12 holds 13,555 `IssueCommentEvent` against 86 for the same hour
-of 2026-08-10, and polling `/events` in August 2026 returns 97 `PushEvent` out of the 100
-most recent events. Measured from the files, the archive carried 3,000–10,000 issue
-comments an hour through 2025-10, then 1,590 in 2026-03, 866 in 2026-06 and 77 in 2026-07.
-
-The cause is upstream, in GitHub's Events API. Its own tracker carries
-[#310 "Drastic Drop Off in Events After 2025-05-23"](https://github.com/igrigorik/gharchive.org/issues/310),
-open since July 2025 with no reply, and
-[community discussion #178788](https://github.com/orgs/community/discussions/178788)
-traces the same loss to "a GitHub Event API outage propagated downstream" — the identical
-gaps appear in OSSInsight, which reads the API directly. GitHub has published no fix and no
-alternative, so every bulk mirror inherits it: BigQuery `githubarchive`, ClickHouse GH
-Explorer, the Kaggle and Hugging Face copies. GHTorrent has been dead since 2021, and
-Software Heritage archives real git history but exports once a year.
-
-## How the sampling works
-
-Each week contributes the same number of randomly placed five-minute windows of newly
-opened pull requests. *Uniform* across the window, so a difference between two weeks cannot
-come from having looked harder at one of them; *random* inside the week, so the sample is
-of the whole week rather than a chosen slice of the clock.
-
-Two filters are pushed into the query, and together they take a hundred-item page from 43
-usable documents to 97:
+Two filters are pushed into the query, and together they take a page from 43 usable
+descriptions to 97:
 
 - **Four Apps excluded.** `-author:app/{pull,dependabot,renovate,github-actions}` — 90% of
-  App-authored bodies. `-author:app/*` is rejected with a 422, so there is no way to say
-  "no apps", and other App accounts stay in on purpose: some of the clearest agent-written
-  prose on GitHub is App-authored.
+  App-authored bodies. `-author:app/*` is rejected with a 422, so there is no way to say "no
+  apps", and other App accounts stay in on purpose: some of the clearest agent-written prose
+  on GitHub is App-authored.
 - **Empty bodies excluded**, and 45% of pull requests have none. There is no emptiness
   qualifier — `-body:""` is a 422, `has:body` and `-in:body` are silently ignored, and
-  `body:*` cuts 94% rather than 45% because it is a text match on the asterisk. Requiring
-  any one of ten function words *in the body* does it exactly. Note the qualifier is
-  repeated per term: `in:body` does **not** distribute over an OR group, so
-  `(the OR a) in:body` matches titles and lets empty bodies back in.
+  `body:*` cuts 94% rather than 45% because it is a text match on the asterisk. Requiring any
+  one of ten function words *in the body* does it exactly. Note the qualifier is repeated per
+  term: `in:body` does **not** distribute over an OR group, so `(the OR a) in:body` matches
+  titles and lets empty bodies back in.
 
-Pull request descriptions were chosen over comments and issue bodies because they have the
-largest dynamic range — measured on one expression, ×2,322 against ×866 for issue bodies
-and ×208 for comments. They were the quietest surface before assistants arrived.
+The corpus in this repository begins **2025-01** and the 85 weeks before the CI era were
+seeded from a bulk collection, written as if each week had been sampled on its Monday — which
+is what it was, five windows drawn from across that week.
 
-## Counting
+### Why not GH Archive
 
-**What counts as a word.** A run of letters, digits, hyphens and underscores containing at
-least one letter — so `load-bearing`, `snake_case` and `--all-targets` survive whole, while
-`/`, backtick, `:` and `>` are separators rather than characters a word may contain. No
-stemming, no n-grams, no stopword list. Every appearance counts, so a word used three times
-in one description contributes three.
+Because it stopped working. Since mid-2025 its feed carries almost only `PushEvent`: a
+complete hour of 2024-08-12 holds 13,555 `IssueCommentEvent` against 86 for the same hour of
+2026-08-10, and polling `/events` in August 2026 returns 97 `PushEvent` out of the 100 most
+recent. Measured from the files, the archive carried three to ten thousand issue comments an
+hour through 2025-10, then 1,590 in 2026-03, 866 in 2026-06 and 77 in 2026-07. Pull requests
+and issues fell with them; pushes survive at full volume but carry no text, GitHub having
+[removed the commit array](https://github.blog/changelog/2025-08-08-upcoming-changes-to-github-events-api-payloads/)
+from the payload in October 2025.
+
+The cause is upstream, in GitHub's Events API. Its tracker carries
+[#310 "Drastic Drop Off in Events After 2025-05-23"](https://github.com/igrigorik/gharchive.org/issues/310),
+open since July 2025 with no maintainer reply, and
+[community discussion #178788](https://github.com/orgs/community/discussions/178788) traces the
+same loss to "a GitHub Event API outage propagated downstream" — the identical gaps appear in
+OSSInsight, which reads the API directly rather than through the archive. So no mirror repairs
+it: [BigQuery `githubarchive`](https://www.gharchive.org/),
+[ClickHouse GH Explorer](https://ghe.clickhouse.tech/) and the Kaggle and Hugging Face copies
+all read the same feed. GHTorrent has been dead since 2021, and
+[Software Heritage](https://docs.softwareheritage.org/devel/swh-export/graph/dataset.html)
+archives real git history but exports once a year. GitHub has published no fix and no
+alternative.
+
+What works is the search API, because `created:` accepts timestamps rather than only dates —
+so a window can be minutes wide, narrow enough to enumerate rather than sample, and each
+response carries the full body.
+
+## What counts as a word
+
+A run of letters, digits, slashes, hyphens and underscores containing at least one letter — so
+`load-bearing`, `snake_case`, `--all-targets` and `src/main` survive whole, while backtick,
+`:` and `>` are separators. No stemming, no n-grams, no stopword list. Every appearance counts,
+so a word used three times in one description contributes three.
 
 Order matters, and each step exists because of what the previous one broke:
 
-1. **Links first, each collapsed to its domain.** `[bugbot](https://cursor.com/x)` gives
-   `bugbot` and `[cursor-url]`. Splitting on punctuation first produced `bugbot](https` and
-   a trail of fragments, and those fragments ranked among components' most representative
-   words. Keeping links whole was little better: a tool that puts a per-item link in every
-   description gets one word per *item* instead of one word, and Snyk's vulnerability links
-   alone were the top words of eight of sixteen components. `[snyk-url]`, `[claude-url]`,
-   `[github-url]` say the useful thing in one token that can clear the frequency floors.
-   The registrable domain is taken as the second-to-last label — wrong for `example.co.uk`,
-   right for everything that turns up here.
-2. **Then HTML tags, whole.** Splitting them character by character turned
-   `<sup>reviewed</sup>` into `sup, reviewed, sup` and made `li`, `br`, `td` and `href` six
-   of one component's twelve commonest words. The pattern requires a letter or slash after
-   the bracket, so `a > b` in prose is not mistaken for markup.
-3. **Then everything else splits** on any character a word may not contain, which handles
-   what markdown creates without needing to know about it: `srcset="…"` gives `srcset`,
-   `height="28` gives `height`, `*emphasis*` needs nothing because `*` is a separator.
+1. **Links first, collapsed to their domain.** `[bugbot](https://cursor.com/x)` gives `bugbot`
+   and `[cursor-url]`. Splitting on punctuation first produced `bugbot](https` and a trail of
+   fragments, and those fragments ranked among components' most representative words. Keeping
+   links whole was little better: a tool that puts a per-item link in every description gets
+   one word per *item*, and Snyk's vulnerability links alone were the top words of eight of
+   sixteen components.
+2. **Then HTML tags, whole.** Splitting them character by character turned `<sup>reviewed</sup>`
+   into `sup, reviewed, sup` and made `li`, `br`, `td` and `href` six of one component's twelve
+   commonest words. The pattern requires a letter or slash after the bracket, so `a > b` in
+   prose is not mistaken for markup.
+3. **Then everything else splits** on any character a word may not contain, which handles what
+   markdown creates without knowing about it: `srcset="…"` gives `srcset`, `*emphasis*` needs
+   nothing because `*` is a separator.
 4. **Then trim the edges.** `_other example_` needs its underscores trimmed, since an
-   underscore is allowed *inside* a word. A trailing hyphen goes for the same reason; a
-   leading one stays, so `--all-targets` is not quietly turned into `all-targets`.
+   underscore is allowed *inside* a word; a leading hyphen stays, so `--all-targets` is not
+   turned into `all-targets`.
 
-Snyk advisory identifiers collapse the same way, `snyk-js-axios-6144788` to `[snyk-id]`,
-because they are the same problem one level down: 1,401 distinct tokens, 113 of them past
-the floors, between them occupying seven of sixteen components. Afterwards, none. The
-trailing run of digits is what tells an identifier from `snyk-top-banner`. CVE and GHSA ids
-have the same shape and are left alone — five and one of them clear the floors.
+Snyk advisory identifiers collapse to `[snyk-id]` for the same reason links collapse to their
+domain: 1,401 distinct tokens between them occupied seven of sixteen components.
 
-Requiring a letter drops what is left of numbers and rules — `27.49`, `589/1000`,
-`2025-06-24`, `-------` — along with the arrow and `+`. **The em dash is the one exception**,
-taken before the split and counted as a word of its own. It earns that: 0.0 appearances per
-10,000 words in early 2024 against 123.0 in mid-2026, the sharpest single signal here. It is
-counted separately rather than added to the word characters because it is as often unspaced
-as spaced, and inside the character class `foo—bar` would become one token instead of three.
+Requiring a letter drops numbers and rules — `27.49`, `589/1000`, `2025-06-24`, `-------` —
+along with the arrow and `+`. **The em dash is the one exception**, taken before the split and
+counted as a word of its own. It earns that: 0.0 appearances per 10,000 words in early 2024
+against 123.0 in mid-2026.
 
-**No author may contribute more than three documents to a week.** This is what finds
-mass-produced descriptions without a blocklist, and it works because they concentrate by
-*author* rather than by repository: `copilot` wrote 197 of the 198 descriptions carrying
-GitHub's coding-agent survey link, across 192 repositories, and `vercel[bot]` wrote all 85
-carrying one particular CVE. It catches what the `[bot]` suffix misses — `copilot`,
-`pyup-bot`, `scala-steward` and `regro-cf-autotick-bot` are ordinary logins — and it applies
-to humans on the same terms, which is why it is a cap and not an exclusion. Across the
-corpus 36,503 authors write 48,086 documents, so a cap of three costs 4.4% of them. It does
-nothing about Snyk, whose 3,714 descriptions come from 2,197 authors because each
-repository's integration runs under its own login; that needed the identifier collapse
-above.
+## Counting
 
-Two documents with the identical word set count once, within each week — one ordinary account once posted 147 copies of the same sentence inside
-a fortnight, 16% of it, and every word of its template moved with it. That collapse is
-deliberately per-week and not global: collapsing across the window would make a template
-running for months look as though it started or stopped.
+**No author may contribute more than three descriptions to a week.** This finds mass-produced
+text without a blocklist, because it concentrates by *author* rather than by repository:
+`copilot` wrote 197 of the 198 descriptions carrying GitHub's coding-agent survey link, across
+192 repositories, and `vercel[bot]` wrote all 85 carrying one particular CVE. It catches what
+the `[bot]` suffix misses — `copilot`, `pyup-bot`, `scala-steward` and `regro-cf-autotick-bot`
+are ordinary logins — and applies to humans on the same terms, which is why it is a cap and not
+an exclusion.
 
-Every week is then cut off at the same number of documents. Sampling the same number of
-hours does not give the same number of documents, and because text is overdispersed — words
-cluster inside repositories — a rate computed on more documents comes out inflated rather
-than merely more precise. Without it, busy weeks outrank busy language. Document *length* still varies threefold
-after this, which is exactly why the model reports `H` as a share of the week rather than
-raw.
+Two descriptions with the identical word set count once, within each week. This is about text,
+not authorship: one ordinary human account posted 147 copies of one sentence in a fortnight,
+16% of it. Collapsing inside the week rather than across the window means a template running
+for months contributes one description to every week alike, which is a level and not a change.
 
-## Two things to hold onto
+Every week is then cut off at the same number of descriptions, because text is overdispersed —
+words cluster inside repositories — so a rate computed on more descriptions comes out inflated
+rather than merely more precise.
 
-The corpus only contains pull requests whose author wrote a description, and **that
-condition loosens over the window** — empty descriptions fall from about a third to about a
-seventh. A rate measured per pull request therefore rises both because descriptions use a
-word more and because more pull requests have descriptions at all.
+## The model
 
-The components come from the model; the word curves do not. Each word chart is the raw
-weekly share of documents containing that word, so only the *choice* of which words to show
-is the model's. Sparklines are scaled to their own peak, printed beside each one, so their
-shapes are comparable but their heights are not.
+Each of `k` components is a fixed probability distribution over the vocabulary — one way of
+writing. Every week has a mixture over those `k`, and each description is taken to be drawn
+from one of them:
 
-## What was here before
+```
+W_k                   a distribution over the vocabulary,  sum_v W_vk = 1
+pi_tk                 how much of week t was written that way,  sum_k pi_tk = 1
+z_d ~ Cat(pi_t)       which component wrote description d
+x_d ~ Mult(n_d, W_k)  its words
+```
 
-Roughly 6,800 lines across two packages, being the record of working out which method and
-which source answer the question — a GH Archive ingester, MinHash template mining,
-changepoint detection, clustering, release alignment, Bayesian date estimation, an LDA
-path, and the parameter sweeps behind the choices above. It is all at the
-`archive/full-pipeline` tag. The changepoint scan is the one worth knowing about: on every
-corpus it was run against it found tool deployments rather than language, because comparing
-two windows at a time cannot see a gradual multi-month shift, while a bot changing its
-template produces exactly the jump it looks for.
+Fitted by EM, restarted ten times and keeping the highest likelihood, because EM finds
+different local optima here and the worst of them mix a component with something else.
+
+### Smoothing
+
+The only thing asked of a prevalence curve is smoothness, `lambda * K² * sum_t (pi_tk -
+pi_{t-1,k})²`. Nothing requires a component to rise, to fall, or to be absent early.
+
+The `K²` makes one `lambda` correct at any `k`, and it is not a fudge: prevalences sum to one,
+so a typical `pi` is about `1/K` and a typical squared difference about `1/K²`. Held-out
+likelihood — fit on 90% of descriptions, score the other 10% — put the optimum at 5,000 for
+`k = 12` and 500,000 for `k = 128`, and `(128/12)² × 5,000 = 568,889`, one grid step away. So
+the whole `k`-dependence is that factor, and absorbing it leaves a single constant right at
+both: `5,000/144 = 34.7` and `500,000/16,384 = 30.5`. Set to 32, it reproduces both per-`k`
+optima exactly.
+
+### Two rankings, and why lift excludes the component itself
+
+A component's most representative words are those most more probable inside it than in
+**everything that is not it**:
+
+```
+lift_k(v) = W_vk / [ sum_{j != k} m_j W_vj / sum_{j != k} m_j ]
+```
+
+The exclusion matters. Dividing by the whole corpus understates a large component's own words,
+because by the end of the window one component is a third of everything written — its
+vocabulary was being compared partly against itself. `load-bearing` scores 6.95× that way and
+273× this way.
+
+There is deliberately no probability floor: flooring throws away exactly the
+rare-but-concentrated words the ratio is for. Instead two frequency floors, a word needing 45
+total appearances *and* 25 distinct documents. Appearances alone are not breadth —
+`multi-draw` appears 101 times inside a single description — because a ratio cannot tell a
+widespread word from one someone repeated.
+
+### The arrival assertion
+
+`analyze.py` asserts that the arrivals are unambiguous: every component ending at least 100×
+its starting size, while worth at least a twentieth of the final weeks, must be at least 10×
+clear of everything that is not. The margin is not close, and if it ever fails the claim this
+page is built on has stopped being true, so the page should not be published from that fit.
+
+The test reads observed weekly shares rather than the fitted `pi`. It is what the data says, it
+coincides with `pi` wherever `pi` was free to follow it, and it is the only thing that means
+anything in the ablation below, where `pi` is held constant.
+
+## How many components
+
+`k = 16` is a **legibility choice, not a statistical one.** Training likelihood rises with `k`
+because more parameters always fit better, and held-out likelihood keeps improving to about
+`k = 128` before turning over at 192 — an order of magnitude more than the default. Sixteen is
+what a reader can hold. What the smaller `k` buys is a summary; what it costs is resolution,
+and at `k = 32` the register visibly splits into prose and command-line tooling.
+
+The finding does not depend on the choice: a component going from near nothing to roughly a
+third of the week, with these words, is there at every `k` from 6 to 32.
+
+## The ablation
+
+`python analyze.py --flat` fits **one mixture for the whole window** instead of one per week,
+so the model has no way to represent time at all. The weekly curves it produces are therefore
+purely observed. A component still goes from 0.67% to 32% of the week — a 48-fold rise, which
+fails the 100× arrival threshold and the page says so, but is unmistakable with the model given
+no freedom to fit it. **That is the strongest available evidence that the pattern is in the
+words and not in the fitting.**
+
+Four other ablations were run and removed, and their results are worth recording: with the
+smoothing off, or 150× too strong, the component is still found and still reaches about half
+the corpus, so `lambda` changes readability rather than substance; hard assignment costs 13,000
+nats out of 31.6 million, as the responsibilities predict, since 84% of descriptions already
+concentrate above 0.9 on one component; and LDA — letting each *word* pick its own component
+rather than each description — costs four million nats and its leading component blends a
+vendor's footer with the prose the document-level model keeps apart. They are in the git
+history.
+
+## On the title
+
+Words naming Claude are elevated inside this component, `claude` at 4.35× and its link at
+4.48×, while Cursor, ChatGPT, Codex and Copilot sit at or below the baseline. But `gpt-5` is
+elevated further, at 5.20×. The register is far more strongly associated with Claude than with
+most assistants, and it is not Claude's alone.
+
+## Two caveats to carry
+
+The corpus only contains pull requests whose author wrote a description, and that condition
+loosens over the window — empty descriptions fall from about a third to about a seventh. A rate
+measured per pull request therefore rises both because descriptions use a word more and because
+more pull requests have descriptions at all.
+
+The components come from the model; the word curves do not. Each is the raw weekly count of
+that word's appearances, so only the *choice* of which words to show is the model's.

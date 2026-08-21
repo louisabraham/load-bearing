@@ -204,6 +204,10 @@ function axis() {
 }
 
 function build() {
+  const months = Math.round(A.weeks.length * 7 / 30.44);
+  const span = months >= 24
+    ? `for ${(months / 12).toFixed(1).replace(/\.0$/, "")} years`
+    : `for ${months} months`;
   const leads = A.components.filter(c => c.lead);
   const first = leads[0];
   const lastWeek = leads.reduce((s, c) => s + c.count[c.count.length - 1], 0);
@@ -236,11 +240,11 @@ function build() {
 
   app.innerHTML = `<header>
     <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
-    <p class="standfirst">Every pull request description opened on GitHub, sampled evenly week
-      by week for two and a half years. A model splits them into ${A.k} ways of writing.
-      ${leads.length === 1 ? "One of them barely existed" : `${leads.length} of them barely
-      existed`} at the start and ${leads.length === 1 ? "is" : "are"} most of the corpus by
-      the end.</p>
+    <p class="standfirst">Every pull request description opened on GitHub, one randomly
+      placed five-minute window a day, ${span}. A model splits them into ${A.k} ways of
+      writing. ${leads.length === 1 ? "One of them" : `${leads.length} of them`} barely
+      existed at the start and ${leads.length === 1 ? "is" : "are"}
+      ${pc(lastWeek / A.docs_per_week[A.docs_per_week.length - 1])} of the last week.</p>
     <div class="stats">
       <div class="stat"><b>${fmt(A.documents)}</b><span class="label">descriptions</span></div>
       <div class="stat"><b>${A.weeks.length}</b><span class="label">weeks</span></div>
