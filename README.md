@@ -9,7 +9,7 @@ found without being told what to look for. One of them was 1.6% of the corpus at
 | file | what it is |
 |---|---|
 | `fetch_day.py` | one request a day to GitHub's search API, one `data/days/YYYY-MM-DD.jsonl`. Standard library only. |
-| `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js`. Needs `numpy`, `scipy`, `numba`. |
+| `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js`. 706 lines. Needs `numpy`, `scipy`, `numba`. |
 | `index.html` | reads `analysis.js`. No build step. Open it. |
 | `.github/workflows/daily.yml` | does all of the above, daily, and commits the result. |
 
@@ -19,9 +19,8 @@ export GITHUB_TOKEN=$(gh auth token)
 
 python fetch_day.py                  # yesterday, one request
 python fetch_day.py --backfill 30    # and the last 30 days, if missing
-python analyze.py                    # ~8 s end to end
+python analyze.py                    # ~10 s end to end
 python analyze.py --selftest         # the invariants, on synthetic data
-python analyze.py --verify-reader    # the fast reader == the reference reader
 open index.html
 ```
 
@@ -322,122 +321,104 @@ happened to be the one that split the register most finely and so reported the *
 of any seed; at `k = 8` it reports near the top of the range. It is the likeliest fit's figure
 and nothing more.
 
-### How numba made this fast
+### Speed, and what it was worth paying for
 
-Two kernels, and the same trick in both: **do the per-item work in compiled code, and never
-create a Python object per item.**
+The command takes about ten seconds. It took 313, and the interesting part is which of the
+things that fixed it were worth their cost in code. Measured, per technique:
 
-Every part, what it cost, and what actually fixed it:
-
-| part | before | after | what did it |
+| technique | code it costs | what it buys | kept? |
 |---|---|---|---|
-| **EM fitting**, all restarts | 313 s | **2.6 s** | dropped the per-week `pi` and its L-BFGS inner solve entirely; fused the E step and the M step's statistics into one parallel numba kernel with no `D × k` intermediate; stopped on convergence rather than a fixed pass count |
-| — one EM pass | ~2.6 s | **0.013 s** | one visit per description, length-`k` scratch array, per-thread accumulators over contiguous blocks, no atomics |
-| **Tokenising** | 4.5 s | **0.30 s** | tokens as `(offset, length)` spans into one byte buffer, never as Python strings; flat open-addressed hash table, power-of-two mask, linear probing, single-probe insert-or-find; a 256-entry byte table doing lowercase, classification, edge-trimming and the letter test at once; decode 362 k distinct strings instead of 7.2 M |
-| **Filters** (dedup, author cap, floors) | 2.4 s of `np.unique` | **0.34 s** | deleted both `np.unique` calls; scipy's sparse construction already collapses duplicate pairs in C and sorts each row, so the deduplication is a free side effect of a matrix that had to be built anyway — and a second `(author, word)` matrix gives the distinct-account counts |
-| **JSON parsing** | 0.39 s | 0.39 s | left alone on purpose — see below |
-| **whole command** | **313 s+** | **~8 s** | |
+| **deleting the per-week `pi`** | **−80 lines** | **80×** — an L-BFGS solve per EM pass became nothing | yes, obviously |
+| **numba EM kernel** | ~48 lines | 1.9× on CI, 4.3× here | yes |
+| **scipy CSR deduplication** | ~10 lines | 2.0 s | yes |
+| **convergence instead of a pass count** | ~8 lines | correctness, costs 0.7 s | yes |
+| **span-hashing tokeniser** | **289 lines, 36% of the file** | 3.8 s | **no — removed** |
 
-The ordering matters: the fit was fixed first, and only *because* it became a second did the
-reader turn into the bottleneck worth attacking at all.
+**Almost the entire 313 s → 10 s came from a deletion, not an optimisation.** The old model
+fitted a mixture per week with a smoothness penalty, which meant an L-BFGS solve over `T × k`
+parameters inside every EM pass: 2.6 s of every 2.63 s pass. Dropping to one mixture for the
+whole window left a pass that pure numpy does in 32 ms. Nothing else on this list is in the same
+league, and the thing that did it removed code rather than adding it.
 
-#### The EM sweep
+#### The EM kernel is worth its 48 lines, but less than it looks
 
-One `njit(parallel=True)` kernel **fuses the E step with the M step's sufficient statistics.**
-The obvious formulation builds a `D × k` matrix of logits, softmaxes it, then multiplies it back
-against the sparse matrix — three passes over the data and two dense intermediates the size of
-the corpus. The kernel instead visits each description exactly once: its logits are built in a
-length-`k` scratch array, softmaxed in place, and spent immediately on the word totals, the
-weekly counts and the likelihood. **Nothing `D`-sized is ever allocated.**
+One `njit(parallel=True)` kernel fuses the E step with the M step's sufficient statistics. The
+obvious formulation builds a `D × k` matrix of logits, softmaxes it, then multiplies it back
+against the sparse matrix — three passes and two dense intermediates the size of the corpus. The
+kernel visits each description once: logits into a length-`k` scratch array, softmaxed in place,
+spent immediately on the word totals, the weekly counts and the likelihood. Nothing `D`-sized is
+allocated. It parallelises over contiguous *blocks* of descriptions, so each thread owns one
+slice of every accumulator and no two threads touch the same cell.
 
-It parallelises over *contiguous blocks* of descriptions rather than over descriptions, so each
-thread owns one slice of every accumulator and no two threads ever touch the same cell; the
-caller sums the leading axis afterwards. That costs `threads × k × V` floats — six megabytes at
-sixteen threads, a thousandth of what the dense logits would have cost — and buys complete
-freedom from atomics.
+The honest numbers, one EM pass over 3.3 M nonzeros:
 
-#### The tokeniser
+| | time | vs numpy |
+|---|---|---|
+| pure numpy — `_em_sweep_numpy`, 13 lines | 32.5 ms | — |
+| numba, 1 thread | 50.4 ms | **0.6× — slower** |
+| numba, 4 threads (what CI has) | 17.5 ms | 1.9× |
+| numba, 16 threads (a developer machine) | 7.7 ms | 4.3× |
 
-The reference tokeniser spends its time not on the regex but on the **seven million Python
-strings** it has to build to use as dictionary keys. That was measured before anything was
-rewritten, and it is the whole story:
+So single-threaded numba loses to numpy outright, and the whole benefit is the parallelism. On
+CI that is 1.9×, worth about 2 s a day. It stays because 48 lines is cheap and the local 4.3×
+is what makes the seed sweeps and convergence tables in this file affordable to run — but it is
+not the reason this project got fast, and `_em_sweep_numpy` remains in the file as the readable
+statement of the same computation, asserted equal to eight decimal places on every selftest.
 
-| on the same 8M tokens | time |
-|---|---|
-| `bytes.split` alone | 0.27 s |
-| `bytes.split` + `.decode()` | **1.10 s** |
-| the full reference `tokens()` | 4.5 s |
+#### The tokeniser optimisation was built, measured, and removed
 
-So splitting was never the bottleneck, and no faster splitter can help. The rewrite borrows
-from [Ash Vardanian on counting unique strings](https://ashvardanian.com/posts/count-unique-strings/):
+It worked. Tokens became `(offset, length)` spans into one byte buffer, interned by a flat
+open-addressed hash table inside numba — power-of-two slots so the hash was masked rather than
+divided, linear probing, one probe per insert-or-find, collisions settled by comparing bytes,
+1.02 probes per token over 362,528 distinct tokens. Only distinct tokens were ever decoded into
+Python strings, 362 k instead of 7.2 M. It took tokenising from 4.5 s to 0.30 s and the whole
+reader from 8.1 s to 2.2 s.
 
-- **Spans, not strings.** Every cleaned body is concatenated into one byte buffer, and a token
-  is an `(offset, length)` view into it — the `string_view` move. No token is ever materialised.
-- **A flat open-addressed table**, power-of-two slots so the hash is *masked* rather than
-  divided, linear probing, and one insert-or-find per token instead of a contains-then-insert
-  pair. FNV-1a over the span's bytes.
-- **Collisions settled on bytes.** Each slot keeps the span of the first token that landed
-  there, so a hash match is confirmed by comparison and the answer never depends on the hash
-  being perfect. Measured: **1.02 probes per token** over 362,528 distinct tokens in 2²¹ slots.
-- **Decode once, at the end.** 362,528 strings come out of the table instead of 7,200,932.
+**It was deleted anyway.** It cost 289 lines of code — 36% of `analyze.py` — and, worse, it
+forced a *second* implementation: the readable reader had to stay in the file as the definition
+of correct, plus a `--verify-reader` command to hold the two together. Two readers that must
+agree forever, and a hand-written hash table, in exchange for four seconds on a job that runs
+once a day and that nobody waits for. That is the wrong side of the trade this project claims to
+care about.
 
-Byte classification, lowercasing, the `strip("_/").rstrip("-")` edge trimming, the
-at-least-one-letter test and the Snyk-identifier collapse all happen inside the scan against a
-256-entry table, so none of them costs a Python call. Link extraction and the em dash stay in
-Python, because there are only 170,000 of those against 7.2 million words.
+What survived from it is the one part that was nearly free: **words are interned to integers as
+they are read, and the counting is then sparse-matrix work.** Building the matrix collapses
+duplicate `(description, word)` pairs in C and sorts each row, so the deduplication the filters
+need — distinct-word counts, per-week word-set keys, document frequencies — is a side effect of
+a matrix that had to exist. A second `(author, word)` matrix gives the distinct-account counts
+the same way. Ten lines, two seconds, no second implementation. The reader is 6.0 s instead of
+8.1 s.
 
-#### And then scipy, twice
+#### Measured and rejected
 
-With tokens as integers the filters became array work, and the first attempt was *slower* than
-what it replaced: two `np.unique` calls over the 7.2M `(description, word)` pairs cost **2.36 s
-between them**, more than the tokenising they followed. Both were deleted. Building the sparse
-matrix already collapses duplicate pairs in C and sorts each row, so the deduplication the
-filters need is a side effect of a matrix that had to be built anyway — and the same trick over
-an `(author, word)` matrix gives the distinct-account counts. That one change took the reader
-from 5.8 s to 3.0 s.
+- **`orjson` / `msgspec`** — genuinely faster at parsing (0.25 s stdlib, 0.17 s orjson, 0.13 s
+  msgspec over 59,467 lines) but JSON is 7.6% of the read. A dependency for 0.12 s.
+- **`stringzilla`** — its `Str.split` beats `bytes.split`, 0.14 s against 0.27 s. But splitting
+  was 6% of the problem: on the same data `bytes.split` is 0.27 s while `split` + `.decode()` is
+  **1.10 s**. The cost was never finding the boundaries, it was building Python strings, and no
+  splitter helps with that.
+- **`bytes.translate` + `split` in pure Python** — verified to produce an identical token
+  multiset, 1.1× faster. Same reason.
+- **Multiprocessing** — a real 3.1×, 4.8 s to 1.6 s with IPC paid. Rejected because CI runs on
+  shared runners where those cores are not reliably available.
+- **Caching the tokenised days** — the days are immutable, so tokenising one twice is waste, and
+  a cache would make the incremental case nearly free. Rejected because CI is a fresh checkout
+  every run: it would never hit where it matters, in exchange for a cache-invalidation bug the
+  first time the tokeniser changes and the key does not.
 
 #### Where it landed
 
 | stage | time |
 |---|---|
-| one EM pass over 3.3M nonzeros × 8 components | **0.013 s** |
-| one fit, to convergence (~35 passes) | **0.46 s** |
-| all eight restarts | **3.7 s** |
-| read and tokenise 598 day files | **3.0 s** (was 8.5 s) |
-| — of which the numba scan itself | 0.30 s |
-| cold numba compile (CI's case, cached after) | 0.7 s |
-| **end to end** | **~8 s** (was 12.6 s, and 313 s before any of this) |
+| one EM pass | 0.013 s |
+| one fit, to convergence (~35 passes) | 0.33 s |
+| all eight restarts | **2.7 s** |
+| read and tokenise 598 day files | **6.0 s** |
+| **end to end** | **~10 s** |
 
-`python analyze.py --verify-reader` runs both readers over the real corpus and asserts the
-matrix, the vocabulary and the week index come out identical — the reference is kept in the file
-for exactly that reason, the same discipline as `_em_sweep_numpy`. A hand-written hash table is
-precisely the kind of code that is wrong in ways tests written against its own output cannot
-see.
-
-### What was tried and rejected
-
-- **`orjson` / `msgspec`.** Both are genuinely faster at parsing — 0.25 s stdlib, 0.17 s orjson,
-  0.13 s msgspec over 59,467 lines — but JSON was 7.6% of the read to begin with. A dependency
-  for 0.12 s is not worth it.
-- **`stringzilla`.** Its `Str.split` is fast, 0.14 s where `bytes.split` takes 0.27 s. But
-  splitting was 6% of the problem and the 1.10 s of Python string construction sits downstream
-  of any splitter. Not the bottleneck.
-- **`bytes.translate` + `split` in pure Python.** Verified to produce an identical token
-  multiset, and 1.1× faster. Same reason: the per-token Python work dominates the scan.
-- **Multiprocessing.** A `Pool(8)` over the day files gives a real 3.1× — 4.8 s to 1.6 s,
-  IPC included. Rejected on purpose: CI runs on shared runners where those cores are not
-  reliably there, and after the numba rewrite the single-threaded path is faster than the
-  parallel one was anyway.
-- **Caching the tokenised days.** The day files are immutable, so tokenising one twice is pure
-  waste, and a cache would make the incremental case nearly free. Rejected because **CI is a
-  fresh checkout every run** — the cache would never hit where it matters, in exchange for a
-  cache-invalidation bug the first time the tokeniser changes and the key does not.
-
-What remains in the 3.0 s is `_intern`'s Python loop over 59,467 bodies (1.8 s, mostly the
-lowercase, the two regex substitutions and the link handling), scipy's index sorting (0.34 s)
-and JSON parsing (0.24 s). Getting past that means moving link extraction into the scan too,
-which is where the regex is genuinely hard to replace and the readability cost stops being
-worth it.
+The ranking is fully deterministic: ties in lift are broken on the word itself, so two builds of
+the same corpus are byte-identical and the daily commit does not churn on words that happen to
+score the same.
 
 ### What the selftest guarantees
 
