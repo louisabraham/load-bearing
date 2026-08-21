@@ -56,7 +56,13 @@ from scipy.sparse import csr_matrix
 # that one is retracted in the README, and this one is disclosed instead of retracted only
 # because it was asked for deliberately.
 K = 8
-OUTER = 12                          # EM passes per restart
+# EM runs to convergence rather than for a fixed number of passes, so there is no iteration
+# count to have picked arbitrarily. Stop when a pass improves the log-likelihood by less than
+# TOL of itself. Measured on this corpus: 6 passes reports the register at 43.2% of the recent
+# weeks, 12 at 62.1%, and everything from 24 on at 61.6-61.7%. A fixed 12 was the old setting
+# and it overstated the headline by half a point while looking converged.
+TOL = 1e-6                          # relative log-likelihood gain
+MAX_PASSES = 200                    # a runaway guard, not a setting; convergence hits ~50
 N_INIT = 8                          # restarts; see `fit_best`
 SEED = 0
 WORDS_LISTED = 40                   # per component; the cut is arbitrary and `tail` says so
@@ -103,9 +109,21 @@ WORD_RE = re.compile(r"[a-z0-9_/-]*[a-z][a-z0-9_/-]*")
 # The trailing run of digits is what distinguishes an identifier from `snyk-top-banner`.
 SNYK_ID_RE = re.compile(r"^snyk-.+-\d{4,}$")
 MIN_WORDS = 5                      # a body needs this many distinct words to be prose
-MIN_TF = 45                        # a word needs this many total appearances. Set by the
-                                   # rarest word worth naming: `load-bearing` appears 51
-                                   # times, so 60 would have excluded it.
+MIN_TF = 45                        # a word needs this many total appearances.
+                                   #
+                                   # DISCLOSURE: this number was originally picked by looking
+                                   # at the answer. `load-bearing` had 51 appearances on the
+                                   # corpus of the day, so 45 let it through and 60 would not
+                                   # have. That is the same species of choice as K below and
+                                   # deserves the same label, even though the corpus has since
+                                   # grown and the word now has 101, clearing the floor by
+                                   # more than twice over -- so the floor no longer decides
+                                   # whether the title word appears.
+                                   #
+                                   # It does still decide others: `throwaway`, third in the
+                                   # published list, has 55. A floor at 60 would drop it. So
+                                   # this constant shapes the list even where it no longer
+                                   # shapes the headline.
 MIN_AUTHORS = 20                   # and this many distinct accounts; see `documents`
 MIN_DF = 25                        # and this many distinct documents. Total appearances
                                    # alone is not breadth: `multi-draw` appears 101 times
@@ -234,8 +252,283 @@ def week_files(log=print):
     return weeks, groups
 
 
+# Byte tables for the scanner. A word byte maps to itself, lowercased; everything else maps to
+# zero and is therefore a separator -- which includes every byte of a multi-byte UTF-8 sequence,
+# matching the reference tokeniser, whose character class is ASCII-only.
+_TBL = np.zeros(256, np.uint8)
+for _c in b"abcdefghijklmnopqrstuvwxyz0123456789_/-":
+    _TBL[_c] = _c
+for _c in range(65, 91):
+    _TBL[_c] = _c + 32
+_ALPHA = np.zeros(256, np.uint8)
+_ALPHA[97:123] = 1
+_DIGIT = np.zeros(256, np.uint8)
+_DIGIT[48:58] = 1
+_FNV_BASIS = np.int64(-3750763034362895579)
+_FNV_PRIME = np.int64(1099511628211)
+
+
+@njit(cache=True)
+def _scan(buf, doc_start, tbl, alpha, digit, cap, snyk_lo, snyk_hi):
+    """Split, hash and intern every token in one pass, creating no Python object at all.
+
+    The reference tokeniser spends its time not on the regex but on the seven million Python
+    strings it must build to use as dictionary keys -- measured, `split` on the same data is
+    0.27s while `split` plus `.decode()` is 1.10s, and the per-token `strip`, `isalpha` and
+    `Counter` work sits on top of that. So no token is ever materialised here. A token is an
+    (offset, length) view into one big byte buffer, and what gets interned is its hash.
+
+    The table is the flat open-addressed kind: a power-of-two number of slots, the hash masked
+    rather than divided, linear probing on collision, and one insert-or-find per token instead
+    of a contains-then-insert pair. Each slot keeps the span of the first token that landed
+    there, so a hash match is confirmed by comparing bytes and the answer never depends on the
+    hash being perfect. On this corpus it takes 1.02 probes per token over 362,528 distinct
+    tokens in 2^21 slots.
+
+    Returns the (description, token id) pairs in description order, plus the table, from which
+    the caller decodes one string per distinct token -- 362,528 of them rather than 7,200,932.
+    """
+    mask = cap - 1
+    slot_h = np.zeros(cap, np.int64)                  # 0 marks empty, so hashes are or-ed with 1
+    slot_off = np.zeros(cap, np.int64)
+    slot_len = np.zeros(cap, np.int32)
+    slot_id = np.full(cap, -1, np.int32)
+    n_ids = 0
+    out_doc = np.empty(buf.size // 2 + 8, np.int32)
+    out_id = np.empty(buf.size // 2 + 8, np.int32)
+    n_out = 0
+    for d in range(doc_start.size - 1):
+        i, end = doc_start[d], doc_start[d + 1]
+        while i < end:
+            if tbl[buf[i]] == 0:
+                i += 1
+                continue
+            j = i
+            while j < end and tbl[buf[j]] != 0:
+                j += 1
+            s, e = i, j
+            i = j
+            # strip("_/") at both ends, then rstrip("-"): a leading hyphen is kept, so
+            # `--all-targets` survives whole
+            while s < e and (buf[s] == 95 or buf[s] == 47):
+                s += 1
+            while e > s and (buf[e - 1] == 95 or buf[e - 1] == 47):
+                e -= 1
+            while e > s and buf[e - 1] == 45:
+                e -= 1
+            if e <= s:
+                continue
+            keep = False
+            for q in range(s, e):
+                if alpha[tbl[buf[q]]] == 1:
+                    keep = True
+                    break
+            if not keep:
+                continue
+            # `snyk-<anything>-<four or more digits>` collapses to one sentinel token, whose
+            # bytes sit at the end of the buffer
+            lo, hi = s, e
+            if (e - s > 9 and buf[s] == 115 and buf[s + 1] == 110 and buf[s + 2] == 121
+                    and buf[s + 3] == 107 and buf[s + 4] == 45):
+                nd, q = 0, e - 1
+                while q > s and digit[tbl[buf[q]]] == 1:
+                    nd += 1
+                    q -= 1
+                if nd >= 4 and buf[q] == 45 and q > s + 4:
+                    lo, hi = snyk_lo, snyk_hi
+            h = _FNV_BASIS
+            for q in range(lo, hi):
+                h = (h ^ np.int64(tbl[buf[q]])) * _FNV_PRIME
+            h = h | 1
+            slot = np.int64(h & mask)
+            while True:
+                if slot_h[slot] == 0:
+                    slot_h[slot] = h
+                    slot_off[slot] = lo
+                    slot_len[slot] = hi - lo
+                    slot_id[slot] = n_ids
+                    tid = n_ids
+                    n_ids += 1
+                    break
+                if slot_h[slot] == h and slot_len[slot] == hi - lo:
+                    same = True
+                    o = slot_off[slot]
+                    for q in range(hi - lo):
+                        if tbl[buf[o + q]] != tbl[buf[lo + q]]:
+                            same = False
+                            break
+                    if same:
+                        tid = slot_id[slot]
+                        break
+                slot = (slot + 1) & mask
+            out_doc[n_out] = d
+            out_id[n_out] = tid
+            n_out += 1
+    return out_doc[:n_out], out_id[:n_out], n_ids, slot_off, slot_len, slot_id
+
+
+def _intern(bodies):
+    """Tokenise every body, returning (description index, token id) pairs and the vocabulary.
+
+    The two token kinds the scanner cannot see are handled here, in Python, because there are
+    only a hundred and seventy thousand of them against seven million words: whole links, which
+    have to be lifted out before any split can shred them, and the em dash.
+    """
+    parts, starts, extra, pos = [], [0], [], 0
+    for d, body in enumerate(bodies):
+        body = body.lower()
+        for m in URL_RE.finditer(body):
+            extra.append((d, domain_token(m.group(0))))
+        n_dash = body.count(EM_DASH)
+        if n_dash:
+            extra.extend([(d, EM_DASH)] * n_dash)
+        enc = TAG_RE.sub(" ", URL_RE.sub(" ", body)).encode("utf-8", "ignore")
+        parts.append(enc)
+        pos += len(enc)
+        starts.append(pos)
+    sentinel = "[snyk-id]".encode()
+    parts.append(sentinel)
+    buf = np.frombuffer(b"".join(parts), np.uint8)
+
+    cap = 1 << max(12, int(np.ceil(np.log2(max(len(buf) // 16, 1024)))) + 1)
+    doc, tid, n_ids, s_off, s_len, s_id = _scan(
+        buf, np.asarray(starts, np.int64), _TBL, _ALPHA, _DIGIT, cap,
+        np.int64(pos), np.int64(pos + len(sentinel)))
+
+    raw = buf.tobytes()
+    vocab = [""] * n_ids
+    live = s_id >= 0
+    for i, off, ln in zip(s_id[live], s_off[live], s_len[live]):
+        vocab[i] = raw[off:off + ln].decode("ascii", "ignore")
+    index = {w: i for i, w in enumerate(vocab)}
+    ex_doc, ex_id = [], []
+    for d, w in extra:
+        i = index.get(w)
+        if i is None:
+            i = len(vocab)
+            index[w] = i
+            vocab.append(w)
+        ex_doc.append(d)
+        ex_id.append(i)
+    if ex_doc:
+        doc = np.concatenate([doc, np.asarray(ex_doc, np.int32)])
+        tid = np.concatenate([tid, np.asarray(ex_id, np.int32)])
+        order = np.argsort(doc, kind="stable")
+        doc, tid = doc[order], tid[order]
+    return doc, tid, vocab
+
+
 def documents(log=print):
     """One row per description, with the week it belongs to.
+
+    Identical in output to `documents_reference` and four to five times faster, which
+    `--verify-reader` checks against the real corpus. Every filter is applied over integer
+    token ids rather than strings, so the only Python strings that exist are the vocabulary's.
+
+    The filters are applied per week rather than per file, because that is the population being
+    compared: identical word sets collapse within the week, and no author may contribute more
+    than a few to it.
+
+    There is deliberately no cap on the size of a week. An earlier version thinned every week
+    to a common count, because weeks then came from a handful of bulk windows and their sizes
+    swung by a factor of two -- a word could rise in the ranking purely because the weeks
+    around it had grown. Collection is now one window a day, every day, and every window comes
+    back a full page, so weeks are already the same size by construction and the cap only threw
+    away half the corpus.
+    """
+    weeks, groups = week_files(log)
+    bodies, authors, week_raw = [], [], []
+    for t, group in enumerate(groups):
+        for f in group:
+            with open(f, encoding="utf-8") as fh:
+                for line in fh:
+                    row = json.loads(line)
+                    bodies.append(row["body"])
+                    authors.append(row.get("author") or "")
+                    week_raw.append(t)
+    doc, tid, vocab = _intern(bodies)
+    del bodies
+    n, V = len(authors), len(vocab)
+    week_raw = np.asarray(week_raw, np.int64)
+
+    # One sparse matrix over the WHOLE vocabulary, before any floor. Building it collapses the
+    # duplicate (description, word) pairs in C and sorts each row's indices, which is exactly
+    # the deduplication the filters need -- `np.unique` over the seven million pairs was the
+    # single most expensive thing in this function at 2.4s, and scipy does it as a side effect.
+    X0 = csr_matrix((np.ones(doc.size), (doc, tid)), shape=(n, V), dtype=np.float64)
+    X0.sort_indices()
+    n_distinct = np.diff(X0.indptr)
+
+    # the three per-description filters, in the reference's order so that the same descriptions
+    # survive when a cap bites: too few distinct words, a word set already seen this week, or an
+    # author already at the cap for the week
+    keep = np.zeros(n, bool)
+    seen, by_author, cur_week = set(), Counter(), -1
+    for d in range(n):
+        if week_raw[d] != cur_week:
+            seen, by_author, cur_week = set(), Counter(), week_raw[d]
+        if n_distinct[d] < MIN_WORDS:
+            continue
+        key = X0.indices[X0.indptr[d]:X0.indptr[d + 1]].tobytes()
+        if key in seen:
+            continue
+        a = authors[d]
+        if by_author[a] >= MAX_PER_AUTHOR:
+            continue
+        by_author[a] += 1
+        seen.add(key)
+        keep[d] = True
+
+    kd = np.flatnonzero(keep)
+    Xk = X0[kd]                                        # the surviving descriptions
+    tf = np.asarray(Xk.sum(axis=0)).ravel().astype(np.int64)
+    df = np.bincount(Xk.indices, minlength=V)
+
+    aid, aids = {}, np.empty(kd.size, np.int64)
+    for i, d in enumerate(kd):
+        a = authors[d]
+        j = aid.get(a)
+        if j is None:
+            j = len(aid)
+            aid[a] = j
+        aids[i] = j
+    # distinct accounts per word, by the same trick: one (author, word) matrix, whose duplicate
+    # collapsing leaves one entry per pair, so a column's nnz is its number of accounts
+    by_word = csr_matrix(
+        (np.ones(Xk.indices.size),
+         (np.repeat(aids, np.diff(Xk.indptr)), Xk.indices)),
+        shape=(len(aid), V), dtype=np.float64)
+    n_auth = np.bincount(by_word.indices, minlength=V)
+
+    cand = (tf >= MIN_TF) & (df >= MIN_DF)
+    ok = cand & (n_auth >= MIN_AUTHORS)
+    log(f"  {int(cand.sum() - ok.sum()):,} of {int(cand.sum()):,} words dropped for coming "
+        f"from under {MIN_AUTHORS} distinct accounts")
+
+    # sorted by the word itself, so the vocabulary order matches the reference exactly
+    live = np.flatnonzero(ok)
+    live = live[np.argsort([vocab[i] for i in live], kind="stable")]
+    vocab_out = [vocab[i] for i in live]
+    remap = np.full(V, -1, np.int64)
+    remap[live] = np.arange(live.size)
+
+    X = Xk[:, live]
+    week_of = week_raw[kd]
+    long_enough = np.asarray(X.sum(axis=1)).ravel() >= MIN_WORDS
+    X, week_of = X[long_enough], week_of[long_enough]
+    log(f"{X.shape[0]:,} descriptions, {X.sum():,.0f} appearances, {len(vocab_out):,} words")
+    return X, week_of, weeks, vocab_out
+
+
+def documents_reference(log=print):
+    """The readable statement of `documents`, kept as the thing the fast path must match.
+
+    This is what the corpus reader looked like before the span-hashing rewrite below: one
+    Python string per token, a Counter per description, a set per week. It is four to five
+    times slower and it is the definition of correct. `--verify-reader` runs both over the real
+    corpus and asserts the matrix, the vocabulary and the week index all come out identical.
+
+    One row per description, with the week it belongs to.
 
     The filters are applied per week rather than per file, because that is the population being
     compared: identical word sets collapse within the week, and no author may contribute more
@@ -383,7 +676,7 @@ def _em_sweep_numpy(X, logW, logpi, week_of, T):
     return np.asarray(r.T @ X), C, A, float((np.log(tot) + m).sum())
 
 
-def fit(X, week_of, T, k=K, outer=OUTER, seed=SEED, log=print):
+def fit(X, week_of, T, k=K, tol=TOL, seed=SEED, log=print):
     """One EM run. Returns (W, pi, C, A, log-likelihood).
 
     One EM run from one starting point. `fit_best` is what callers want.
@@ -416,14 +709,19 @@ def fit(X, week_of, T, k=K, outer=OUTER, seed=SEED, log=print):
                   np.log(np.maximum(pi, 1e-300)), week, Wacc, Cacc, Aacc, llacc)
         return Wacc.sum(0), Cacc.sum(0), Aacc.sum(0), float(llacc.sum())
 
-    ll = -np.inf
-    for it in range(outer):
+    ll, prev = -np.inf, -np.inf
+    for it in range(MAX_PASSES):
         Wsum, C, A, ll = sweep(W, pi)
         W = Wsum + 0.01                                   # word distributions
         W /= W.sum(axis=1, keepdims=True)
         share = C.sum(axis=0)                             # one mixture for the whole window
         pi = share / max(share.sum(), 1e-12)
         log(f"  iter {it + 1:2d}  loglik {ll:,.0f}")
+        if prev > -np.inf and ll - prev < tol * abs(ll):
+            break
+        prev = ll
+    else:
+        log(f"  warning: {MAX_PASSES} passes without converging to {tol:g}")
 
     # once more, so what is reported is the attribution under the parameters actually returned
     # rather than under the ones from the pass before the last update
@@ -431,7 +729,7 @@ def fit(X, week_of, T, k=K, outer=OUTER, seed=SEED, log=print):
     return W, pi, C, A, ll
 
 
-def fit_best(X, week_of, T, k=K, outer=OUTER, n_init=N_INIT, seed=SEED, log=print):
+def fit_best(X, week_of, T, k=K, tol=TOL, n_init=N_INIT, seed=SEED, log=print):
     """Fit `n_init` times from different starting points and keep the highest likelihood.
 
     Restarts survived the simplification of everything around them, because the measurement
@@ -460,7 +758,7 @@ def fit_best(X, week_of, T, k=K, outer=OUTER, n_init=N_INIT, seed=SEED, log=prin
     """
     best = None
     for i in range(n_init):
-        out = fit(X, week_of, T, k, outer, seed + i, log=lambda *_: None)
+        out = fit(X, week_of, T, k, tol, seed + i, log=lambda *_: None)
         log(f"  restart {i + 1}/{n_init}  loglik {out[-1]:,.0f}")
         if best is None or out[-1] > best[-1]:
             best = out
@@ -580,7 +878,7 @@ def selftest():
             week_of.append(t); d += 1
     X = csr_matrix((vals, (rows, cols)), shape=(d, V))
     week_of = np.array(week_of)
-    W, pi, C, A, ll = fit(X, week_of, T, k=3, outer=8, log=lambda *_: None)
+    W, pi, C, A, ll = fit(X, week_of, T, k=3, log=lambda *_: None)
 
     assert abs(pi.sum() - 1.0) < 1e-6, "the mixture must sum to 1"
     assert (pi >= 0).all() and np.allclose(W.sum(axis=1), 1.0), "factors are malformed"
@@ -621,20 +919,48 @@ def selftest():
           f"numpy, planted component {before:.3f} -> {after:.3f} at week {arrives})")
 
 
+def verify_reader():
+    """Assert the fast reader and the reference reader agree on the real corpus.
+
+    Not part of `--selftest`, which runs on synthetic data in a second; this reads every day
+    twice and takes about fifteen. Run it after touching either reader.
+    """
+    import time
+    t0 = time.time()
+    Xf, wf, weeks_f, vf = documents()
+    t_fast = time.time() - t0
+    t0 = time.time()
+    Xr, wr, weeks_r, vr = documents_reference()
+    t_ref = time.time() - t0
+    assert vf == vr, "the vocabularies differ"
+    assert weeks_f == weeks_r, "the week labels differ"
+    assert np.array_equal(wf, wr), "the week index differs"
+    assert Xf.shape == Xr.shape, f"shapes differ: {Xf.shape} vs {Xr.shape}"
+    d = abs(Xf - Xr)
+    assert d.nnz == 0, f"{d.nnz} matrix entries differ, largest {d.max()}"
+    print(f"reader verified: identical matrix, vocabulary and week index\n"
+          f"  fast      {t_fast:6.2f}s\n  reference {t_ref:6.2f}s"
+          f"   ({t_ref / t_fast:.1f}x)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--k", type=int, default=K)
-    ap.add_argument("--outer", type=int, default=OUTER)
+    ap.add_argument("--tol", type=float, default=TOL)
     ap.add_argument("--n-init", type=int, default=N_INIT, dest="n_init")
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--out", default="analysis.js")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--verify-reader", action="store_true", dest="verify_reader",
+                    help="run both readers over the real corpus and assert they agree")
     args = ap.parse_args()
     if args.selftest:
         return selftest()
+    if args.verify_reader:
+        return verify_reader()
 
     X, week_of, weeks, vocab = documents()
-    W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, outer=args.outer,
+    W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, tol=args.tol,
                                n_init=args.n_init, seed=args.seed)
     out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll)
     with open(args.out, "w", encoding="utf-8") as fh:
