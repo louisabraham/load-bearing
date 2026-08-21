@@ -36,8 +36,7 @@ something.
 a single randomly placed five-minute window of newly opened pull requests — and commits the
 result as an immutable file under `data/days`. Nothing rewrites an earlier day, so the history
 of the repository is the history of the sample. The files are left uncompressed so they can be
-read and grepped in place: about 210 kB a day, 58 MB for the twenty months so far, and roughly
-77 MB a year from here. A hundred descriptions is too thin to compare
+read and grepped in place: about 210 kB a day, and roughly 77 MB a year. A hundred descriptions is too thin to compare
 against another hundred, so analysis groups seven days into a week.
 
 Weeks run from the first present to the last with no gaps, so a week that was never collected
@@ -63,9 +62,12 @@ descriptions to 97:
   term: `in:body` does **not** distribute over an OR group, so `(the OR a) in:body` matches
   titles and lets empty bodies back in.
 
-The corpus in this repository begins **2025-01** and the 85 weeks before the CI era were
-seeded from a bulk collection, written as if each week had been sampled on its Monday — which
-is what it was, five windows drawn from across that week.
+The corpus in this repository begins **2025-01** and every day of it was collected the same
+way — one window, seeded on the date, one request. The first version seeded the pre-CI period
+from a bulk collection of five windows per week, written as if each week had been sampled on its
+Monday; that was replaced by refetching every day individually, so there is no seam between the
+history and what CI adds each morning. The whole corpus is reproducible from the dates alone:
+`fetch_day.py DATE` returns the same window it returned the first time.
 
 ### Why not GH Archive
 

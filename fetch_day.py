@@ -149,10 +149,10 @@ def main():
             skipped += 1
         elif n < 0:
             failed += 1
-            print(f"{day}  failed")
+            print(f"{day}  failed", flush=True)
         else:
             total += n
-            print(f"{day}  {n} descriptions")
+            print(f"{day}  {n} descriptions", flush=True)
         if n is not None and len(days) > 1:
             time.sleep(2.5)          # 30 search requests a minute, authenticated
     print(f"wrote {total:,} descriptions; {skipped} already present, {failed} failed")
