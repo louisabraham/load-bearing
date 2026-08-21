@@ -11,5 +11,4 @@ data/weeks/
 data/issues-2024-2026.tar.gz
 
 # sweep outputs; regenerate with the loop in the README
-mixture-k*.js
-!mixture-k128.js
+analysis-k*.js

@@ -1,36 +1,51 @@
-"""Find groups of words that arrived on GitHub at the same time.
+"""A mixture model over weeks: which ways of writing, and how much of each, week by week.
 
-The model, and the whole of it. Let X be words by weeks, where X[v, t] counts every
-appearance of word v in week t. Factorise it:
+    W_k        a fixed distribution over the vocabulary -- one way of writing
+    pi_tk      how much of week t was written that way, with sum_k pi_tk = 1
 
-    X  ~=  W H          W: words by k, columns summing to 1
-                        H: k by weeks, non-negative
+Generative, per document d written in week t(d):
 
-Each column of W is a probability distribution over the vocabulary -- a way of writing.
-Each row of H says how much of that way of writing was in the air each week. Because the
-columns of W are normalised, the column sums of H are the week's word count, so
-H[c, t] / sum_c H[c, t] is component c's share of everything written that week.
+    z_d ~ Categorical(pi_t)
+    x_d | z_d = k ~ Multinomial(n_d, W_k)
 
-Nothing here knows what a model release is. The claim is only that if an assistant brings
-a bundle of habits, that bundle is a rank-one piece of the matrix, and the factorisation
-has to spend a component on it.
+The only thing asked of a prevalence curve is smoothness, lam * sum_t (pi_tk -
+pi_{t-1,k})^2. Nothing requires a component to rise, to fall, or to be absent early: the
+shapes are whatever the documents say they are.
 
-Run `python analyze.py` to write analysis.js, `--selftest` to check the invariants.
+Fitted by EM -- attribute documents, refit the word distributions, refit the prevalences --
+restarted from several starting points because EM finds different local optima here and one
+run is not enough.
+
+    python analyze.py               # writes analysis.js, read by index.html
+    python analyze.py --selftest    # recovers a planted component from synthetic data
 """
 
 import argparse
 import glob
-import re
 import gzip
 import json
 import os
+import re
 from collections import Counter
 from datetime import date
 
 import numpy as np
-from sklearn.decomposition import NMF
+from scipy.optimize import minimize
+from scipy.sparse import csr_matrix
 
-# --------------------------------------------------------------------------- corpus
+K = 16
+LAMBDA = 32.0                       # smoothness, scale-free in k; see `fit_pi`
+OUTER = 12                          # EM passes per restart
+N_INIT = 10                         # restarts; see `fit_best`
+SEED = 0
+WORDS_LISTED = 40                   # per component; the cut is arbitrary and `tail` says so
+WORDS_LEAD = 1000                   # for the one component that arrives; see `pack`
+LEAD_RATIO = 100                    # an arrival ends at least this many times its start
+LEAD_FLOOR = 0.05                   # and is worth at least this much of the final weeks
+LEAD_GAP = 10                       # and is this far clear of everything that is not one
+
+
+# ------------------------------------------------------------------------- corpus
 
 ANCHOR = date(2024, 1, 1)          # a Monday; weeks starting mid-week would straddle
                                    # two partial weekends and mix the author mix
@@ -64,18 +79,6 @@ MIN_DF = 25                        # and this many distinct documents. Total app
                                    # again, in 45 documents.
 DOCS_PER_WEEK = 350                # see the note in `read_week`
 MAX_PER_AUTHOR = 3                 # per author per week; see `read_week`
-
-# ----------------------------------------------------------------------------- model
-
-K = 16
-LOSS = "l2"                        # "l2" (squared error) or "kl"; see `fit`
-ALPHA_H = 0.2                      # L1 on the weekly activations; see `fit`
-MAX_ITER = 600
-SEED = 0
-WORDS_CHARTED = 16
-WORDS_LISTED = 40
-WORDS_MOST_USED = 12
-
 
 def domain_token(url):
     """A link becomes one token naming its domain: `[cursor-url]`, `[snyk-url]`.
@@ -146,257 +149,360 @@ def tokens(body):
     return out
 
 
-def read_week(path):
-    """One week's word counts and per-word document counts, repeats collapsed.
+def documents(log=print):
+    """One row per document. Same filters as py, applied per document.
 
-    Two documents with the identical set of words count once. This is about text, not
-    authorship: one ordinary account once posted 147 copies of the same sentence inside a
-    fortnight, 16% of it, and every word of its template moved with it. It applies inside
-    the week and not across the window on purpose -- collapsing globally would make a
-    template that runs for months look as though it started or stopped.
-
-    The week is then cut off at a common number of documents. Sampling the same number of
-    hours from every week does not give the same number of documents; volume swings by a
-    factor of two. Text is overdispersed -- words cluster inside repositories -- so a rate
-    computed on more documents comes out inflated rather than merely more precise, and
-    busy weeks would outrank busy language. Document *length* still varies threefold even
-    after this, which is why the model reports H as a share of the week rather than raw.
+    The other model aggregates each week into a bag of words; this one needs the documents
+    themselves, because a document is what gets attributed to a component.
     """
-    seen, kept, counts, docs = set(), 0, Counter(), Counter()
-    by_author = Counter()
-    with gzip.open(path, "rt", encoding="utf-8") as fh:
-        for line in fh:
-            row = json.loads(line)
-            t = tokens(row["body"])
-            if len(set(t)) < MIN_WORDS:
-                continue
-            key = frozenset(t)
-            if key in seen:
-                continue
-            author = row.get("author") or ""
-            if by_author[author] >= MAX_PER_AUTHOR:
-                continue
-            by_author[author] += 1
-            seen.add(key)
-            kept += 1
-            if kept > DOCS_PER_WEEK:
-                break
-            counts.update(t)
-            docs.update(key)          # once per document, for the breadth filter
-    return counts, docs
-
-
-def build(log=print):
-    """X[word, week] -- every appearance, not one per document."""
     files = sorted(glob.glob(WEEK_GLOB))
     if not files:
-        raise SystemExit(f"no weeks in {WEEK_GLOB} -- run `python fetch_week.py --all`")
+        raise SystemExit(f"no weeks in {WEEK_GLOB} -- run `python fetch_week.py`")
     weeks = [os.path.basename(f)[:10] for f in files]
 
-    per_week, docs = [], Counter()
-    for f in files:
-        counts, seen = read_week(f)
-        per_week.append(counts)
-        docs.update(seen)
-    total = Counter()
-    for c in per_week:
-        total.update(c)
-    vocab = sorted(w for w, n in total.items() if n >= MIN_TF and docs[w] >= MIN_DF)
-    index = {w: j for j, w in enumerate(vocab)}
-    log(f"{len(files)} weeks, {total.total():,} word appearances, {len(total):,} distinct, "
-        f"{len(vocab):,} kept at >= {MIN_TF} appearances in >= {MIN_DF} documents")
+    docs, week_of, tf, df = [], [], Counter(), Counter()
+    for t, f in enumerate(files):
+        seen, kept, by_author = set(), 0, Counter()
+        with gzip.open(f, "rt", encoding="utf-8") as fh:
+            for line in fh:
+                row = json.loads(line)
+                toks = tokens(row["body"])
+                if len(set(toks)) < MIN_WORDS:
+                    continue
+                key = frozenset(toks)
+                if key in seen:
+                    continue
+                author = row.get("author") or ""
+                if by_author[author] >= MAX_PER_AUTHOR:
+                    continue
+                by_author[author] += 1
+                seen.add(key)
+                kept += 1
+                if kept > DOCS_PER_WEEK:
+                    break
+                c = Counter(toks)
+                docs.append(c)
+                week_of.append(t)
+                tf.update(c)
+                df.update(key)
 
-    X = np.zeros((len(vocab), len(files)))
-    for t, c in enumerate(per_week):
+    vocab = sorted(w for w, n in tf.items()
+                   if n >= MIN_TF and df[w] >= MIN_DF)
+    index = {w: j for j, w in enumerate(vocab)}
+    rows, cols, vals = [], [], []
+    for i, c in enumerate(docs):
         for w, n in c.items():
             j = index.get(w)
             if j is not None:
-                X[j, t] = n
-    return X, weeks, vocab
+                rows.append(i)
+                cols.append(j)
+                vals.append(n)
+    X = csr_matrix((vals, (rows, cols)), shape=(len(docs), len(vocab)), dtype=np.float64)
+    keep = np.asarray(X.sum(axis=1)).ravel() >= MIN_WORDS
+    X, week_of = X[keep], np.asarray(week_of)[keep]
+    log(f"{len(files)} weeks, {X.shape[0]:,} documents, {X.sum():,.0f} appearances, "
+        f"{len(vocab):,} words")
+    return X, week_of, weeks, vocab
 
 
-def fit(X, k=K, alpha_h=ALPHA_H, seed=SEED, max_iter=MAX_ITER, loss=LOSS):
-    """Factorise X into word distributions and weekly activations.
+# -------------------------------------------------------------------------- model
 
-    **Squared error, with an L1 on H.** The first version of this used a Kullback-Leibler
-    loss, on the argument that X holds counts and the columns of W are distributions over
-    words, so the pair is a multinomial mixture and KL is its likelihood. That argument is
-    still true and it is still the wrong choice here, for two reasons that only showed up
-    on the output.
+def fit_pi(C, lam=LAMBDA):
+    """Prevalences: maximise sum C log pi - lam sum (pi_t - pi_{t-1})^2.
 
-    The first is that KL needs the multiplicative solver, which updates by multiplication
-    and so approaches zero without reaching it -- and worse, this parameterisation cancels
-    an L1 on H outright. NMF fixes W H only up to a diagonal rescaling, and the
-    normalisation below pins that scale *after* fitting, so the optimiser can satisfy the
-    penalty by shrinking H and inflating W at no cost, and the rescaling then undoes the
-    shrinkage exactly. Measured: alpha_H from 0 to 10 moved sum(H) by 0.7% and the shape of
-    H by 0.0085. An L1 only means something where the scale is not free.
+    Subject to each week summing to 1. Solved on a per-week softmax, so the constraint holds
+    by construction and the problem is unconstrained in those coordinates -- L-BFGS handles
+    it directly rather than needing a projection at every step.
 
-    The second is interpretability, and it is the reason for the switch. Both losses find
-    the register, but KL folds a vendor's PR footer into the same component -- four
-    cursor.com links are its top four representative words -- which inflates its mass to
-    13.8% and muddies what the component is. Squared error separates them:
+    The smoothness term exists because weekly counts are noisy at a few hundred documents a
+    week, not because a component is expected to be monotone.
 
-        loss                 the register component        exact zeros in H
-        KL, a=0.02      13.8% of mass, 36 -> 43,703/wk           0%
-        squared, a=0     7.3% of mass, 268 -> 26,029/wk         22%
-        squared, a=0.02  6.7% of mass, 183 -> 24,908/wk         25%
-        squared, a=0.2   3.4% of mass,   0 -> 18,980/wk         47%
+    **The penalty is on the difference measured against 1/K, not on the difference itself.**
+    Without that, the right lambda changes by two orders of magnitude with K, and for a
+    mechanical reason: prevalences sum to one, so a typical pi is about 1/K and a typical
+    squared difference about 1/K^2. Held-out likelihood -- fit on 90% of documents, score the
+    other 10%, in bits per word -- puts the optimum at 5,000 for K=12 and 500,000 for K=128,
+    and (128/12)^2 x 5,000 = 568,889. One grid step from the observed optimum, so the whole
+    K-dependence is that factor. Absorbing K^2 into the penalty leaves a single constant that
+    is right at both: 5,000/12^2 = 34.7 and 500,000/128^2 = 30.5.
 
-    At a=0.2 the component's sixteen most representative words are prose with no links at
-    all -- `refusal, deliberately, byte-identical, load-bearing, genuine, carries, refuses,
-    inert, claimed, fail-closed` -- and its activation is *exactly* zero for two years
-    before it rises, which is the shape the penalty was for.
+    The sweeps, at K=12:
 
-    W is rescaled after fitting so each column sums to 1, which fixes the free scale at the
-    one place it carries meaning and pushes it into H, whose column sums then recover each
-    week's word count -- verified against the corpus to within 0.73%.
+        lambda        0      40     200    1000    5000   25000  100000
+        held out  -9.2947 -9.2946 -9.2946 -9.2945 -9.2944 -9.2944 -9.2945
+        roughness  1.891   1.524   0.895   0.311   0.074   0.022   0.009
+
+    and at K=128, where there are 17,536 prevalences to fit rather than 1,644 and the penalty
+    has real work to do:
+
+        lambda        0    1000    5000   25000  100000  500000    2e6    1e7
+        held out  -9.0782 -9.0770 -9.0749 -9.0742 -9.0734 -9.0728 -9.0738 -9.0760
+        train     -8.8055 -8.8053 -8.8056 -8.8064 -8.8070 -8.8072 -8.8079 -8.8099
+
+    Train getting worse while held-out gets better is the regularisation signature, and it is
+    only visible at the larger K. At K=12 held-out is flat to four decimal places across four
+    orders of magnitude, so there the penalty is free rather than helpful -- worth taking
+    anyway, because it cuts roughness twenty-fold for nothing.
+
+    Held-out likelihood does not see over-smoothing directly, so the shape was checked too. At
+    K=12 the register's rise is 0.4% to 65.4% at lambda=40 and 0.3% to 63.8% at the chosen
+    setting, but 0.4% to 47.0% at a hundred times that -- the peak dragged down toward the
+    early weeks. The chosen value is the largest that leaves the shape alone.
+
+    It binds, unlike the L1 in py, and for a structural reason: there the columns of W
+    are normalised *after* fitting, so an L1 on H could be satisfied by shrinking H and
+    inflating W at no cost, and the rescaling undid it exactly. Here pi sums to 1 in every
+    week by construction, so the scale is not free. An L1 on pi itself would still do nothing
+    -- on the simplex ||pi_t||_1 = 1 identically, a constant with zero gradient.
     """
-    kw = dict(n_components=k, init="nndsvda", alpha_H=alpha_h, l1_ratio=1.0,
-              max_iter=max_iter, random_state=seed)
-    model = (NMF(solver="mu", beta_loss="kullback-leibler", **kw) if loss == "kl"
-             else NMF(solver="cd", **kw))
-    W = model.fit_transform(X)                 # words by k
-    H = model.components_                      # k by weeks
-    scale = W.sum(axis=0)
-    scale[scale == 0] = 1.0
-    W, H = W / scale, H * scale[:, None]
-    assert np.allclose(W.sum(axis=0), 1.0), "columns of W are not distributions"
-    return W, H, float(model.reconstruction_err_)
+    T, K_ = C.shape
+
+    def softmax(theta):
+        z = theta - theta.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        return e / e.sum(axis=1, keepdims=True)
+
+    def neg(v):
+        pi = softmax(v.reshape(T, K_))
+        p = np.maximum(pi, 1e-12)
+        # the difference is measured against 1/K, not absolutely, which is what makes one
+        # lambda work at every K -- see the docstring
+        w = lam * K_ * K_
+        d = np.diff(pi, axis=0)
+        obj = (C * np.log(p)).sum() - w * (d ** 2).sum()
+        g = C / p
+        g[1:] -= 2 * w * d
+        g[:-1] += 2 * w * d
+        gt = pi * (g - (pi * g).sum(axis=1, keepdims=True))   # through the softmax
+        return -obj, -gt.ravel()
+
+    res = minimize(neg, np.zeros(T * K_), jac=True, method="L-BFGS-B",
+                   options={"maxiter": 400, "maxfun": 500})
+    return softmax(res.x.reshape(T, K_))
 
 
-def pack(X, weeks, vocab, W, H):
-    """Shape the fit into the structure the page reads."""
-    words_per_week = X.sum(axis=0)
-    overall = X.sum(axis=1) / X.sum()                    # corpus word distribution
-    # H is reported as it is, in word appearances. Because the columns of W sum to 1, a
-    # column of H sums to that week's word count -- so H[c, t] is the number of appearances
-    # in week t attributable to component c, and every component's curve is in the same
-    # units. Not divided through by the week: that would hide how much was written, and
-    # the weeks differ threefold in length even after the document cap.
-    mass = H.sum(axis=1) / H.sum()
-    per10k = 1e4 * X / np.maximum(words_per_week, 1)     # a word's rate, comparable
+def responsibilities(logits, pi, week_of):
+    """r_dk, and the total log-likelihood."""
+    z = logits + np.log(np.maximum(pi[week_of], 1e-300))
+    m = z.max(axis=1, keepdims=True)
+    e = np.exp(z - m)
+    s = e.sum(axis=1, keepdims=True)
+    return e / s, float((np.log(s) + m).sum())
 
-    def r(a, nd):
-        return [round(float(v), nd) for v in a]
 
-    components = []
-    for c in np.argsort(-mass):
-        p = W[:, c]
-        lift = p / np.maximum(overall, 1e-12)
-        # A component's most representative words are the ones whose probability under it
-        # is furthest above their probability in the corpus as a whole. No support floor:
-        # every word here already appears at least MIN_TF times, and flooring on
-        # probability throws away exactly the rare-but-concentrated words this is for --
-        # `load-bearing` ranks 24th in its component by lift and 6,062nd once floored.
-        order = np.argsort(-lift)
-        # kept as a second view, because it answers the other question: what a component
-        # is mostly *made* of. Ranking by probability alone would list `the` under every
-        # component, so this is the pointwise contribution to KL(component || corpus).
-        used = np.argsort(-(p * np.log(np.maximum(lift, 1e-12))))
-        components.append({
+def fit(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, seed=SEED, log=print):
+    """One EM run. Returns (W, pi, log-likelihood)."""
+    rng = np.random.default_rng(seed)
+    D, V = X.shape
+
+    # seeded from a handful of real documents each, the usual start for a multinomial
+    # mixture: a uniform start leaves every component identical and the first step cannot
+    # break the tie
+    W = np.zeros((k, V))
+    for c in range(k):
+        pick = rng.choice(D, size=min(40, D), replace=False)
+        W[c] = np.asarray(X[pick].sum(axis=0)).ravel() + 0.1
+    W /= W.sum(axis=1, keepdims=True)
+    pi = np.full((T, k), 1.0 / k)
+
+    ll = -np.inf
+    for it in range(outer):
+        logits = X @ np.log(np.maximum(W, 1e-12)).T          # 1. attribute
+        r, ll = responsibilities(logits, pi, week_of)
+
+        W = np.asarray((r.T @ X) + 0.01)                      # 2. word distributions
+        W /= W.sum(axis=1, keepdims=True)
+
+        C = np.zeros((T, k))                                  # 3. weekly counts
+        np.add.at(C, week_of, r)
+
+        pi = fit_pi(C, lam)                                   # 4. prevalences
+        log(f"  iter {it + 1:2d}  loglik {ll:,.0f}")
+
+    logits = X @ np.log(np.maximum(W, 1e-12)).T
+    r, ll = responsibilities(logits, pi, week_of)
+    C = np.zeros((T, k))
+    np.add.at(C, week_of, r)
+    # and the same attribution weighted by document length, which is the quantity that
+    # actually varies: the corpus caps documents at 350 a week, so C is nearly flat by
+    # construction, while the words in them swing threefold
+    A = np.zeros((T, k))
+    np.add.at(A, week_of, r * np.asarray(X.sum(axis=1)))
+    return W, pi, C, A, ll
+
+
+def fit_best(X, week_of, T, k=K, lam=LAMBDA, outer=OUTER, n_init=N_INIT,
+             seed=SEED, log=print):
+    """Fit `n_init` times from different seeds and keep the highest likelihood.
+
+    One run is not enough: EM finds different local optima here, and the worst of them mix a
+    component with something else and give it two thirds of the peak the good fits find. The
+    likelihood tells them apart reliably, so the only cost is time -- about a second a
+    restart.
+    """
+    best = None
+    for i in range(n_init):
+        W, pi, C, A, ll = fit(X, week_of, T, k, lam, outer, seed + i,
+                              log=lambda *_: None)
+        log(f"  restart {i + 1}/{n_init}  loglik {ll:,.0f}")
+        if best is None or ll > best[-1]:
+            best = (W, pi, C, A, ll)
+    log(f"  kept loglik {best[-1]:,.0f}")
+    return best
+
+
+# --------------------------------------------------------------------------- out
+
+def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, lam):
+    # Each component's share of all word appearances, used to build the baseline below.
+    mass_c = A.sum(axis=0)
+    mass_c = mass_c / max(mass_c.sum(), 1e-12)
+    docs_per_week = np.bincount(week_of, minlength=len(weeks))
+    words_per_week = np.zeros(len(weeks))
+    np.add.at(words_per_week, week_of, np.asarray(X.sum(axis=1)).ravel())
+    per_word = np.zeros((X.shape[1], len(weeks)))          # appearances, word by week
+    for t in range(len(weeks)):
+        sel = week_of == t
+        if sel.any():
+            per_word[:, t] = np.asarray(X[sel].sum(axis=0)).ravel()
+
+    # ordered by size in the final week, largest first: what a reader wants first is what
+    # the corpus looks like now, and the stack then puts the currently-dominant band at the
+    # bottom where its shape is easiest to follow. The last week is one week and therefore
+    # noisy, which is the price of answering "what is biggest now" exactly.
+    order = np.argsort(-C[-1, :])
+
+    start, end = pi[:8].mean(axis=0), pi[-8:].mean(axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(start > 0, end / np.maximum(start, 1e-12), np.inf)
+
+    # Which components arrived: they end at least LEAD_RATIO times their starting size while
+    # being worth at least LEAD_FLOOR of the final weeks. What is asserted is not how many
+    # there are -- that depends on k, one at k=16 and two at k=32, where the register splits
+    # into prose and command-line tooling -- but that the set is unambiguous: every arrival is
+    # at least LEAD_GAP times clear of everything that is not one. Measured, the gap is
+    # 1,405-fold at k=16 (5,759 against 4.1) and 59-fold at k=32 (201 against 3.4). If this
+    # ever fires, the arrivals have stopped being separable from ordinary drift and the page
+    # should not be published from that fit.
+    lead = np.flatnonzero((ratio >= LEAD_RATIO) & (end >= LEAD_FLOOR))
+    assert len(lead) >= 1, "no component arrived"
+    rest = np.setdiff1d(np.arange(len(end)), lead)
+    lo = float(ratio[lead].min())
+    hi = float(ratio[rest].max()) if len(rest) else 0.0
+    assert lo >= LEAD_GAP * hi, (
+        f"the {len(lead)} arrivals are not clear of the rest: weakest arrival grew "
+        f"{lo:.1f}x, largest non-arrival {hi:.1f}x, needed a {LEAD_GAP}x gap")
+    lead = set(int(c) for c in lead)
+
+    comps = []
+    for c in order:
+        # Lift against the corpus *without* this component. Dividing by the whole corpus
+        # understates a large component's own words, because its occurrences are most of what
+        # it is being compared against -- at the end of the window one component is a third of
+        # everything written, so its vocabulary was being measured partly against itself. The
+        # baseline here is the mixture of every other component, weighted by their share of
+        # appearances, which asks the question that was meant: how much more probable is this
+        # word here than in the writing that is not this.
+        other = np.delete(mass_c, c)
+        base = (np.delete(W, c, axis=0) * other[:, None]).sum(axis=0) / max(other.sum(), 1e-12)
+        lift = W[c] / np.maximum(base, 1e-12)
+        rank = np.argsort(-lift)
+        # the arriving component gets a long list, because it is the one anybody will read
+        # past the first handful of, and the cut has to fall somewhere
+        n = WORDS_LEAD if c in lead else WORDS_LISTED
+        comps.append({
             "id": int(c),
-            "mass": round(float(mass[c]), 4),
-            "peak_week": weeks[int(np.argmax(H[c]))],
-            "start": int(round(H[c][:8].mean())),        # appearances a week, first/last
-            "end": int(round(H[c][-8:].mean())),         # two months
-            "weight": [int(round(v)) for v in H[c]],     # absolute, in appearances
-            "words": [{"word": vocab[j],
-                       "prob": round(float(p[j]), 6),
-                       "lift": round(float(lift[j]), 2),
-                       "per10k": r(per10k[j], 2)}
-                      for j in order[:WORDS_CHARTED]],
-            "word_list": [vocab[j] for j in order[:WORDS_LISTED]],
-            "most_used": [vocab[j] for j in used[:WORDS_MOST_USED]],
+            "lead": bool(c in lead),
+            "share": round(float(pi[:, c].mean()), 5),
+            "peak": round(float(pi[:, c].max()), 5),
+            "peak_week": weeks[int(np.argmax(pi[:, c]))],
+            "start_share": round(float(start[c]), 5),
+            "end_share": round(float(end[c]), 5),
+            "prevalence": [round(float(v), 5) for v in pi[:, c]],
+            "count": [round(float(v), 1) for v in C[:, c]],
+            "appearances": [int(round(v)) for v in A[:, c]],
+            "word_list": [vocab[j] for j in rank[:n]],
+            "word_lift": [round(float(lift[j]), 2) for j in rank[:n]],
+            # each listed word's own weekly appearances, so the page can show a word's
+            # history on hover. Only for the arrivals: at 137 weeks a thousand words is
+            # 137,000 integers, which is worth carrying once or twice and not sixteen times.
+            "series": ([[int(v) for v in per_word[j]] for j in rank[:n]]
+                       if c in lead else None),
+            "tail": {t: int((lift >= t).sum()) for t in (5, 3, 2)},
         })
-    return {
-        "generated": date.today().isoformat(),
-        "source": "GitHub pull request descriptions, sampled from the search API",
-        "weeks": weeks,
-        "appearances": int(X.sum()),
-        "words_per_week": [int(v) for v in words_per_week],
-        "vocab": len(vocab),
-        "k": len(components),
-        "components": components,
-    }
+    return {"generated": date.today().isoformat(), "weeks": weeks, "n_init": N_INIT,
+            "documents": int(X.shape[0]), "appearances": int(X.sum()),
+            "docs_per_week": [int(v) for v in docs_per_week],
+            "words_per_week": [int(v) for v in words_per_week],
+            "vocab": len(vocab), "k": len(comps), "lambda": lam,
+            "loglik": round(ll, 1), "components": comps}
 
 
 def selftest():
-    """The invariants whose silent failure would invalidate the result."""
-    # Sized to the real regime on purpose: the L1 is scaled by the vocabulary size and
-    # weighed against a squared error, so a fixture with far denser cells than the corpus
-    # puts the default ALPHA_H in a different regime and tests nothing about it. The corpus
-    # averages ~6.5 appearances per word-week over ~6,400 words.
+    """A planted component that arrives partway through must be recovered."""
     rng = np.random.default_rng(0)
-    V, T, on, size = 2000, 60, 30, 12
-    p = rng.uniform(0.2, 3.0, size=V)
-    rate = np.tile(p[:, None], (1, T))
-    rate[:size, on:] *= 6.0                        # a bundle arriving at week `on`
-    rate[-20:, :] = 60.0                           # words as common as `the`
-    X = rng.poisson(rate * 4).astype(float)
-    vocab = [f"w{j}" for j in range(V)]
+    T, V, D_per, arrives = 40, 60, 60, 22
+    Wt = rng.dirichlet(np.full(V, 0.4), size=3)
+    rows, cols, vals, week_of = [], [], [], []
+    d = 0
+    for t in range(T):
+        for _ in range(D_per):
+            live = [0, 1] if t < arrives else [0, 1, 2]
+            k = live[rng.integers(len(live))]
+            x = rng.multinomial(50, Wt[k])
+            for j in np.flatnonzero(x):
+                rows.append(d); cols.append(int(j)); vals.append(float(x[j]))
+            week_of.append(t); d += 1
+    X = csr_matrix((vals, (rows, cols)), shape=(d, V))
+    week_of = np.array(week_of)
+    W, pi, C, A, ll = fit_best(X, week_of, T, k=3, outer=8, n_init=3,
+                               log=lambda *_: None)
 
-    W, H, err = fit(X, k=4, max_iter=400)
-    assert np.allclose(W.sum(axis=0), 1.0), "columns of W must sum to 1"
-    assert (W >= 0).all() and (H >= 0).all(), "factors must stay non-negative"
+    assert np.allclose(pi.sum(axis=1), 1.0, atol=1e-6), "prevalences must sum to 1"
+    assert (pi >= 0).all() and np.allclose(W.sum(axis=1), 1.0), "factors are malformed"
+    # C must recover each week's document count, since every document's r sums to 1
+    assert np.allclose(C.sum(axis=1), np.bincount(week_of, minlength=T), rtol=1e-6), \
+        "the counts do not reconstruct the week"
 
-    out = pack(X, [f"w{t}" for t in range(T)], vocab, W, H)
-    assert abs(sum(c["mass"] for c in out["components"]) - 1.0) < 1e-3
-    assert all(len(c["weight"]) == T for c in out["components"])
-    assert all(len(w["per10k"]) == T for c in out["components"] for w in c["words"])
-    # W's columns summing to 1 means H's columns must recover the week's word count
-    tot = np.sum([np.array(c["weight"]) for c in out["components"]], axis=0)
-    want = X.sum(axis=0)
-    assert np.allclose(tot, want, rtol=0.05), "H does not reconstruct the week's total"
-
-    moved = {f"w{j}" for j in range(size)}
-    hit = [c for c in out["components"]
-           if len(moved & set(c["word_list"] + c["most_used"])) >= 4]
-    assert hit, "the arriving bundle did not become a component"
-    w = np.array(hit[0]["weight"], dtype=float)
-    assert w[:on].mean() < 0.5 * w[on:].mean(), "its activation does not rise"
-
-    assert err >= 0
-    print(f"selftest: ok  (W columns sum to 1, H recovers each week's total, "
-          f"bundle recovered at {hit[0]['mass']:.0%} of mass)")
+    late = int(np.argmax([Wt[2] @ np.log(np.maximum(W[c], 1e-12)) for c in range(3)]))
+    before, after = pi[:arrives, late].mean(), pi[arrives:, late].mean()
+    assert before < 0.5 * after, f"the planted component did not rise ({before:.3f} " \
+                                 f"then {after:.3f})"
+    assert np.allclose(A.sum(axis=1),
+                       np.bincount(week_of, minlength=T) * 50, rtol=0.02), \
+        "the appearance counts do not reconstruct the week"
+    rough = lambda lam: float((np.diff(fit_pi(C, lam), axis=0) ** 2).sum())
+    assert rough(1000.0) < rough(0.0), "the smoothness penalty does nothing"
+    print(f"selftest: ok  (prevalences sum to 1, counts reconstruct each week, planted "
+          f"component {before:.3f} -> {after:.3f} at week {arrives})")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--k", type=int, default=K, help=f"components (default {K})")
-    ap.add_argument("--loss", default=LOSS, choices=("kl", "l2"),
-                    help=f"kl separates better, l2 makes the L1 bite (default {LOSS})")
-    ap.add_argument("--alpha", type=float, default=ALPHA_H,
-                    help=f"L1 on H; inert under kl (default {ALPHA_H})")
+    ap.add_argument("--k", type=int, default=K)
+    ap.add_argument("--lam", type=float, default=LAMBDA)
+    ap.add_argument("--outer", type=int, default=OUTER)
+    ap.add_argument("--n-init", type=int, default=N_INIT, dest="n_init")
     ap.add_argument("--out", default="analysis.js")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
         return selftest()
 
-    X, weeks, vocab = build()
-    W, H, err = fit(X, k=args.k, alpha_h=args.alpha, loss=args.loss)
-    out = pack(X, weeks, vocab, W, H)
-    out["loss"], out["alpha_h"] = args.loss, args.alpha
-
-    if out["components"][0]["mass"] > 0.55:
-        print(f"WARNING largest component holds {out['components'][0]['mass']:.0%} of "
-              f"mass -- ALPHA_H ({ALPHA_H}) may be too strong for a "
-              f"{len(vocab)}-word vocabulary")
-
+    X, week_of, weeks, vocab = documents()
+    W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, lam=args.lam,
+                               outer=args.outer, n_init=args.n_init)
+    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, args.lam)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("window.ANALYSIS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
         fh.write(";\n")
-    zeros = (H == 0).mean()
-    print(f"{'KL divergence' if args.loss == 'kl' else 'Frobenius error'} {err:.1f}, "
-          f"{zeros:.0%} of H exactly zero, wrote {args.out} "
+    print(f"\nloglik {ll:,.0f}, wrote {args.out} "
           f"({os.path.getsize(args.out)/1e3:.0f} kB)\n")
     for c in out["components"]:
-        print(f"  {c['mass']:5.1%}  peak {c['peak_week']}  "
-              f"{c['start']:,} -> {c['end']:,} appearances a week")
-        print("         " + ", ".join(w["word"][:20] for w in c["words"][:8]))
-        print("         most used:   " + ", ".join(w[:20] for w in c["most_used"][:8]))
+        print(f"  peaks {c['peak_week']}  mean {c['share']:6.1%}  peak {c['peak']:5.1%}  "
+              f"{c['start_share']:.1%} -> {c['end_share']:.1%}")
+        print("        " + ", ".join(w[:20] for w in c["word_list"][:9]))
 
 
 if __name__ == "__main__":
