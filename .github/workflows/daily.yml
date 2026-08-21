@@ -2,7 +2,7 @@
 #
 # The corpus is the artifact here: each run adds one immutable file under data/days and never
 # touches an earlier one, so the history of the repository is the history of the sample. The
-# two analysis files are derived and rewritten every run.
+# analysis.js is derived and rewritten every run.
 #
 # Pages is configured to build from the default branch, so committing is the deploy.
 name: daily
@@ -34,25 +34,25 @@ jobs:
           python-version: "3.13"
 
       - name: Install
-        run: pip install --quiet numpy scipy scikit-learn
+        run: pip install --quiet numpy scipy numba
 
       - name: Fetch yesterday
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python fetch_day.py --backfill ${{ inputs.backfill || 0 }}
 
+      # Under a minute: the EM sweep is a fused numba kernel and there is one fit, not three
+      # variants at ten restarts each. That used to be half an hour.
       - name: Analyse
         run: |
           python analyze.py --selftest
           python analyze.py --out analysis.js
-          python analyze.py --lam 0 --out analysis-nol2.js
-          python analyze.py --flat --out analysis-flat.js
 
       - name: Commit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/days analysis.js analysis-nol2.js analysis-flat.js
+          git add data/days analysis.js
           # nothing to say if the day was already present and the fit is unchanged
           git diff --cached --quiet && echo "no change" && exit 0
           git commit -m "Sample $(date -u -d yesterday +%F) and rebuild"
