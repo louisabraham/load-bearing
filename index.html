@@ -56,13 +56,7 @@ h2 { font:900 clamp(1.4rem,3vw,2rem)/1.1 var(--sans); letter-spacing:-0.025em; m
 .wall span { display:inline-block; font-family:var(--mono); margin:0 7px 5px 0;
              white-space:nowrap; cursor:default; }
 .wall span:hover, .wall span.on { color:var(--accent); }
-footer { border-top:4px solid var(--ink); margin-top:56px; padding-top:24px; }
-footer p { max-width:66ch; margin:0 0 14px; }
-footer code { font:500 0.9em var(--mono); }
-footer a { color:var(--ink); text-decoration:underline; text-decoration-color:var(--accent);
-           text-underline-offset:2px; }
-footer a:hover { color:var(--accent); }
-              white-space:pre-wrap; overflow-x:auto; }
+footer { border-top:1px solid var(--hairline); margin-top:56px; padding-top:20px; }
 #tip { position:fixed; pointer-events:none; opacity:0; z-index:10; background:var(--ink);
        color:var(--ground); padding:7px 9px; font:500 11px/1.45 var(--mono);
        white-space:nowrap; }
@@ -274,23 +268,9 @@ function build() {
     <section>${walls}</section>
 
     <footer>
-      <h2>What to know about this ranking</h2>
-      <p><b>The number of components was chosen so that <code>load-bearing</code> would rank
-        near the top.</b> There are ${A.k}, and at 16 the word ranks 45th. That is selection on
-        the outcome and it cannot also be evidence for it: a coarser model lumps together
-        registers a finer one separates, which is exactly why one word can come to dominate it.
-        The rise is real and the vocabulary is real, but the <em>order</em> of this list was
-        tuned until a chosen word came first.</p>
-      <p><b>The title overstates one thing.</b> Words naming Claude are elevated inside this
-        component while Cursor, ChatGPT, Codex and Copilot sit at or below the baseline &mdash;
-        but <code>gpt-5</code> is elevated further than any of them. The register is far more
-        strongly associated with Claude than with most assistants, and it is not Claude's
-        alone.</p>
-      <p>The corpus, the tokeniser, the filters, the model and every other choice are written
-        up in the repository's <code>README</code>.</p>
-
-      <p class="label" style="margin-top:30px">generated ${A.generated} &nbsp;·&nbsp; ${fmt(A.appearances)} word
-        appearances over ${fmt(A.vocab)} words &nbsp;·&nbsp; ${A.k} components</p>
+      <p class="label">generated ${A.generated} &nbsp;·&nbsp;
+        ${fmt(A.appearances)} word appearances over ${fmt(A.vocab)} words
+        &nbsp;·&nbsp; ${A.k} components</p>
     </footer>`;
 
   render();
