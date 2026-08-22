@@ -36,7 +36,11 @@ h1 em { font-style:normal; color:var(--accent); }
 .stat:last-child { border-right:0; }
 .stat b { display:block; font-size:2rem; font-weight:900; letter-spacing:-0.02em; }
 section { border-top:4px solid var(--ink); margin-top:56px; padding-top:22px; }
-h2 { font:900 clamp(1.4rem,3vw,2rem)/1.1 var(--sans); letter-spacing:-0.025em; margin:0 0 8px; }
+header + section { border-top:0; margin-top:34px; padding-top:0; }
+.lede { margin:0 0 14px; max-width:60ch; letter-spacing:-0.012em;
+        font:500 clamp(1.15rem,2.6vw,1.6rem)/1.3 var(--sans); }
+.lede:last-of-type { margin-bottom:26px; }
+.lede b { font-weight:900; color:var(--accent); }
 .note { color:var(--muted); max-width:66ch; margin:0 0 20px; font-size:0.95rem; }
 .chart svg { display:block; width:100%; height:280px; }
 .axis { position:relative; height:15px; margin-top:6px; }
@@ -197,80 +201,69 @@ function axis() {
 }
 
 function build() {
-  const months = Math.round(A.weeks.length * 7 / 30.44);
-  const span = months >= 24
-    ? `for ${(months / 12).toFixed(1).replace(/\.0$/, "")} years`
-    : `for ${months} months`;
-  const first = A.components.find(c => c.lead);
+  const lead = A.components.find(c => c.lead);
   const W = A.lead_window;
   const sum = a => a.reduce((s, v) => s + v, 0);
-  // the component and its headline share are both read off the last `W` weeks, not the last
-  // one: a week is 700 descriptions and the subject of the page should not turn on it
-  const lastMonth = sum(first.count.slice(-W));
+  // the share is read off the last `W` weeks, not the last one: a week is 700 descriptions and
+  // the headline should not turn on which of two close components led across one of them
   const monthDocs = sum(A.docs_per_week.slice(-W));
-  const firstMonth = sum(first.count.slice(0, W));
-  const firstDocs = sum(A.docs_per_week.slice(0, W));
-  // a week that was never collected stays in place as an empty week rather than being closed
-  // up, so a share can be asked of a stretch with nothing in it
-  const share = (n, d) => d ? pc(n / d) : "—";
+  const monthShare = monthDocs ? pc(sum(lead.count.slice(-W)) / monthDocs) : "—";
+  // whether it is still rising is read off the fitted trend, never asserted: a claim that can
+  // go stale should not be typed into the markup
+  const growing = A.trend > 0.0005;
+  const still = growing
+    ? `and is still growing, by ${(A.trend * 100).toFixed(1)} points a week`
+    : `and has levelled off`;
 
-  const walls = [first].map((c, i) => {
-    const hiL = c.word_lift[0], loL = c.word_lift[c.word_lift.length - 1];
-    // log scale, because measuring lift against everything-else spreads it over two orders of
-    // magnitude -- 3,535x down to 4.2x -- and on a linear ramp every word past the first dozen
-    // would sit at the minimum size
-    const lg = Math.log, span = Math.max(lg(hiL) - lg(loL), 1e-9);
-    const wall = c.word_list.map((w, j) => {
-      const t = (lg(c.word_lift[j]) - lg(loL)) / span;
-      return `<span data-lead="${i}" data-j="${j}" style="font-size:${(10.5 + 8 * t).toFixed(1)}px;`
-        + `opacity:${(0.4 + 0.6 * t).toFixed(2)}">${esc(w)}</span>`;
-    }).join("");
-    return `<h2 style="margin-top:0">Its vocabulary</h2>
-      <p class="note">The thousand words most characteristic of it, largest first &mdash;
-        ${hiL}&times; more probable inside this way of writing than in everything that is not
-        it for the first, ${loL}&times; for the thousandth. Size and shade follow that multiple.
-        <b>Hover any word</b> to see its own week-by-week history above.</p>
-      <div class="probe" data-lead="${i}">
+  const hiL = lead.word_lift[0], loL = lead.word_lift[lead.word_lift.length - 1];
+  // log scale, because measuring lift against everything-else spreads it over three orders of
+  // magnitude and on a linear ramp every word past the first dozen would sit at the minimum
+  const lg = Math.log, sp = Math.max(lg(hiL) - lg(loL), 1e-9);
+  const wall = lead.word_list.map((w, j) => {
+    const t = (lg(lead.word_lift[j]) - lg(loL)) / sp;
+    return `<span data-lead="0" data-j="${j}" style="font-size:${(10.5 + 8 * t).toFixed(1)}px;`
+      + `opacity:${(0.4 + 0.6 * t).toFixed(2)}">${esc(w)}</span>`;
+  }).join("");
+
+  app.innerHTML = `<header>
+    <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
+    <p class="standfirst">We scrape GitHub daily to analyse trends in vocabulary.
+      So far we have analysed:</p>
+    <div class="stats">
+      <div class="stat"><b>${fmt(A.days)}</b><span class="label">days</span></div>
+      <div class="stat"><b>${fmt(A.documents)}</b>
+        <span class="label">pull requests</span></div>
+      <div class="stat"><b>${fmt(A.appearances)}</b><span class="label">words</span></div>
+    </div></header>
+
+    <section>
+      <p class="lede">We divided them into <b>${A.k}</b> distinct ways of writing.</p>
+      <p class="lede">One of them was <b>${monthShare}</b> of all pull requests last month,
+        ${still}.</p>
+      <div class="chart"><svg id="stack"></svg><div class="axis label">${axis()}</div></div>
+    </section>
+
+    <section>
+      <p class="lede">Its representative words should look familiar to anyone who uses a
+        coding agent.</p>
+      <p class="note">The thousand most characteristic, largest first &mdash;
+        ${fmt(hiL)}&times; more probable inside this way of writing than in everything that is
+        not it for the first, ${loL.toFixed(1)}&times; for the thousandth. Size and shade
+        follow that multiple.
+        <b>Hover any word</b> to see its own week-by-week history.</p>
+      <div class="probe" data-lead="0">
         <div class="who"><span class="word"></span>
           <span class="label meta"></span></div>
         <svg></svg>
         <div class="axis label">${axis()}</div>
       </div>
-      <div class="wall">${wall}</div>`;
-  }).join("");
-
-  app.innerHTML = `<header>
-    <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
-    <p class="standfirst">Every pull request description opened on GitHub, one randomly
-      placed five-minute window a day, ${span}. A model splits them into ${A.k} ways of
-      writing. The largest of them today barely existed at the start, and is
-      ${share(lastMonth, monthDocs)} of the last month.</p>
-    <div class="stats">
-      <div class="stat"><b>${fmt(A.documents)}</b><span class="label">descriptions</span></div>
-      <div class="stat"><b>${A.weeks.length}</b><span class="label">weeks</span></div>
-      <div class="stat"><b>${fmt(A.vocab)}</b><span class="label">words</span></div>
-      <div class="stat"><b>${share(lastMonth, monthDocs)}</b>
-        <span class="label">of the last month</span></div>
-    </div></header>
-
-    <section>
-      <h2>It was not there, and then it was</h2>
-      <p class="note">Each band is one of the ${A.k} ways of writing, and they stack to the
-        whole of every week. The one in colour, at the bottom, is the largest of them across
-        the last ${W} weeks; the other ${A.k - 1} are in grey behind it, because what matters
-        is that one against the rest.</p>
-      <div class="chart"><svg id="stack"></svg><div class="axis label">${axis()}</div></div>
-      <p class="note" style="margin:16px 0 0">The arrival is
-        ${share(lastMonth, monthDocs)} of the last month, against
-        ${share(firstMonth, firstDocs)} of the first.</p>
+      <div class="wall">${wall}</div>
     </section>
-
-    <section>${walls}</section>
 
     <footer>
       <p class="label">generated ${A.generated} &nbsp;·&nbsp;
-        ${fmt(A.appearances)} word appearances over ${fmt(A.vocab)} words
-        &nbsp;·&nbsp; ${A.k} components</p>
+        ${A.weeks.length} whole weeks, ${A.weeks[0]} to ${A.weeks[A.weeks.length - 1]}
+        &nbsp;·&nbsp; ${fmt(A.vocab)} words above the frequency floors</p>
     </footer>`;
 
   render();

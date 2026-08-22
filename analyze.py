@@ -71,6 +71,7 @@ WORDS_LEAD = 1000                   # for each component that arrives; see `pack
 # selected on how much it grew. Growth thresholds used to do the selecting and that was
 # fragile -- at a 1% start one fit rejected its own biggest component, 1.06% -> 40.35%, for
 # beginning six hundredths of a point too high.
+TREND_WEEKS = 12                    # weeks the reported trend is fitted over
 LEAD_WINDOW = 4                     # weeks counted as "now". A month, not a week: a week is
                                     # 700 descriptions, and the subject of the whole page
                                     # should not turn on which of two close components
@@ -279,6 +280,7 @@ def documents(log=print):
     and a loop over four million pairs.
     """
     weeks, groups = week_files(log)
+    n_days = sum(len(g) for g in groups)
 
     ids, rows, cols, authors, week_raw = {}, [], [], [], []
     for t, group in enumerate(groups):
@@ -356,7 +358,7 @@ def documents(log=print):
     long_enough = np.asarray(X.sum(axis=1)).ravel() >= MIN_WORDS
     X, week_of = X[long_enough], week_of[long_enough]
     log(f"{X.shape[0]:,} descriptions, {X.sum():,.0f} appearances, {len(vocab):,} words")
-    return X, week_of, weeks, vocab
+    return X, week_of, weeks, vocab, n_days
 
 
 # -------------------------------------------------------------------------- model
@@ -523,7 +525,7 @@ def fit_best(X, week_of, T, k=K, tol=TOL, n_init=N_INIT, seed=SEED, log=print):
 
 # --------------------------------------------------------------------------- out
 
-def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, strict=True):
+def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days=0, strict=True):
     # Each component's share of all word appearances, used to build the baseline below.
     mass_c = A.sum(axis=0)
     mass_c = mass_c / max(mass_c.sum(), 1e-12)
@@ -608,8 +610,16 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, strict=True):
                        if c == lead else None),
             "tail": {t: int((lift >= t).sum()) for t in (5, 3, 2)},
         })
-    return {"generated": date.today().isoformat(), "weeks": weeks,
+    # Points per week that the lead component has moved over the last TREND_WEEKS, by least
+    # squares on its observed weekly share. The page reads this rather than being told the
+    # component is still rising: a claim that can go stale should not be typed into the markup.
+    lead_share = C[:, lead] / np.maximum(C.sum(axis=1), 1e-12)
+    tw = min(TREND_WEEKS, len(weeks))
+    slope = float(np.polyfit(np.arange(tw), lead_share[-tw:], 1)[0]) if tw >= 3 else 0.0
+
+    return {"generated": date.today().isoformat(), "weeks": weeks, "days": int(n_days),
             "arrived": bool(arrived), "lead_window": LEAD_WINDOW,
+            "trend": round(slope, 6), "trend_weeks": tw,
             # reported for information, never selected on: growth is a continuum here rather
             # than two separated groups
             "lead_ratio": round(float(ratio[lead]), 1),
@@ -690,10 +700,10 @@ def main():
     if args.selftest:
         return selftest()
 
-    X, week_of, weeks, vocab = documents()
+    X, week_of, weeks, vocab, n_days = documents()
     W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, tol=args.tol,
                                n_init=args.n_init, seed=args.seed)
-    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll)
+    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("window.ANALYSIS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))

@@ -420,6 +420,18 @@ starting at 0.3% for no good reason, and is unstable at exactly the point it mat
 gap requirement encoded an assumption the data does not support: growth is a continuum here, so
 a threshold cuts through the middle of it and no gap can exist.
 
+### Whether it is "still growing"
+
+The page says the component is still growing, and that sentence is read off the data rather than
+typed into the markup: `analyze.py` fits a least-squares line to the component's observed weekly
+share over the last 12 weeks and reports the slope, and the page phrases itself from the sign.
+Currently **+1.2 points a week**, over a stretch running 47.8% to 64.8%. If it ever flattens the
+page will say it has levelled off instead, without anyone editing it — a claim that can go stale
+should not be a string constant.
+
+Note that the last eight weeks alone are noisy around 62% and would not support the claim on
+their own; twelve weeks is what makes the slope clear of the week-to-week scatter.
+
 ### The stacked chart
 
 Each week is normalised to its own total, so the bands fill the height and it reads as
