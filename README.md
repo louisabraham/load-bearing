@@ -230,21 +230,26 @@ Each of `k` components is a fixed probability distribution over the vocabulary �
 writing. **One mixture covers the whole window**, and each description is taken to be drawn
 from one of the components:
 
-```
-W_k                    a distribution over the vocabulary,  sum_v W_vk = 1
-pi_k                   how much of the window was written that way,  sum_k pi_k = 1
-z_d ~ Cat(pi)          which component wrote description d
-x_d ~ Mult(n_d, W_kz)  its words
-```
+$$W_k \;\text{a distribution over the } V \text{ words},\quad \sum_v W_{vk} = 1$$
+
+$$\pi \;\text{how much of the window each was},\quad \sum_k \pi_k = 1$$
+
+$$z_d \sim \mathrm{Categorical}(\pi), \qquad x_d \mid z_d = k \sim \mathrm{Multinomial}(n_d, W_k)$$
+
+Fitted by maximum likelihood, with no penalty term of any kind:
+
+$$\max_{W,\pi}\; \sum_d \log \sum_k \pi_k \prod_v W_{vk}^{x_{dv}}$$
 
 **There is no `t` anywhere in that.** The model has no per-week parameter, so it has nothing
 that could describe a trend and no freedom to place one. Every curve produced is attribution
 instead — each description assigned by its words alone, the weeks added up afterwards:
 
-```
-r_dk = pi_k prod_v W_vk^x_dv / sum_j pi_j prod_v W_vj^x_dv     the responsibility
-C_tk = sum over descriptions d written in week t of r_dk        every curve on the page
-```
+$$r_{dk} = \frac{\pi_k \prod_v W_{vk}^{x_{dv}}}{\sum_j \pi_j \prod_v W_{vj}^{x_{dv}}}$$
+
+that being how much of description $d$ belongs to component $k$, and then the only place a week
+index appears anywhere:
+
+$$C_{tk} = \sum_{d\,:\,t(d) = t} r_{dk}$$
 
 `C` is a sum over fitted responsibilities and not itself a fitted quantity. It was never
 optimised toward any shape. If a component rises, the rise is in what people wrote, because
@@ -252,9 +257,12 @@ there is nowhere else for it to be.
 
 ### This used to be the ablation
 
-An earlier version fitted a mixture *per week*, `pi_tk`, with a smoothness penalty
-`lambda K² sum_t (pi_tk - pi_{t-1,k})²` on how fast it could move, and `lambda` chosen by
-held-out likelihood. Running that model with one mixture for the whole window was meant as a
+An earlier version fitted a mixture *per week*, $\pi_{tk}$, with a smoothness penalty on how
+fast it could move,
+
+$$\lambda K^2 \sum_{t,k} \left(\pi_{tk} - \pi_{t-1,k}\right)^2$$
+
+and $\lambda$ chosen by held-out likelihood. Running that model with one mixture for the whole window was meant as a
 check on whether the smoothing had drawn the trend. **The rise survived the check unchanged** —
 so the per-week version's extra parameters, 84 × 8 of them plus a penalty weight to tune, were
 machinery that bought a readable curve and the suspicion that the model had drawn it. The check
@@ -428,9 +436,9 @@ cutting through the arrival.
 Ranked by lift, measured against the mixture of every **other** component weighted by its share
 of appearances — not against the whole corpus:
 
-```
-lift_k(v) = W_vk / [ sum_{j != k} m_j W_vj / sum_{j != k} m_j ]
-```
+$$\mathrm{lift}_k(v) = W_{vk} \Big/ \frac{\sum_{j \neq k} m_j W_{vj}}{\sum_{j \neq k} m_j}$$
+
+where $m_j$ is component $j$'s share of all word appearances.
 
 **The exclusion is doing enormous work.** The component is now most of the recent weeks, so
 dividing by the whole corpus would compare its vocabulary mostly against itself.

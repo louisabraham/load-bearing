@@ -2,8 +2,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The load-bearing vocabulary of Claude</title>
-<link rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 /* Two colours carry meaning rather than identity. Sixteen stacked bands cannot each have a
    hue -- a sixteen-step single-hue ramp holds neither adequate lightness gaps nor both ends
@@ -25,10 +23,6 @@
 body { margin:0; background:var(--ground); color:var(--ink);
        font:400 18px/1.55 var(--sans); -webkit-font-smoothing:antialiased; }
 .wrap { max-width:1020px; margin:0 auto; padding:0 24px 96px; }
-.exp { background:var(--accent); color:var(--ground); padding:14px 24px;
-       font:500 13px/1.55 var(--mono); }
-.exp b { font-weight:700; } .exp a { color:var(--ground); }
-.exp.warn { background:var(--ink); }
 header { padding:72px 0 0; }
 h1 { margin:0; font-weight:900; letter-spacing:-0.035em; line-height:0.9;
      font-size:clamp(2.2rem,6.6vw,4.4rem); text-transform:uppercase; }
@@ -68,13 +62,7 @@ footer code { font:500 0.9em var(--mono); }
 footer a { color:var(--ink); text-decoration:underline; text-decoration-color:var(--accent);
            text-underline-offset:2px; }
 footer a:hover { color:var(--accent); }
-.maths { margin-top:34px; border-top:1px solid var(--hairline); padding-top:20px; }
-.maths dl { margin:0; }
-.maths dt { margin:22px 0 0; }
-.maths dd { margin:6px 0 0; color:var(--muted); font-size:0.95rem; max-width:66ch; }
-.maths .tex { font:500 13px/1.7 var(--mono); color:var(--muted);
               white-space:pre-wrap; overflow-x:auto; }
-.katex-display { margin:0.4em 0; overflow-x:auto; overflow-y:hidden; }
 #tip { position:fixed; pointer-events:none; opacity:0; z-index:10; background:var(--ink);
        color:var(--ground); padding:7px 9px; font:500 11px/1.45 var(--mono);
        white-space:nowrap; }
@@ -286,115 +274,20 @@ function build() {
     <section>${walls}</section>
 
     <footer>
-      <h2>How</h2>
-      <p><b>Not GH Archive.</b> The obvious source for this is the public archive of GitHub's
-        event stream, and it stopped working. Since mid&#8209;2025 its feed carries almost only
-        <code>PushEvent</code>: a complete hour of 2024&#8209;08&#8209;12 holds 13,555
-        <code>IssueCommentEvent</code> against 86 for the same hour of 2026&#8209;08&#8209;10,
-        and polling <code>/events</code> in August 2026 returned 97 <code>PushEvent</code> out
-        of the 100 most recent. Measured from the files themselves, the archive carried three
-        to ten thousand issue comments an hour through 2025&#8209;10, then 1,590 in
-        2026&#8209;03, 866 in 2026&#8209;06 and 77 in 2026&#8209;07. Pull requests and issues
-        fell with them; pushes survive at full volume but carry no text, GitHub having
-        <a href="https://github.blog/changelog/2025-08-08-upcoming-changes-to-github-events-api-payloads/">removed
-        the commit array</a> from the payload in October 2025.</p>
-      <p>The cause is upstream of the archive, in GitHub's own Events API. Its tracker carries
-        <a href="https://github.com/igrigorik/gharchive.org/issues/310">&ldquo;Drastic Drop Off
-        in Events After 2025&#8209;05&#8209;23&rdquo;</a>, open since July 2025 with no
-        maintainer reply, and a
-        <a href="https://github.com/orgs/community/discussions/178788">GitHub community
-        discussion</a> traces the same loss to &ldquo;a GitHub Event API outage propagated
-        downstream&rdquo; &mdash; the identical gaps appear in OSSInsight, which reads the API
-        directly rather than through the archive. So no mirror repairs it:
-        <a href="https://www.gharchive.org/">BigQuery <code>githubarchive</code></a>,
-        <a href="https://ghe.clickhouse.tech/">ClickHouse GH Explorer</a> and the Kaggle and
-        Hugging Face copies all read the same feed. GHTorrent has been dead since 2021, and
-        <a href="https://docs.softwareheritage.org/devel/swh-export/graph/dataset.html">Software
-        Heritage</a> archives real git history but exports once a year. GitHub has published no
-        fix and no alternative.</p>
-      <p>What does work is GitHub's search API, because <code>created:</code> accepts
-        timestamps rather than only dates &mdash; so a window can be minutes wide, narrow
-        enough to enumerate rather than sample, and each response carries the full body. This
-        corpus is one randomly placed five&#8209;minute window of newly opened pull requests
-        from every single day, so no week is looked at harder than another. A word is a run of
-        letters, digits, hyphens and underscores; links become one token naming their domain;
-        the em dash counts as a word.</p>
-      <p><b>There is no time in the model.</b> Each of the ${A.k} components is a fixed
-        probability distribution over the vocabulary, and one single mixture over those
-        ${A.k} covers the whole window &mdash; not one mixture per week. So the fit has no
-        parameter that could describe a trend and no freedom to place one. Every curve on this
-        page is attribution instead: each description is assigned by its words alone, and the
-        weeks are added up afterwards. The rise is in what people wrote, because there is
-        nowhere else it could be.</p>
-      <p>An earlier version did fit a mixture per week, with a smoothness penalty on how fast
-        it could move. Running it with one mixture for the whole window was meant as a check,
-        and the rise survived unchanged &mdash; which made the per-week version's extra
-        parameters, ${A.weeks.length} &times; ${A.k} of them plus a penalty weight to tune,
-        machinery that bought nothing except the suspicion that the model had drawn the trend
-        itself. The check became the model.</p>
-      <p>The component this page is about is simply the largest one of the last ${W} weeks.
-        Nothing is selected on how much it grew. <code>analyze.py</code> then checks separately that
-        the component so chosen did in fact arrive &mdash; under 2% of the first eight weeks,
-        at or above 20% of the last eight &mdash; because that is what this page claims about
-        it, and if it stops being true the page should not be published from that fit.</p>
-      <p><b>How many components, and why that is not a neutral choice.</b> There are
-        ${A.k}, and the number was chosen so that <code>load-bearing</code> &mdash; the word
-        this page is named after &mdash; would rank among the five most characteristic words of
-        the arriving component. It does, in 13 of 16 starting seeds, first in nine of them. At
-        16 components it ranks 45th; at 24, third; at 32, first. That is selection on the
-        outcome and cannot also be evidence for it: held-out likelihood prefers far more
-        components than ${A.k}, and a coarser model lumps together registers a finer one
-        separates, which is exactly why one word can come to dominate it. The rise is real and
-        the vocabulary is real, but the <em>order</em> of this list was tuned until a chosen
-        word came first, and no ranking here should be read as having been discovered.</p>
-      <p>Lift is measured against the mixture of every <em>other</em> component, weighted by
-        its share of appearances &mdash; not against the whole corpus. Dividing by the whole
-        corpus understates a large component's own words, because by the end of the window one
-        component is most of everything written, so its vocabulary was being compared mostly
-        against itself.</p>
-      <p>One caveat on the title. Words naming Claude are elevated inside this component while
-        Cursor, ChatGPT, Codex and Copilot sit at or below the baseline &mdash; but
-        <code>gpt-5</code> is elevated further still. The register is far more strongly associated with
-        Claude than with most assistants, and it is not Claude's alone.</p>
-      <div class="maths">
-        <h2 style="font-size:1.15rem">The model, written out</h2>
-        <dl>
-          <dt><span class="tex">z_d ~ Categorical(pi),    x_d | z_d = k ~ Multinomial(n_d, W_k)</span></dt>
-          <dd>A description <i>d</i> picks one of the ${A.k} components, then draws its
-            <i>n<sub>d</sub></i> word tokens from that component's distribution over the
-            vocabulary. Note what is absent: no <i>t</i>. The mixture <i>pi</i> carries no
-            week index, so the same one governs every description in the window.</dd>
-
-          <dt><span class="tex">sum_v W_{vk} = 1   for every k,      sum_k pi_k = 1</span></dt>
-          <dd>Both factors are normalised, each for its own reason. Rows of <i>W</i> because
-            they are word distributions; <i>pi</i> because the corpus is shared out among the
-            components and nothing is left over.</dd>
-
-          <dt><span class="tex">max  sum_d log sum_k pi_k prod_v W_{vk}^{x_{dv}}</span></dt>
-          <dd>Plain maximum likelihood, with no penalty term of any kind. There is nothing to
-            regularise: the previous version needed a smoothness penalty because it had
-            ${A.weeks.length} &times; ${A.k} prevalences free to wander, and this one has
-            ${A.k}.</dd>
-
-          <dt><span class="tex">r_{dk} = pi_k prod_v W_{vk}^{x_{dv}} / sum_j pi_j prod_v W_{vj}^{x_{dv}}</span></dt>
-          <dd>The responsibility: how much of description <i>d</i> belongs to component
-            <i>k</i>. Fitting alternates between these and the two factors.</dd>
-
-          <dt><span class="tex">C_{tk} = sum_{d : t(d) = t} r_{dk}</span></dt>
-          <dd>And this is every curve on the page &mdash; the only place a week index appears
-            anywhere. It is a sum over the fitted responsibilities, not a fitted quantity, so
-            it was never optimised toward any shape.</dd>
-
-          <dt><span class="tex">lift_k(v) = W_{vk} / [ sum_{j != k} m_j W_{vj} / sum_{j != k} m_j ]</span></dt>
-          <dd>How much more probable a word is inside component <i>k</i> than in the mixture of
-            all the others, weighted by their shares <i>m<sub>j</sub></i> of all appearances.
-            The exclusion is doing enormous work: by the end of the window this component is
-            most of everything written, so dividing by the whole corpus would compare its
-            vocabulary mostly against itself. <code>load-bearing</code> scores 3.70× that way
-            and 3,535× this way &mdash; a thousandfold difference, from one choice of
-            denominator.</dd>
-        </dl>
-      </div>
+      <h2>What to know about this ranking</h2>
+      <p><b>The number of components was chosen so that <code>load-bearing</code> would rank
+        near the top.</b> There are ${A.k}, and at 16 the word ranks 45th. That is selection on
+        the outcome and it cannot also be evidence for it: a coarser model lumps together
+        registers a finer one separates, which is exactly why one word can come to dominate it.
+        The rise is real and the vocabulary is real, but the <em>order</em> of this list was
+        tuned until a chosen word came first.</p>
+      <p><b>The title overstates one thing.</b> Words naming Claude are elevated inside this
+        component while Cursor, ChatGPT, Codex and Copilot sit at or below the baseline &mdash;
+        but <code>gpt-5</code> is elevated further than any of them. The register is far more
+        strongly associated with Claude than with most assistants, and it is not Claude's
+        alone.</p>
+      <p>The corpus, the tokeniser, the filters, the model and every other choice are written
+        up in the repository's <code>README</code>.</p>
 
       <p class="label" style="margin-top:30px">generated ${A.generated} &nbsp;·&nbsp; ${fmt(A.appearances)} word
         appearances over ${fmt(A.vocab)} words &nbsp;·&nbsp; ${A.k} components</p>
@@ -433,38 +326,10 @@ function render() {
   });
 }
 
-/* KaTeX is the page's only remote dependency and it is optional: the equations are written
-   as readable ASCII in the markup and upgraded in place if the library loads, so the page is
-   complete over file:// and merely plainer. */
-// one entry per `.tex` span in .maths, in document order -- keep the two in step
-const TEX = [
-  String.raw`z_d \sim \mathrm{Categorical}(\pi), \qquad x_d \mid z_d = k \sim \mathrm{Multinomial}(n_d, W_k)`,
-  String.raw`\sum_v W_{vk} = 1 \;\; \forall k, \qquad \sum_k \pi_k = 1`,
-  String.raw`\max_{W,\pi} \; \sum_d \log \sum_k \pi_k \prod_v W_{vk}^{x_{dv}}`,
-  String.raw`r_{dk} = \frac{\pi_k \prod_v W_{vk}^{x_{dv}}}{\sum_j \pi_j \prod_v W_{vj}^{x_{dv}}}`,
-  String.raw`C_{tk} = \sum_{d \,:\, t(d) = t} r_{dk}`,
-  String.raw`\mathrm{lift}_k(v) = W_{vk} \Big/ \frac{\sum_{j \ne k} m_j W_{vj}}{\sum_{j \ne k} m_j}`,
-];
-
-function typeset() {
-  if (!window.katex) return;
-  app.querySelectorAll(".maths .tex").forEach((el, i) => {
-    if (!TEX[i]) return;
-    try {
-      katex.render(TEX[i], el, { displayMode: true, throwOnError: false });
-      el.classList.remove("tex");
-    } catch (e) { /* leave the ASCII in place */ }
-  });
-}
-
-const kat = document.createElement("script");
-kat.src = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js";
-kat.onload = typeset;
-document.head.appendChild(kat);
 
 const tag = document.createElement("script");
 tag.src = DATA;
-tag.onload = () => { A = window.ANALYSIS; A ? (build(), typeset()) : fail(); };
+tag.onload = () => { A = window.ANALYSIS; A ? build() : fail(); };
 tag.onerror = fail;
 document.head.appendChild(tag);
 
