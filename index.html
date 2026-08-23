@@ -211,9 +211,7 @@ function build() {
   // whether it is still rising is read off the fitted trend, never asserted: a claim that can
   // go stale should not be typed into the markup
   const growing = A.trend > 0.0005;
-  const still = growing
-    ? `and is still growing, by ${(A.trend * 100).toFixed(1)} points a week`
-    : `and has levelled off`;
+  const still = growing ? "and is still growing" : "and has levelled off";
 
   const hiL = lead.word_lift[0], loL = lead.word_lift[lead.word_lift.length - 1];
   // log scale, because measuring lift against everything-else spreads it over three orders of
@@ -246,10 +244,7 @@ function build() {
     <section>
       <p class="lede">Its representative words should look familiar to anyone who uses a
         coding agent.</p>
-      <p class="note">The thousand most characteristic, largest first &mdash;
-        ${fmt(hiL)}&times; more probable inside this way of writing than in everything that is
-        not it for the first, ${loL.toFixed(1)}&times; for the thousandth. Size and shade
-        follow that multiple.
+      <p class="note">The thousand most characteristic.
         <b>Hover any word</b> to see its own week-by-week history.</p>
       <div class="probe" data-lead="0">
         <div class="who"><span class="word"></span>
@@ -261,9 +256,7 @@ function build() {
     </section>
 
     <footer>
-      <p class="label">generated ${A.generated} &nbsp;·&nbsp;
-        ${A.weeks.length} whole weeks, ${A.weeks[0]} to ${A.weeks[A.weeks.length - 1]}
-        &nbsp;·&nbsp; ${fmt(A.vocab)} words above the frequency floors</p>
+      <p class="label">generated ${A.generated}</p>
     </footer>`;
 
   render();
