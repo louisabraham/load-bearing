@@ -3,23 +3,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The load-bearing vocabulary of Claude</title>
 <style>
-/* Five propositions on the same numbers.
+/* Five interfaces onto the same numbers.
  *
- * Every one of them is Bauhaus in the same two senses: the primaries (red, blue, yellow)
- * against black on paper, and geometry doing the work that decoration would otherwise do --
- * the circle, the square, the triangle, the rule, the grid. They differ in composition, not
- * in content: the words, the figures and the charts are identical in all five, because the
- * information is the thing being designed, and the design is the variable.
+ * They are not five palettes. Each one is a different way to get at the same facts -- a printed
+ * sheet you scroll, a board that fits one screen, three plates you step through, a table you
+ * sort, a console you type at -- and the words, the figures, the stack and every word's history
+ * are prepared once and handed to all five, so no interface can show something another cannot.
  *
- * The theme is light in all five. Bauhaus printing was ink on paper; a dark ground would
- * invert the whole premise, so `prefers-color-scheme` is deliberately not honoured here.
+ *   1 GRUNDKURS       a printed sheet. Scroll it; hover a word; the week reads out in a tooltip
+ *                     that follows the pointer.
+ *   2 RASTERFELD      a board, one screen, nothing below the fold. The wall scrolls inside its
+ *                     own compartment; a word is CLICKED and stays chosen; the week reads out
+ *                     in a fixed cell rather than under the pointer.
+ *   3 DIAGONALE       three plates, one at a time, stepped through with the arrow keys. The
+ *                     thousand words are reached by SEARCH, not by hunting.
+ *   4 KREIS & QUADRAT the words as a sortable TABLE -- rank, lift, appearances, peak -- rather
+ *                     than as a cloud. Sort by any column; move with the arrow keys.
+ *   5 WERKSTATT       a console. TYPE a word, with completion; the readouts print as lines.
  *
- * Colour still carries meaning rather than identity: in every proposition the accent is
- * reserved for the one component that arrives, and the other seven are one ramp of one hue.
- * Sixteen -- here eight -- stacked bands cannot each have a hue without becoming a chart about
- * its own palette, so only the arrival is coloured. Every accent clears 4.5:1 against its own
- * ground -- it is set as small text in the word panel, not only used as a mark -- and so does
- * every `--muted` pairing.
+ * Bauhaus in all five, in the same two senses: the primaries against black on paper, and
+ * geometry doing the work decoration would otherwise do. Light in all five -- Bauhaus printing
+ * was ink on paper, and a dark ground would invert the premise -- so `prefers-color-scheme` is
+ * deliberately not honoured.
+ *
+ * Colour carries meaning rather than identity: the accent is reserved for the one component
+ * that arrives and for the current selection, and the other seven bands are one ramp of one
+ * hue. Every accent clears 4.5:1 on its own ground, because it sets small text and not only
+ * marks; every `--muted` pairing clears it too.
  */
 
 /* ---------------------------------------------------------------- shared */
@@ -39,9 +49,10 @@ body { margin: 0; padding-top: var(--barh); background: var(--ground); color: va
        font: 400 18px/1.55 var(--body); -webkit-font-smoothing: antialiased; }
 svg { display: block; width: 100%; }
 b { font-weight: 700; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /* the index. Deliberately plain chrome in all five: a black bar that belongs to the site
-   rather than to any one proposition, so switching compares the designs and not their menus */
+   rather than to any one interface, so switching compares them and not their menus */
 #index { position: fixed; inset: 0 0 auto; height: var(--barh); z-index: 20;
          background: #111; color: #f4f2ee; display: flex; align-items: stretch;
          font: 500 12px/1 var(--grotesk); letter-spacing: 0.09em; text-transform: uppercase; }
@@ -59,17 +70,15 @@ b { font-weight: 700; }
                    place-items: center; background: #333; color: #f4f2ee; font-size: 11px; }
 #index button[aria-pressed="true"] { color: #111; background: #f4f2ee; }
 #index button[aria-pressed="true"] em { background: #e2231a; color: #fff; }
-#index button:nth-child(2)[aria-pressed="true"] em { background: #1f4ea3; }
+#index button:nth-child(2)[aria-pressed="true"] em { background: #0b5cab; }
 #index button:nth-child(3)[aria-pressed="true"] em { background: #f0b400; color: #111; }
-#index button:nth-child(4)[aria-pressed="true"] em { background: #1f4ea3; }
-#index .keys { margin-left: auto; align-self: center; padding: 0 16px; color: #6f6b64;
-               font-size: 11px; white-space: nowrap; }
-@media (max-width: 860px) { #index button span { display: none; }
-                            #index .keys, #index .home b { display: none; } }
+#index button:nth-child(4)[aria-pressed="true"] em { background: #0b5cab; }
+#index .kind { margin-left: auto; align-self: center; padding: 0 16px; color: #8d8880;
+               font-size: 11px; white-space: nowrap; letter-spacing: 0.06em; }
+@media (max-width: 980px) { #index button span { display: none; }
+                            #index .kind, #index .home b { display: none; } }
 
-/* the word panel: fixed above the wall, so hovering a word never moves the thing you are
-   reading, and there is room for a real chart rather than a tooltip-sized one */
-.probe { position: sticky; top: var(--barh); z-index: 5; background: var(--ground); }
+/* the word panel. Every interface has one; only the way a word reaches it differs. */
 .probe .who { display: flex; justify-content: space-between; align-items: baseline;
               gap: 12px; flex-wrap: wrap; }
 .probe .word { font: 500 clamp(1.05rem,1.6vw,1.3rem)/1.2 var(--mono); }
@@ -85,10 +94,19 @@ b { font-weight: 700; }
 .axis span:first-child { left: 0; }
 .axis .last { right: 0; }
 
-.wall span { display: inline-block; font-family: var(--mono); margin: 0 7px 5px 0;
-             white-space: nowrap; cursor: default; }
-.wall span:hover, .wall span.on { color: var(--accent); }
+/* where the week under the pointer is reported. Interface 1 lets it follow the pointer; the
+   others print it in a fixed place, which is the difference between reading a chart with the
+   mouse and reading one without it. */
+.readout { font: 500 11px/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+           color: var(--ink); }
+#tip { position: fixed; pointer-events: none; opacity: 0; z-index: 30; background: #111;
+       color: #f4f2ee; padding: 7px 9px; font: 500 11px/1.45 var(--mono);
+       white-space: nowrap; }
+#tip.on { opacity: 1; }
 
+.wall span { display: inline-block; font-family: var(--mono); margin: 0 7px 5px 0;
+             white-space: nowrap; }
+.wall span.on { color: var(--accent); }
 .label { font: 500 11px/1.3 var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
          color: var(--muted); }
 
@@ -101,20 +119,15 @@ b { font-weight: 700; }
             text-decoration-color: var(--accent); text-decoration-thickness: 2px; }
 .method abbr { text-transform: uppercase; text-decoration: none; letter-spacing: 0.01em; }
 
-#tip { position: fixed; pointer-events: none; opacity: 0; z-index: 30; background: #111;
-       color: #f4f2ee; padding: 7px 9px; font: 500 11px/1.45 var(--mono);
-       white-space: nowrap; }
-#tip.on { opacity: 1; }
-
-/* ------------------------------------------------- 1 · GRUNDKURS (the poster)
- * The preliminary course taught composition before craft, so this one is a poster: one
- * asymmetric column of black type, the three figures carried by the three primaries on the
- * three elementary shapes, and rules heavy enough to be printed. */
+/* ============================================ 1 · GRUNDKURS -- the printed sheet
+ * The preliminary course taught composition before craft, so this one is a poster you scroll:
+ * one asymmetric column, the three figures carried by the three elementary shapes in the three
+ * primaries, rules heavy enough to be printed. Hovering is the whole interface. */
 
 body[data-p="1"] { --ground:#f2efe6; --ink:#100f0d; --muted:#655f55; --accent:#ce291b;
                    --hairline:#d7d0c2; --fill:#ce291b24; --body:var(--geo); }
 [data-p="1"] .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 110px; }
-[data-p="1"] .rail { display: flex; align-items: center; gap: 14px; padding: 40px 0 26px; }
+[data-p="1"] .rail { display: flex; align-items: center; padding: 40px 0 26px; }
 [data-p="1"] .rail i { flex: 1; height: 7px; background: var(--ink); }
 [data-p="1"] h1 { margin: 0; font: 700 clamp(2.4rem,8.4vw,5.6rem)/0.88 var(--geo);
                   letter-spacing: -0.03em; text-transform: uppercase; }
@@ -122,7 +135,7 @@ body[data-p="1"] { --ground:#f2efe6; --ink:#100f0d; --muted:#655f55; --accent:#c
 [data-p="1"] .standfirst { margin: 26px 0 0; max-width: 46ch;
                            font-size: clamp(1.05rem,2.1vw,1.3rem); }
 [data-p="1"] .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr));
-                      gap: 0; margin: 34px 0 0; border-top: 8px solid var(--ink);
+                      margin: 34px 0 0; border-top: 8px solid var(--ink);
                       border-bottom: 8px solid var(--ink); }
 [data-p="1"] .stat { padding: 22px 22px 20px; border-right: 1px solid var(--hairline);
                      display: flex; align-items: flex-start; gap: 16px; }
@@ -141,93 +154,111 @@ body[data-p="1"] { --ground:#f2efe6; --ink:#100f0d; --muted:#655f55; --accent:#c
                      font: 500 clamp(1.2rem,2.8vw,1.75rem)/1.24 var(--geo); }
 [data-p="1"] .lede:last-of-type { margin-bottom: 28px; }
 [data-p="1"] .lede b { font-weight: 700; color: var(--accent); }
-[data-p="1"] .note { margin: 0 0 20px; max-width: 62ch; color: var(--muted);
-                     font-size: 0.95rem; }
-[data-p="1"] .probe { border: 1px solid var(--hairline); padding: 14px 16px 10px;
-                      margin: 0 0 20px; }
 [data-p="1"] .method { border-left: 7px solid var(--accent); padding-left: 14px;
                        margin-bottom: 26px; }
+[data-p="1"] .note { margin: 0 0 20px; max-width: 62ch; color: var(--muted);
+                     font-size: 0.95rem; }
+[data-p="1"] .probe { position: sticky; top: var(--barh); z-index: 5; background: var(--ground);
+                      border: 1px solid var(--hairline); padding: 14px 16px 10px;
+                      margin: 0 0 20px; }
+[data-p="1"] .wall span { cursor: default; }
+[data-p="1"] .wall span:hover { color: var(--accent); }
 [data-p="1"] footer { border-top: 1px solid var(--hairline); margin-top: 60px;
                       padding-top: 18px; }
 
-/* ------------------------------------------------- 2 · RASTERFELD (the lattice)
- * Everything is a cell. One 12-column field, black hairlines all the way through, each figure
- * and each paragraph sitting in its own compartment with a primary marking the corner. The
- * catalogue page rather than the poster: white, exact, and read cell by cell. */
+/* ============================================ 2 · RASTERFELD -- the board
+ * One screen, no fold. Every part has its own compartment in a twelve-column field, and the
+ * thousand words scroll inside theirs instead of pushing the chart off the bottom. A word is
+ * clicked and then stays chosen, so the panel can be read with both hands off the mouse; the
+ * week under the pointer prints into a cell of its own. */
 
 body[data-p="2"] { --ground:#ffffff; --ink:#0d0d0d; --muted:#5f5f5f; --accent:#de301e;
                    --hairline:#0d0d0d; --fill:#de301e1f; --body:var(--grotesk); }
-[data-p="2"] .wrap { max-width: 1180px; margin: 0 auto; padding: 26px 22px 110px; }
-[data-p="2"] .grid { display: grid; grid-template-columns: repeat(12,1fr);
-                     border: 2px solid var(--ink); border-bottom: 0; }
-[data-p="2"] .cell { grid-column: span 12; padding: 20px 22px; border-bottom: 2px solid var(--ink);
+[data-p="2"] .board { display: grid; grid-template-columns: repeat(12,1fr);
+                      border: 2px solid var(--ink); border-bottom-width: 2px;
+                      margin: 18px 18px 40px; }
+[data-p="2"] .cell { border-bottom: 2px solid var(--ink); padding: 16px 18px; min-width: 0;
                      position: relative; }
-[data-p="2"] .cell.title { grid-column: span 8; }
-[data-p="2"] .cell.mark { grid-column: span 4; border-left: 2px solid var(--ink);
-                          display: grid; place-items: center; padding: 22px; }
-[data-p="2"] .cell.stat { grid-column: span 4; border-left: 2px solid var(--ink); }
-[data-p="2"] .cell.stat:nth-child(3) { border-left: 0; }
-[data-p="2"] .cell.wide { grid-column: span 12; }
-[data-p="2"] .cell.said { grid-column: span 7; }
-[data-p="2"] .cell.said + .said { grid-column: span 5; border-left: 2px solid var(--ink); }
-[data-p="2"] h1 { margin: 0; font: 700 clamp(1.9rem,5.2vw,3.5rem)/0.96 var(--grotesk);
+[data-p="2"] .cell.head { grid-column: span 8; }
+[data-p="2"] .cell.fig { grid-column: span 4; border-left: 2px solid var(--ink);
+                         display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
+                         align-content: center; }
+[data-p="2"] .cell.say { grid-column: span 7; }
+[data-p="2"] .cell.week { grid-column: span 5; border-left: 2px solid var(--ink);
+                          display: flex; flex-direction: column; justify-content: center;
+                          gap: 8px; }
+[data-p="2"] .cell.chart { grid-column: span 7; display: flex; flex-direction: column; }
+[data-p="2"] .cell.panel { grid-column: span 5; border-left: 2px solid var(--ink); }
+[data-p="2"] .cell.words { grid-column: span 12; border-bottom: 0; display: flex;
+                           flex-direction: column; min-height: 0; }
+[data-p="2"] .cell.foot { grid-column: span 12; border-top: 2px solid var(--ink);
+                          border-bottom: 0; padding: 10px 18px; }
+[data-p="2"] h1 { margin: 0; font: 700 clamp(1.5rem,3.4vw,2.4rem)/0.98 var(--grotesk);
                   letter-spacing: -0.04em; text-transform: uppercase; }
 [data-p="2"] h1 em { font-style: normal; background: var(--accent); color: #fff;
                      padding: 0 0.12em; }
-[data-p="2"] .standfirst { margin: 16px 0 0; max-width: 52ch; font-size: 1.05rem; }
-[data-p="2"] .figure { display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
-                       width: 100%; max-width: 190px; aspect-ratio: 1; }
-[data-p="2"] .figure i:nth-child(1) { background: #de301e; }
-[data-p="2"] .figure i:nth-child(2) { background: #0b5cab; border-radius: 0 100% 0 0; }
-[data-p="2"] .figure i:nth-child(3) { background: #ffcf33; border-radius: 0 0 0 100%; }
-[data-p="2"] .figure i:nth-child(4) { background: #0d0d0d; border-radius: 50%; }
-[data-p="2"] .cell.stat b { display: block; font: 700 clamp(2rem,5vw,3.1rem)/1 var(--grotesk);
-                            letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
-[data-p="2"] .cell.stat .label { display: block; margin-top: 10px; font-family: var(--grotesk);
-                                 letter-spacing: 0.16em; }
-[data-p="2"] .cell.stat::after { content: ""; position: absolute; top: 0; right: 0;
-                                 width: 14px; height: 14px; background: var(--accent); }
-[data-p="2"] .cell.stat:nth-child(4)::after { background: #0b5cab; }
-[data-p="2"] .cell.stat:nth-child(5)::after { background: #ffcf33; }
-[data-p="2"] .lede { margin: 0; font: 500 clamp(1.1rem,2.3vw,1.5rem)/1.28 var(--grotesk);
+[data-p="2"] .standfirst { margin: 12px 0 0; max-width: 60ch; font-size: 0.95rem; }
+[data-p="2"] .stat { text-align: left; }
+[data-p="2"] .stat b { display: block; font: 700 clamp(1.1rem,2vw,1.6rem)/1 var(--grotesk);
+                       letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+[data-p="2"] .stat .label { display: block; margin-top: 6px; font-family: var(--grotesk);
+                            letter-spacing: 0.1em; font-size: 10px; }
+[data-p="2"] .stat i { display: block; width: 100%; height: 6px; margin-bottom: 8px; }
+[data-p="2"] .stat:nth-child(1) i { background: #de301e; }
+[data-p="2"] .stat:nth-child(2) i { background: #0b5cab; }
+[data-p="2"] .stat:nth-child(3) i { background: #ffcf33; }
+[data-p="2"] .lede { margin: 0 0 6px; font: 500 clamp(1rem,1.6vw,1.25rem)/1.26 var(--grotesk);
                      letter-spacing: -0.02em; }
-[data-p="2"] .lede + .lede { margin-top: 12px; }
 [data-p="2"] .lede b { color: var(--accent); font-weight: 700; }
-[data-p="2"] .note { margin: 12px 0 0; color: var(--muted); font-size: 0.92rem; }
-[data-p="2"] .cell.method { grid-column: span 12; margin: 0; max-width: none;
-                            font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.02em;
-                            text-transform: uppercase; color: var(--muted); }
-[data-p="2"] .probe { grid-column: span 12; padding: 16px 22px 14px;
-                      border-bottom: 2px solid var(--ink); }
-[data-p="2"] .wall { grid-column: span 12; padding: 20px 22px 24px;
-                     border-bottom: 2px solid var(--ink); }
-[data-p="2"] .wall span { border: 1px solid #d5d5d5; padding: 3px 6px; margin: 0 4px 4px 0; }
-[data-p="2"] .wall span:hover, [data-p="2"] .wall span.on { border-color: var(--accent); }
-[data-p="2"] footer { border: 2px solid var(--ink); border-top: 0; padding: 14px 22px; }
+[data-p="2"] .method { margin: 10px 0 0; font-size: 0.8rem; }
+[data-p="2"] .readout { font-size: 12px; }
+[data-p="2"] .readout b { color: var(--accent); font-weight: 500; }
+[data-p="2"] .cell.chart svg { flex: 1; min-height: 150px; height: auto; }
+[data-p="2"] .note { margin: 0 0 10px; color: var(--muted); font-size: 0.85rem; }
+[data-p="2"] .wall { overflow: auto; min-height: 0; flex: 1;
+                     border: 1px solid var(--hairline); padding: 10px 12px; }
+[data-p="2"] .wall span { border: 1px solid transparent; padding: 2px 5px; margin: 0 3px 3px 0;
+                          cursor: pointer; }
+[data-p="2"] .wall span:hover { border-color: var(--hairline); }
+[data-p="2"] .wall span.on { border-color: var(--accent); color: var(--accent); }
+[data-p="2"] .probe svg { height: 74px; }
+/* the board is a board only where a board fits; below this it is a document again */
+@media (min-width: 1080px) and (min-height: 720px) {
+  [data-p="2"] .board { height: calc(100dvh - var(--barh) - 36px); margin-bottom: 18px;
+                        grid-template-rows: auto auto minmax(0,1.15fr) minmax(0,1fr) auto; }
+}
+@media (max-width: 1079px), (max-height: 719px) {
+  [data-p="2"] .cell.head, [data-p="2"] .cell.fig, [data-p="2"] .cell.say,
+  [data-p="2"] .cell.week, [data-p="2"] .cell.chart, [data-p="2"] .cell.panel
+    { grid-column: span 12; border-left: 0; }
+  [data-p="2"] .cell.chart svg { height: 260px; }
+  [data-p="2"] .wall { max-height: 60vh; }
+}
 
-/* ------------------------------------------------- 3 · DIAGONALE (the dynamic sheet)
- * Moholy-Nagy's diagonal: a yellow field cut across the corner, the section numbers turned
- * onto their side in a left rail, and a narrow measure held off-centre. The only proposition
- * where the page has a direction of travel. */
+/* ============================================ 3 · DIAGONALE -- the plates
+ * Moholy-Nagy's diagonal, and one thing at a time. Three plates -- the corpus, the division,
+ * the words -- stepped with the arrow keys or the numbers in the rail. A thousand words cannot
+ * be hunted through on a plate this size, so they are searched instead. */
 
 body[data-p="3"] { --ground:#f7f5ef; --ink:#141414; --muted:#5d5951; --accent:#d12e10;
                    --hairline:#dcd6c8; --fill:#d12e1016; --body:var(--grotesk); }
-[data-p="3"] .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px 120px;
+[data-p="3"] .deck { max-width: 1140px; margin: 0 auto; padding: 0 24px 40px;
                      position: relative; }
-[data-p="3"] .field { position: absolute; inset: 0 0 auto; height: 620px; overflow: hidden;
-                      z-index: 0; pointer-events: none; }
+[data-p="3"] .field { position: absolute; inset: 0 0 auto; height: 420px; overflow: hidden;
+                      z-index: 0; pointer-events: none; display: none; }
+[data-p="3"] .deck[data-at="0"] .field { display: block; }
 [data-p="3"] .field i { position: absolute; background: #f5c518; width: 150%; height: 150px;
                         left: -25%; top: 150px; transform: rotate(-6deg); }
 [data-p="3"] .field u { position: absolute; right: 6%; top: 300px; width: 112px; height: 112px;
                         border-radius: 50%; border: 12px solid #1a4fa0; }
-[data-p="3"] .sheet { position: relative; z-index: 1; display: grid;
-                      grid-template-columns: 74px minmax(0,1fr); gap: 0; }
+[data-p="3"] .plate { position: relative; z-index: 1; display: none;
+                      grid-template-columns: 74px minmax(0,1fr); padding-top: 56px;
+                      min-height: calc(100dvh - var(--barh) - 130px); }
+[data-p="3"] .plate.on { display: grid; }
 [data-p="3"] .num { writing-mode: vertical-rl; transform: rotate(180deg);
                     font: 500 11px/1 var(--mono); letter-spacing: 0.34em;
-                    text-transform: uppercase; color: var(--ink); padding: 4px 0;
-                    border-right: 2px solid var(--ink); margin-right: 22px;
-                    align-self: start; }
-[data-p="3"] header.sheet { padding-top: 66px; }
+                    text-transform: uppercase; padding: 4px 0;
+                    border-right: 2px solid var(--ink); margin-right: 22px; align-self: start; }
 [data-p="3"] h1 { margin: 0; font: 700 clamp(2.1rem,6.4vw,4.3rem)/0.95 var(--grotesk);
                   letter-spacing: -0.045em; }
 [data-p="3"] h1 em { font-style: italic; color: var(--accent); }
@@ -239,32 +270,62 @@ body[data-p="3"] { --ground:#f7f5ef; --ink:#141414; --muted:#5d5951; --accent:#d
 [data-p="3"] .stat b { display: block; font: 700 clamp(1.7rem,4.4vw,2.7rem)/1 var(--grotesk);
                        letter-spacing: -0.04em; }
 [data-p="3"] .stat .label { display: block; margin-top: 7px; }
-[data-p="3"] section.sheet { margin-top: 68px; }
 [data-p="3"] .lede { margin: 0 0 12px; max-width: 46ch;
                      font: 400 clamp(1.25rem,3vw,1.85rem)/1.22 var(--grotesk);
                      letter-spacing: -0.028em; }
-[data-p="3"] .lede:last-of-type { margin-bottom: 26px; }
 [data-p="3"] .lede b { color: var(--accent); font-weight: 700; }
-[data-p="3"] .note { margin: 0 0 18px; max-width: 58ch; color: var(--muted); font-size: 0.93rem; }
-[data-p="3"] .chart, [data-p="3"] .probe { border-top: 2px solid var(--ink);
-                                           padding-top: 14px; }
-[data-p="3"] .probe { margin-bottom: 22px; padding-bottom: 12px;
-                      border-bottom: 1px solid var(--hairline); }
+[data-p="3"] .chart { margin-top: 22px; border-top: 2px solid var(--ink); padding-top: 14px; }
+[data-p="3"] .readout { margin-top: 10px; }
+[data-p="3"] .readout b { color: var(--accent); font-weight: 500; }
 [data-p="3"] .method { margin: 18px 0 0; max-width: 52ch; font-size: 0.86rem; }
-[data-p="3"] footer { margin-top: 70px; border-top: 2px solid var(--ink); padding-top: 16px; }
+[data-p="3"] .note { margin: 0 0 14px; max-width: 58ch; color: var(--muted); font-size: 0.93rem; }
+[data-p="3"] .find { display: flex; align-items: center; gap: 0; margin: 0 0 16px;
+                     max-width: 520px; border: 2px solid var(--ink); }
+[data-p="3"] .find label { font: 500 11px/1 var(--mono); letter-spacing: 0.12em;
+                           text-transform: uppercase; padding: 0 12px; background: var(--ink);
+                           color: var(--ground); align-self: stretch; display: flex;
+                           align-items: center; }
+[data-p="3"] .find input { flex: 1; min-width: 0; appearance: none; border: 0; padding: 11px 12px;
+                           background: none; color: var(--ink); font: 400 1rem/1 var(--mono); }
+[data-p="3"] .find input:focus { outline: 0; }
+[data-p="3"] .find .hits { font: 500 10px/1 var(--mono); letter-spacing: 0.1em; padding: 0 12px;
+                           color: var(--muted); text-transform: uppercase; white-space: nowrap; }
+[data-p="3"] .probe { border-top: 2px solid var(--ink); padding: 12px 0 10px;
+                      margin: 0 0 14px; }
+[data-p="3"] .wall { max-height: 34vh; overflow: auto; border-top: 1px solid var(--hairline);
+                     padding-top: 12px; }
+[data-p="3"] .wall span { cursor: pointer; scroll-margin: 8px 0; }
+[data-p="3"] .wall span:hover { color: var(--accent); }
+[data-p="3"] .steps { position: sticky; bottom: 0; z-index: 6; display: flex;
+                      align-items: center; gap: 10px; background: var(--ground);
+                      border-top: 2px solid var(--ink); padding: 12px 0; margin-top: 20px; }
+[data-p="3"] .steps button { appearance: none; background: none; border: 2px solid var(--ink);
+                             color: var(--ink); font: 500 11px/1 var(--mono);
+                             letter-spacing: 0.1em; text-transform: uppercase;
+                             padding: 9px 13px; cursor: pointer; }
+[data-p="3"] .steps button[aria-current="true"] { background: var(--accent);
+                             border-color: var(--accent); color: #fff; }
+[data-p="3"] .steps .of { margin-left: auto; font: 500 10px/1 var(--mono);
+                          letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+[data-p="3"] footer { max-width: 1140px; margin: 0 auto; padding: 0 24px 40px; }
+@media (max-width: 700px) {
+  [data-p="3"] .plate { grid-template-columns: 30px minmax(0,1fr); }
+  [data-p="3"] .num { margin-right: 14px; letter-spacing: 0.2em; }
+}
 
-/* ------------------------------------------------- 4 · KREIS & QUADRAT (the symmetric plate)
- * Kandinsky's questionnaire gave the circle to blue, the square to red, the triangle to
- * yellow. This one takes it literally and centres everything: three discs for three figures,
- * a square plate for the stack, wide tracking, a lot of paper. */
+/* ============================================ 4 · KREIS & QUADRAT -- the table
+ * Kandinsky gave the circle to blue, the square to red, the triangle to yellow, and this plate
+ * takes it literally: three discs, a square frame, everything centred. The words are not a
+ * cloud here but a ranked table -- the same lift, appearances and peak the cloud only showed
+ * one word at a time -- sortable by any column, walkable with the arrow keys. */
 
 body[data-p="4"] { --ground:#eeebe3; --ink:#111111; --muted:#605b52; --accent:#cb2127;
                    --hairline:#d3ccbc; --fill:#cb21271f; --body:var(--geo); }
-[data-p="4"] .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px 120px;
+[data-p="4"] .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 110px;
                      text-align: center; }
-[data-p="4"] header { padding: 62px 0 0; }
-[data-p="4"] .trio { display: flex; justify-content: center; align-items: center; gap: 0;
-                     margin: 0 0 34px; }
+[data-p="4"] header { padding: 58px 0 0; }
+[data-p="4"] .trio { display: flex; justify-content: center; align-items: center;
+                     margin: 0 0 32px; }
 [data-p="4"] .trio i { width: 46px; height: 46px; background: #1a49a0; border-radius: 50%; }
 [data-p="4"] .trio i + i { background: var(--accent); border-radius: 0; margin-left: -10px; }
 [data-p="4"] .trio i + i + i { width: 0; height: 0; background: none; margin-left: 6px;
@@ -286,37 +347,58 @@ body[data-p="4"] { --ground:#eeebe3; --ink:#111111; --muted:#605b52; --accent:#c
 [data-p="4"] .stat b { display: block; font: 700 1.75rem/1 var(--geo); letter-spacing: -0.02em; }
 [data-p="4"] .stat .label { display: block; margin-top: 9px; color: inherit; opacity: 0.92;
                             letter-spacing: 0.16em; }
-[data-p="4"] section { margin-top: 74px; }
+[data-p="4"] section { margin-top: 70px; }
 [data-p="4"] .lede { margin: 0 auto 12px; max-width: 34ch;
-                     font: 500 clamp(1.2rem,2.9vw,1.7rem)/1.3 var(--geo);
-                     letter-spacing: -0.005em; }
-[data-p="4"] .lede:last-of-type { margin-bottom: 30px; }
+                     font: 500 clamp(1.2rem,2.9vw,1.7rem)/1.3 var(--geo); }
 [data-p="4"] .lede b { color: var(--accent); font-weight: 700; }
-[data-p="4"] .note { margin: 14px auto 20px; max-width: 52ch; color: var(--muted);
-                     font-size: 0.93rem; }
-[data-p="4"] .plate { border: 3px solid var(--ink); padding: 20px 20px 14px;
-                      background: var(--ground); }
-[data-p="4"] .probe { border: 3px solid var(--ink); padding: 14px 18px 10px; margin: 0 0 20px;
-                      text-align: left; }
+[data-p="4"] .plate { border: 3px solid var(--ink); padding: 20px 20px 14px; margin-top: 26px; }
+[data-p="4"] .readout { margin-top: 12px; }
+[data-p="4"] .readout b { color: var(--accent); font-weight: 500; }
 [data-p="4"] .method { margin: 18px auto 0; max-width: 54ch; text-align: center;
                        font-size: 0.86rem; }
-[data-p="4"] .wall { text-align: left; max-width: 780px; margin: 0 auto; }
-[data-p="4"] footer { margin-top: 74px; }
+[data-p="4"] .note { margin: 14px auto 20px; max-width: 52ch; color: var(--muted);
+                     font-size: 0.93rem; }
+[data-p="4"] .probe { border: 3px solid var(--ink); padding: 14px 18px 10px; margin: 0 0 20px;
+                      text-align: left; }
+[data-p="4"] .grid { overflow-x: auto; text-align: left; }
+[data-p="4"] table { width: 100%; border-collapse: collapse; font: 400 14px/1.4 var(--mono); }
+[data-p="4"] thead th { position: sticky; top: var(--barh); z-index: 4; background: var(--ground);
+                        border-bottom: 3px solid var(--ink); padding: 0; text-align: right;
+                        white-space: nowrap; }
+[data-p="4"] thead th:nth-child(2) { text-align: left; }
+[data-p="4"] thead button { appearance: none; background: none; border: 0; width: 100%;
+                            font: 500 10px/1 var(--mono); letter-spacing: 0.12em;
+                            text-transform: uppercase; color: var(--muted); cursor: pointer;
+                            padding: 12px 10px; text-align: inherit; }
+[data-p="4"] thead th[aria-sort] button { color: var(--ink); }
+[data-p="4"] thead button::after { content: ""; }
+[data-p="4"] thead th[aria-sort="descending"] button::after { content: " \25BC"; }
+[data-p="4"] thead th[aria-sort="ascending"] button::after { content: " \25B2"; }
+[data-p="4"] tbody td { border-bottom: 1px solid var(--hairline); padding: 5px 10px;
+                        text-align: right; white-space: nowrap;
+                        font-variant-numeric: tabular-nums; }
+[data-p="4"] tbody td.w { text-align: left; width: 40%; position: relative; }
+[data-p="4"] tbody td.w i { position: absolute; left: 0; bottom: 0; height: 2px;
+                            background: var(--hairline); }
+[data-p="4"] tbody tr { cursor: pointer; scroll-margin: calc(var(--barh) + 46px) 0 28px; }
+[data-p="4"] tbody tr:hover td { background: #e5e1d6; }
+[data-p="4"] tbody tr.on td { background: var(--accent); color: #fff; border-color: var(--accent); }
+[data-p="4"] tbody tr.on td.w i { background: #fff; opacity: 0.5; }
+[data-p="4"] footer { margin-top: 60px; }
 [data-p="4"] footer .label { display: inline-block; border-top: 3px solid var(--ink);
                              padding-top: 14px; }
 
-/* ------------------------------------------------- 5 · WERKSTATT (the workshop sheet)
- * Bayer's universal alphabet had no capitals, and the workshop's printing had two inks. So:
- * everything lowercase, everything flush left against a single hard margin, red and black
- * only, and the figures set as large as the type case allows. */
+/* ============================================ 5 · WERKSTATT -- the console
+ * Bayer's universal alphabet had no capitals and the workshop printed in two inks. So:
+ * lowercase, red and black, flush left against one hard margin -- and driven from the keyboard.
+ * You type a word and it completes; the readouts print as lines rather than hovering. */
 
 body[data-p="5"] { --ground:#f4f2ec; --ink:#0f0f0f; --muted:#5b5b5b; --accent:#d42118;
                    --hairline:#dad6cc; --fill:#d421181c; --body:var(--geo); }
-[data-p="5"] .wrap { max-width: 1000px; margin: 0 auto; padding: 0 26px 120px;
+[data-p="5"] .wrap { max-width: 1000px; margin: 0 auto; padding: 0 26px 110px;
                      text-transform: lowercase; }
-[data-p="5"] .wrap .wall span, [data-p="5"] .wrap .meta { text-transform: lowercase; }
-[data-p="5"] header { padding: 54px 0 0; }
-[data-p="5"] .bar { height: 22px; background: var(--accent); width: 100%; margin: 0 0 26px; }
+[data-p="5"] header { padding: 50px 0 0; }
+[data-p="5"] .bar { height: 22px; background: var(--accent); margin: 0 0 26px; }
 [data-p="5"] .bar.thin { height: 6px; background: var(--ink); margin: 0 0 20px; }
 [data-p="5"] h1 { margin: 0; font: 400 clamp(2.2rem,7vw,4.6rem)/0.98 var(--geo);
                   letter-spacing: -0.02em; }
@@ -330,41 +412,56 @@ body[data-p="5"] { --ground:#f4f2ec; --ink:#0f0f0f; --muted:#5b5b5b; --accent:#d
                        letter-spacing: -0.03em; }
 [data-p="5"] .stat .label { display: block; margin-top: 8px; text-transform: lowercase;
                             letter-spacing: 0.1em; }
-[data-p="5"] section { margin-top: 58px; }
+[data-p="5"] section { margin-top: 54px; }
 [data-p="5"] .lede { margin: 0 0 10px; max-width: 50ch;
                      font: 400 clamp(1.25rem,3vw,1.85rem)/1.2 var(--geo);
                      letter-spacing: -0.025em; }
-[data-p="5"] .lede:last-of-type { margin-bottom: 26px; }
 [data-p="5"] .lede b { font-weight: 700; color: var(--accent); }
-[data-p="5"] .note { margin: 0 0 18px; max-width: 60ch; color: var(--muted); font-size: 0.93rem; }
-[data-p="5"] .probe { border-top: 6px solid var(--ink); border-bottom: 1px solid var(--hairline);
-                      padding: 12px 0 10px; margin: 0 0 18px; }
-[data-p="5"] .method { border-top: 3px solid var(--accent); padding-top: 10px; max-width: 60ch; }
-[data-p="5"] footer { margin-top: 60px; border-top: 6px solid var(--ink); padding-top: 16px; }
+[data-p="5"] .method { border-top: 3px solid var(--accent); padding-top: 10px; max-width: 60ch;
+                       margin-top: 18px; }
+[data-p="5"] .note { margin: 0 0 16px; max-width: 60ch; color: var(--muted); font-size: 0.93rem; }
+[data-p="5"] .readout { text-transform: lowercase; letter-spacing: 0.04em; margin-top: 10px; }
+[data-p="5"] .readout b { color: var(--accent); font-weight: 500; }
+/* the command line, which is the whole interface here */
+[data-p="5"] .cli { position: sticky; top: var(--barh); z-index: 6; background: var(--ground);
+                    border-top: 6px solid var(--ink); border-bottom: 1px solid var(--hairline);
+                    padding: 12px 0 10px; }
+[data-p="5"] .cli .line { display: flex; align-items: baseline; gap: 10px;
+                          font: 400 1.05rem/1.3 var(--mono); }
+[data-p="5"] .cli .line b { color: var(--accent); font-weight: 400; }
+[data-p="5"] .cli input { flex: 1; min-width: 0; appearance: none; background: none; border: 0;
+                          border-bottom: 2px solid var(--ink); color: var(--ink);
+                          font: inherit; padding: 2px 0 4px; text-transform: lowercase; }
+[data-p="5"] .cli input:focus { outline: 0; border-bottom-color: var(--accent); }
+[data-p="5"] .cli .comp { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 0 14px;
+                          font: 400 0.8rem/1.7 var(--mono); color: var(--muted);
+                          min-height: 1.7em; }
+[data-p="5"] .cli .comp button { appearance: none; background: none; border: 0; padding: 0;
+                                 font: inherit; color: var(--muted); cursor: pointer;
+                                 text-transform: lowercase; }
+[data-p="5"] .cli .comp button:hover { color: var(--accent); }
+[data-p="5"] .cli .comp button.first { color: var(--ink); }
+[data-p="5"] .cli .comp button.first::before { content: "\21B5 "; color: var(--accent); }
+[data-p="5"] .probe { border-top: 1px solid var(--hairline); padding: 12px 0 10px;
+                      margin: 0 0 6px; }
+[data-p="5"] .probe .word b, [data-p="5"] .probe .meta { text-transform: lowercase; }
+[data-p="5"] .log { font: 400 0.82rem/1.8 var(--mono); color: var(--muted); margin: 0 0 18px;
+                    text-transform: lowercase; }
+[data-p="5"] .wall { border-top: 6px solid var(--ink); padding-top: 14px; }
+[data-p="5"] .wall span { cursor: pointer; scroll-margin-top: calc(var(--barh) + 170px); }
+[data-p="5"] .wall span:hover { color: var(--accent); }
+[data-p="5"] footer { margin-top: 50px; border-top: 6px solid var(--ink); padding-top: 16px; }
 [data-p="5"] footer .label { text-transform: lowercase; }
-/* ---------------------------------------------------------------- narrow screens
- * The compositions hold down to about 700px on their own. Below that the lattice cannot keep
- * three figures on one row without setting them smaller than the words around them, and the
- * diagonal's turned rail costs more width than it earns, so both give way. */
-@media (max-width: 700px) {
-  [data-p="2"] .cell.title, [data-p="2"] .cell.mark, [data-p="2"] .cell.stat,
-  [data-p="2"] .cell.said, [data-p="2"] .cell.said + .said { grid-column: span 12;
-    border-left: 0; }
-  [data-p="2"] .cell.stat { border-bottom: 2px solid var(--ink); }
-  [data-p="2"] .cell.mark { padding: 26px; }
-  [data-p="3"] .sheet { grid-template-columns: 30px minmax(0,1fr); }
-  [data-p="3"] .num { margin-right: 14px; letter-spacing: 0.2em; }
-  [data-p="4"] .stat { width: 148px; height: 148px; }
-}
 </style>
 
-<nav id="index" aria-label="design propositions"></nav>
+<nav id="index" aria-label="interfaces"></nav>
 <div id="app"></div>
 <div id="tip"></div>
 
 <script>
 const DATA = "analysis.js";
-let A = null, TH = null, P = 1;
+let A = null, TH = null, P = 1, T = null;
+const S = { j: null };                     // the chosen word, or null for the whole component
 const app = document.getElementById("app");
 const tip = document.getElementById("tip");
 const fmt = n => Math.round(n).toLocaleString("en-US");
@@ -374,15 +471,6 @@ const pc = v => { const x = v * 100;
   return (x >= 10 ? x.toFixed(0) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toFixed(2)
           : x.toPrecision(2)) + "%"; };
 const esc = s => s.replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
-
-/* ------------------------------------------------------------------ the five
-
-   Each proposition supplies a name, a chart theme and a template. The template receives the
-   same prepared text and the same component builders, so no proposition can quietly say
-   something the others do not: the only thing a template chooses is arrangement. */
-
-/* seven neutral steps for the seven components that were always there, and the accent for the
-   one that arrives. Ordered light to dark or dark to light per proposition, never by hue. */
 const ramp = (from, to, n) => {
   const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i + 2), 16));
   const a = hex(from), b = hex(to);
@@ -393,158 +481,13 @@ const ramp = (from, to, n) => {
   });
 };
 
-const PROPS = [
-  { n: "Grundkurs",
-    theme: { ramp: ramp("#9d9689", "#e7e2d6", 7), seam: 0.7, dash: "2 5", stroke: 1.9 },
-    build: T => `<div class="wrap">
-      <header>
-        <div class="rail"><i></i></div>
-        <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
-        <p class="standfirst">${T.standfirst}</p>
-        <div class="stats">
-          ${T.stats.map((s, i) => `<div class="stat">
-            <span class="glyph ${["sq","ci","tr"][i]}"></span>
-            <span><b>${s.v}</b><span class="label">${s.k}</span></span></div>`).join("")}
-        </div>
-      </header>
-      <section>
-        <p class="lede">${T.divided}</p>
-        <p class="lede">${T.share}</p>
-        <p class="method">${T.method}</p>
-        ${T.stack()}
-      </section>
-      <section>
-        <p class="lede">${T.familiar}</p>
-        <p class="note">${T.note}</p>
-        ${T.probe()}
-        ${T.wall()}
-      </section>
-      <footer><p class="label">${T.generated}</p></footer>
-    </div>` },
+/* ------------------------------------------------------------------ the charts */
 
-  { n: "Rasterfeld",
-    theme: { ramp: ramp("#7d7d7d", "#e6e6e6", 7), seam: 0.8, dash: "1 4", stroke: 1.6 },
-    build: T => `<div class="wrap">
-      <div class="grid">
-        <div class="cell title">
-          <h1>The <em>load-bearing</em> vocabulary of Claude</h1>
-          <p class="standfirst">${T.standfirst}</p>
-        </div>
-        <div class="cell mark"><div class="figure"><i></i><i></i><i></i><i></i></div></div>
-        ${T.stats.map(s => `<div class="cell stat"><b>${s.v}</b>
-          <span class="label">${s.k}</span></div>`).join("")}
-        <div class="cell said"><p class="lede">${T.divided}</p></div>
-        <div class="cell said"><p class="lede">${T.share}</p></div>
-        <div class="cell wide method">${T.method}</div>
-        <div class="cell wide">${T.stack()}</div>
-        <div class="cell wide"><p class="lede">${T.familiar}</p>
-          <p class="note">${T.note}</p></div>
-        ${T.probe()}
-        ${T.wall()}
-      </div>
-      <footer><p class="label">${T.generated}</p></footer>
-    </div>` },
-
-  { n: "Diagonale",
-    theme: { ramp: ramp("#8f8a7c", "#e4dfd0", 7), seam: 0.6, dash: "3 6", stroke: 2 },
-    build: T => `<div class="wrap">
-      <div class="field"><i></i><u></u></div>
-      <header class="sheet">
-        <div class="num">the corpus</div>
-        <div>
-          <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
-          <p class="standfirst">${T.standfirst}</p>
-          <div class="stats">
-            ${T.stats.map(s => `<div class="stat"><b>${s.v}</b>
-              <span class="label">${s.k}</span></div>`).join("")}
-          </div>
-        </div>
-      </header>
-      <section class="sheet">
-        <div class="num">the division</div>
-        <div>
-          <p class="lede">${T.divided}</p>
-          <p class="lede">${T.share}</p>
-          ${T.stack()}
-          <p class="method">${T.method}</p>
-        </div>
-      </section>
-      <section class="sheet">
-        <div class="num">the words</div>
-        <div>
-          <p class="lede">${T.familiar}</p>
-          <p class="note">${T.note}</p>
-          ${T.probe()}
-          ${T.wall()}
-        </div>
-      </section>
-      <footer><p class="label">${T.generated}</p></footer>
-    </div>` },
-
-  { n: "Kreis & Quadrat",
-    theme: { ramp: ramp("#7d8ca6", "#dfe2e8", 7), seam: 0.9, dash: "2 6", stroke: 2 },
-    build: T => `<div class="wrap">
-      <header>
-        <div class="trio"><i></i><i></i><i></i></div>
-        <h1>The <em>load-bearing</em> vocabulary of Claude</h1>
-        <p class="standfirst">${T.standfirst}</p>
-        <div class="stats">
-          ${T.stats.map(s => `<div class="stat"><b>${s.v}</b>
-            <span class="label">${s.k}</span></div>`).join("")}
-        </div>
-      </header>
-      <section>
-        <p class="lede">${T.divided}</p>
-        <p class="lede">${T.share}</p>
-        <div class="plate">${T.stack()}</div>
-        <p class="method">${T.method}</p>
-      </section>
-      <section>
-        <p class="lede">${T.familiar}</p>
-        <p class="note">${T.note}</p>
-        ${T.probe()}
-        ${T.wall()}
-      </section>
-      <footer><p class="label">${T.generated}</p></footer>
-    </div>` },
-
-  { n: "Werkstatt",
-    theme: { ramp: ramp("#8a8478", "#e3ded4", 7), seam: 0.7, dash: "2 4", stroke: 1.8 },
-    build: T => `<div class="wrap">
-      <header>
-        <div class="bar"></div>
-        <h1>the <em>load-bearing</em><br>vocabulary of claude</h1>
-        <p class="standfirst">${T.standfirst}</p>
-        <div class="stats">
-          ${T.stats.map(s => `<div class="stat"><b>${s.v}</b>
-            <span class="label">${s.k}</span></div>`).join("")}
-        </div>
-      </header>
-      <section>
-        <div class="bar thin"></div>
-        <p class="lede">${T.divided}</p>
-        <p class="lede">${T.share}</p>
-        <p class="method">${T.method}</p>
-        ${T.stack()}
-      </section>
-      <section>
-        <div class="bar thin"></div>
-        <p class="lede">${T.familiar}</p>
-        <p class="note">${T.note}</p>
-        ${T.probe()}
-        ${T.wall()}
-      </section>
-      <footer><p class="label">${T.generated}</p></footer>
-    </div>` },
-];
-
-/* ------------------------------------------------------------------ the charts
-
-   One area chart from one series, scaled to `hi`. Used for the arrival's own curve and every
+/* One area chart from one series, scaled to `hi`. Used for the arrival's own curve and every
    word's history, so they all read the same way. */
 function area(svg, vals, hi) {
-  const w = svg.clientWidth || 800, h = svg.clientHeight || 92, T = vals.length;
-  const x = i => (i / (T - 1)) * w, y = v => h - (v / (hi || 1)) * (h - 2);
+  const w = svg.clientWidth || 800, h = svg.clientHeight || 92, N = vals.length;
+  const x = i => (i / (N - 1)) * w, y = v => h - (v / (hi || 1)) * (h - 2);
   let d = `M0,${y(vals[0]).toFixed(1)}`;
   vals.forEach((v, i) => { d += `L${x(i).toFixed(1)},${y(v).toFixed(1)}`; });
   let years = "";
@@ -566,15 +509,15 @@ function area(svg, vals, hi) {
    been earlier: every day contributes one full page of descriptions, so the denominator is
    near constant and a band cannot appear to shrink merely because the week around it grew. */
 function stack(svg) {
-  const w = svg.clientWidth || 800, h = svg.clientHeight || 300, T = A.weeks.length;
+  const w = svg.clientWidth || 800, h = svg.clientHeight || 300, N = A.weeks.length;
   const tot = A.weeks.map((_, i) => A.components.reduce((s, c) => s + c.count[i], 0) || 1);
-  const x = i => (i / (T - 1)) * w;
-  let acc = new Array(T).fill(0), out = "", k = 0;
+  const x = i => (i / (N - 1)) * w;
+  let acc = new Array(N).fill(0), out = "", k = 0;
   for (const c of A.components) {
     const top = c.count.map((v, i) => acc[i] + v / tot[i]);
     let d = `M0,${(h - acc[0] * h).toFixed(1)}`;
-    for (let i = 0; i < T; i++) d += `L${x(i).toFixed(1)},${(h - top[i] * h).toFixed(1)}`;
-    for (let i = T - 1; i >= 0; i--) d += `L${x(i).toFixed(1)},${(h - acc[i] * h).toFixed(1)}`;
+    for (let i = 0; i < N; i++) d += `L${x(i).toFixed(1)},${(h - top[i] * h).toFixed(1)}`;
+    for (let i = N - 1; i >= 0; i--) d += `L${x(i).toFixed(1)},${(h - acc[i] * h).toFixed(1)}`;
     out += `<path d="${d}Z" fill="${c.lead ? "var(--accent)" : TH.ramp[k++ % TH.ramp.length]}"
              stroke="var(--ground)" stroke-width="${TH.seam}"/>`;
     acc = top;
@@ -597,56 +540,94 @@ function stack(svg) {
   svg.innerHTML = out + rules + `<line class="cross" x1="0" x2="0" y1="0" y2="${h}"
     stroke="var(--ink)" stroke-width="1" opacity="0"/>`;
   const lead = A.components.find(c => c.lead);
+  const at = i => `${A.weeks[i]} · <b>${pc(lead.count[i] / tot[i])}</b> of the week`;
   svg.onpointermove = ev => {
     const r = svg.getBoundingClientRect();
-    const i = Math.max(0, Math.min(T - 1,
-      Math.round(((ev.clientX - r.left) / r.width) * (T - 1))));
+    const i = Math.max(0, Math.min(N - 1,
+      Math.round(((ev.clientX - r.left) / r.width) * (N - 1))));
     const cr = svg.querySelector(".cross");
-    cr.setAttribute("x1", ((i / (T - 1)) * r.width).toFixed(1));
-    cr.setAttribute("x2", ((i / (T - 1)) * r.width).toFixed(1));
+    cr.setAttribute("x1", ((i / (N - 1)) * r.width).toFixed(1));
+    cr.setAttribute("x2", ((i / (N - 1)) * r.width).toFixed(1));
     cr.setAttribute("opacity", "0.6");
-    show(`${A.weeks[i]}  ·  ${pc(lead.count[i] / tot[i])} of the week`, ev, r);
+    week(at(i), ev, r);
   };
   svg.onpointerleave = () => {
-    tip.classList.remove("on");
     svg.querySelector(".cross").setAttribute("opacity", "0");
+    week(null);
   };
+  svg.dataset.last = at(N - 1);
+  week(null);
 }
 
-function show(text, ev, r) {
-  tip.textContent = text;
+/* Where the week under the pointer is reported, which is one of the things that differs between
+   the interfaces: a tooltip that follows the pointer, or a fixed place that is printed into.
+   With no pointer on the chart the fixed places hold the last week rather than going blank. */
+function week(html, ev, r) {
+  const out = app.querySelector(".readout");
+  if (out) {
+    const svg = app.querySelector("#stack");
+    out.innerHTML = TH.weekLead + (html || (svg && svg.dataset.last) || "");
+    return;
+  }
+  if (!html) { tip.classList.remove("on"); return; }
+  tip.textContent = html.replace(/<[^>]+>/g, "");
   tip.classList.add("on");
   const tw = tip.offsetWidth;
   tip.style.left = Math.min(innerWidth - tw - 8, Math.max(8, ev.clientX - tw / 2)) + "px";
   tip.style.top = Math.max(8, r.top - tip.offsetHeight - 8) + "px";
 }
 
-/* Hovering a word draws its own weekly history in the panel above the wall. The vertical
-   scale is that word's own peak, printed beside it -- a shared scale would flatten every word
-   except the handful of common ones, and these differ by three orders of magnitude. */
-/* `?w=word` opens with that word already selected, which makes a particular word's history a
-   link someone can send, and makes the hover state testable. `?p=` does the same for the
-   proposition, so a design can be pointed at too. */
-function probe(i, j) {
-  const c = A.components.filter(x => x.lead)[i];
-  const p = app.querySelector(`.probe[data-lead="${i}"]`);
+/* ------------------------------------------------------------------ the word panel
+
+   The scale is that word's own peak, printed beside it -- a shared scale would flatten every
+   word except the handful of common ones, and these differ by three orders of magnitude. */
+function paint() {
+  const c = T.lead, p = app.querySelector(".probe");
   if (!p) return;
   const svg = p.querySelector("svg");
-  if (j === null) {
-    p.querySelector(".word").innerHTML =
-      `<b>all ${fmt(c.word_list.length)} words together</b>`;
+  if (S.j === null) {
+    p.querySelector(".word").innerHTML = `<b>all ${fmt(c.word_list.length)} words together</b>`;
     p.querySelector(".meta").textContent =
       `${fmt(c.count[c.count.length - 1])} of `
       + `${fmt(A.docs_per_week[A.docs_per_week.length - 1])} descriptions in the last week`;
     area(svg, c.count, Math.max(...A.docs_per_week));
-    return;
+  } else {
+    const s = c.series[S.j], total = s.reduce((a, b) => a + b, 0);
+    p.querySelector(".word").innerHTML = `<b>${esc(c.word_list[S.j])}</b>`;
+    p.querySelector(".meta").textContent =
+      `${c.word_lift[S.j]}× more probable here than elsewhere · `
+      + `${fmt(total)} appearances · peak ${fmt(Math.max(...s))} in a week`;
+    area(svg, s, Math.max(...s));
   }
-  const s = c.series[j], total = s.reduce((a, b) => a + b, 0);
-  p.querySelector(".word").innerHTML = `<b>${esc(c.word_list[j])}</b>`;
-  p.querySelector(".meta").textContent =
-    `${c.word_lift[j]}× more probable here than elsewhere · `
-    + `${fmt(total)} appearances · peak ${fmt(Math.max(...s))} in a week`;
-  area(svg, s, Math.max(...s));
+  app.querySelectorAll(".wall .on, tbody tr.on").forEach(n => n.classList.remove("on"));
+  app.querySelectorAll('[role="option"][aria-selected="true"]')
+     .forEach(n => n.setAttribute("aria-selected", "false"));
+  if (S.j !== null) {
+    app.querySelectorAll(`[data-j="${S.j}"]`).forEach(n => {
+      const row = n.closest("tr");
+      (row || n).classList.add("on");
+      if (n.getAttribute("role") === "option") n.setAttribute("aria-selected", "true");
+    });
+  }
+}
+
+/* One entry point for choosing a word, whatever the interface used to choose it: hovering,
+   clicking, searching, arrowing down a table or typing it in full. */
+function pick(j, reveal) {
+  S.j = j;
+  paint();
+  // a hover is not a choice: interface 1 passes a word under the pointer many times a second,
+  // and browsers rate-limit `replaceState`. The interfaces where choosing is deliberate write
+  // the word into the URL; all five still read it at load, so a link opens on any of them.
+  if (!PROPS[P - 1].hover) {
+    const q = new URLSearchParams(location.search);
+    if (j === null) q.delete("w"); else q.set("w", T.lead.word_list[j]);
+    history.replaceState(null, "", location.pathname + "?" + q);
+  }
+  if (reveal && j !== null) {
+    const el = app.querySelector(`[data-j="${j}"]`);
+    if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 
 function axis() {
@@ -660,9 +641,11 @@ function axis() {
   return out + `<span class="last">${A.weeks[A.weeks.length - 1]}</span>`;
 }
 
-/* ------------------------------------------------------------------ the page */
+/* ------------------------------------------------------------------ the content
 
-function prepared() {
+   Prepared once, from the data, and handed to every interface. The five may arrange it and may
+   reach it differently; none of them may word it differently. */
+function prep() {
   const lead = A.components.find(c => c.lead);
   const W = A.lead_window;
   const sum = a => a.reduce((s, v) => s + v, 0);
@@ -673,18 +656,19 @@ function prepared() {
   // whether it is still rising is read off the fitted trend, never asserted: a claim that can
   // go stale should not be typed into the markup
   const still = A.trend > 0.0005 ? "and is still growing" : "and has levelled off";
-
-  const hiL = lead.word_lift[0], loL = lead.word_lift[lead.word_lift.length - 1];
   // log scale, because measuring lift against everything-else spreads it over three orders of
   // magnitude and on a linear ramp every word past the first dozen would sit at the minimum
-  const lg = Math.log, sp = Math.max(lg(hiL) - lg(loL), 1e-9);
-  const wall = lead.word_list.map((w, j) => {
-    const t = (lg(lead.word_lift[j]) - lg(loL)) / sp;
-    return `<span data-lead="0" data-j="${j}" style="font-size:${(10.5 + 8 * t).toFixed(1)}px;`
-      + `opacity:${(0.45 + 0.55 * t).toFixed(2)}">${esc(w)}</span>`;
-  }).join("");
+  const lg = Math.log, hiL = lead.word_lift[0], loL = lead.word_lift[lead.word_lift.length - 1];
+  const sp = Math.max(lg(hiL) - lg(loL), 1e-9);
+  const t = j => (lg(lead.word_lift[j]) - lg(loL)) / sp;
+  const words = lead.word_list.map((w, j) => ({
+    j, w, lift: lead.word_lift[j], t: t(j),
+    total: lead.series[j].reduce((a, b) => a + b, 0),
+    peak: Math.max(...lead.series[j]),
+  }));
 
   return {
+    lead, words,
     standfirst: "We scrape GitHub daily to analyse trends in vocabulary. "
       + "So far we have analysed:",
     stats: [{ v: fmt(A.days), k: "days" },
@@ -692,24 +676,409 @@ function prepared() {
             { v: fmt(A.appearances), k: "words" }],
     divided: `We divided them into <b>${A.k}</b> distinct ways of writing.`,
     share: `One of them was <b>${monthShare}</b> of all pull requests last month, ${still}.`,
-    familiar: "Its representative words should look familiar to anyone who uses a "
-      + "coding agent.",
-    note: "The thousand most characteristic. <b>Hover any word</b> to see its own "
+    familiar: "Its representative words should look familiar to anyone who uses a coding agent.",
+    // the verb is the interface's, the promise is not: whatever the gesture, what it gets you is
+    // that word's own week-by-week history
+    note: verb => `The thousand most characteristic. <b>${verb}</b> to see its own `
       + "week-by-week history.",
-    // the acronym is marked up so that the lowercase proposition can keep it upright: `kl
-    // divergence` is not the same word as KL divergence
+    // the acronym is marked up so the lowercase interface can keep it upright: `kl divergence`
+    // is not the same word as KL divergence
     method: 'Grouped by <a href="https://jmlr.csail.mit.edu/papers/volume6/banerjee05b/'
       + 'banerjee05b.pdf" target="_blank" rel="noopener">k-means clustering under '
-      + '<abbr>KL</abbr> divergence</a> \u2014 Bregman hard clustering, one set of centres '
-      + 'for the whole window, seeded by greedy k-means++.',
+      + '<abbr>KL</abbr> divergence</a> — Bregman hard clustering, one set of centres for '
+      + 'the whole window, seeded by greedy k-means++.',
     generated: `generated ${A.generated}`,
-    stack: () => `<div class="chart"><svg id="stack"></svg><div class="axis">${axis()}</div></div>`,
-    probe: () => `<div class="probe" data-lead="0">
-        <div class="who"><span class="word"></span><span class="meta"></span></div>
-        <svg></svg><div class="axis">${axis()}</div></div>`,
-    wall: () => `<div class="wall">${wall}</div>`,
+    figures: () => T.stats.map((s, i) => `<div class="stat"><i></i><b>${s.v}</b>`
+      + `<span class="label">${s.k}</span></div>`).join(""),
+    chart: () => `<div class="chart"><svg id="stack"></svg>`
+      + `<div class="axis">${axis()}</div></div>`,
+    panel: () => `<div class="probe"><div class="who"><span class="word"></span>`
+      + `<span class="label meta"></span></div><svg></svg>`
+      + `<div class="axis">${axis()}</div></div>`,
+    // the cloud: size and opacity by lift, on the log scale, as it has always been
+    wall: () => `<div class="wall">` + T.words.map(({ j, w, t }) =>
+      `<span data-j="${j}" style="font-size:${(10.5 + 8 * t).toFixed(1)}px;`
+      + `opacity:${(0.45 + 0.55 * t).toFixed(2)}">${esc(w)}</span>`).join("") + `</div>`,
   };
 }
+
+/* ------------------------------------------------------------------ the five interfaces */
+
+const PROPS = [
+{
+  n: "Grundkurs", kind: "a printed sheet · hover", hover: true,
+  theme: { ramp: ramp("#9d9689", "#e7e2d6", 7), seam: 0.7, dash: "2 5", stroke: 1.9,
+           weekLead: "" },
+  build: () => `<div class="wrap">
+    <header>
+      <div class="rail"><i></i></div>
+      <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
+      <p class="standfirst">${T.standfirst}</p>
+      <div class="stats">${T.stats.map((s, i) => `<div class="stat">
+        <span class="glyph ${["sq","ci","tr"][i]}"></span>
+        <span><b>${s.v}</b><span class="label">${s.k}</span></span></div>`).join("")}</div>
+    </header>
+    <section>
+      <p class="lede">${T.divided}</p>
+      <p class="lede">${T.share}</p>
+      <p class="method">${T.method}</p>
+      ${T.chart()}
+    </section>
+    <section>
+      <p class="lede">${T.familiar}</p>
+      <p class="note">${T.note("Hover any word")}</p>
+      ${T.panel()}
+      ${T.wall()}
+    </section>
+    <footer><p class="label">${T.generated}</p></footer>
+  </div>`,
+  wire: () => {
+    // hovering is the interface: nothing is chosen, the panel simply follows the pointer
+    const wall = app.querySelector(".wall");
+    wall.addEventListener("pointerover", ev => {
+      const el = ev.target.closest("[data-j]");
+      if (el) pick(+el.dataset.j);
+    });
+    wall.addEventListener("pointerleave", () => pick(null));
+  },
+},
+{
+  n: "Rasterfeld", kind: "one screen · click to keep",
+  theme: { ramp: ramp("#7d7d7d", "#e6e6e6", 7), seam: 0.8, dash: "1 4", stroke: 1.6,
+           weekLead: "week " },
+  build: () => `<div class="board">
+    <div class="cell head">
+      <h1>The <em>load-bearing</em> vocabulary of Claude</h1>
+      <p class="standfirst">${T.standfirst}</p>
+    </div>
+    <div class="cell fig">${T.figures()}</div>
+    <div class="cell say">
+      <p class="lede">${T.divided}</p>
+      <p class="lede">${T.share}</p>
+      <p class="method">${T.method}</p>
+    </div>
+    <div class="cell week">
+      <span class="label">the week under the pointer</span>
+      <span class="readout"></span>
+    </div>
+    <div class="cell chart"><svg id="stack"></svg><div class="axis">${axis()}</div></div>
+    <div class="cell panel">${T.panel()}</div>
+    <div class="cell words">
+      <p class="note">${T.familiar} ${T.note("Click any word")}
+        Arrow keys walk the wall, escape clears it.</p>
+      ${T.wall()}
+    </div>
+    <div class="cell foot"><span class="label">${T.generated}</span></div>
+  </div>`,
+  wire: () => {
+    // a click keeps the word, so the panel can be read with both hands off the mouse, and the
+    // wall is one tab stop with the arrows moving inside it rather than a thousand tab stops
+    const wall = app.querySelector(".wall");
+    wall.tabIndex = 0;
+    wall.setAttribute("role", "listbox");
+    wall.setAttribute("aria-label", "the thousand most characteristic words");
+    wall.querySelectorAll("[data-j]").forEach(el => el.setAttribute("role", "option"));
+    wall.addEventListener("click", ev => {
+      const el = ev.target.closest("[data-j]");
+      if (el) pick(+el.dataset.j === S.j ? null : +el.dataset.j);
+    });
+    wall.addEventListener("keydown", ev => {
+      const n = T.words.length;
+      let i = S.j === null ? -1 : S.j;
+      if (ev.key === "ArrowRight" || ev.key === "ArrowDown") i = Math.min(n - 1, i + 1);
+      else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") i = Math.max(0, i - 1);
+      else if (ev.key === "Home") i = 0;
+      else if (ev.key === "End") i = n - 1;
+      else if (ev.key === "Escape") { pick(null); return; }
+      else return;
+      ev.preventDefault();
+      pick(i, true);
+    });
+  },
+},
+{
+  n: "Diagonale", kind: "three plates · search",
+  theme: { ramp: ramp("#8f8a7c", "#e4dfd0", 7), seam: 0.6, dash: "3 6", stroke: 2,
+           weekLead: "week " },
+  build: () => `<div class="deck">
+    <div class="field"><i></i><u></u></div>
+    <section class="plate" data-plate="0">
+      <div class="num">the corpus</div>
+      <div>
+        <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
+        <p class="standfirst">${T.standfirst}</p>
+        <div class="stats">${T.figures()}</div>
+      </div>
+    </section>
+    <section class="plate" data-plate="1">
+      <div class="num">the division</div>
+      <div>
+        <p class="lede">${T.divided}</p>
+        <p class="lede">${T.share}</p>
+        ${T.chart()}
+        <p class="readout"></p>
+        <p class="method">${T.method}</p>
+      </div>
+    </section>
+    <section class="plate" data-plate="2">
+      <div class="num">the words</div>
+      <div>
+        <p class="lede">${T.familiar}</p>
+        <p class="note">${T.note("Search for a word")}</p>
+        <div class="find">
+          <label for="find">find</label>
+          <input id="find" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="type a word, enter for the first match">
+          <span class="hits"></span>
+        </div>
+        ${T.panel()}
+        ${T.wall()}
+      </div>
+    </section>
+    <nav class="steps" aria-label="plates">
+      <button data-step="0">1 corpus</button>
+      <button data-step="1">2 division</button>
+      <button data-step="2">3 words</button>
+      <span class="of">← → between plates</span>
+    </nav>
+    <footer><p class="label">${T.generated}</p></footer>
+  </div>`,
+  wire: () => {
+    const plates = [...app.querySelectorAll(".plate")];
+    const steps = [...app.querySelectorAll(".steps button")];
+    let at = 0;
+    const go = n => {
+      at = (n + plates.length) % plates.length;
+      plates.forEach((p, i) => p.classList.toggle("on", i === at));
+      steps.forEach((b, i) => b.setAttribute("aria-current", i === at));
+      app.querySelector(".deck").dataset.at = at;
+      render();     // charts are measured from the layout, and a hidden plate has none to give
+      scrollTo({ top: 0 });
+    };
+    steps.forEach((b, i) => b.addEventListener("click", () => go(i)));
+    keyHook = ev => {
+      if (ev.key === "ArrowRight") go(at + 1);
+      else if (ev.key === "ArrowLeft") go(at - 1);
+      else return;
+      ev.preventDefault();
+    };
+    // a thousand words cannot be hunted through on a plate, so they are searched. The wall is
+    // filtered rather than reordered: where a word sits is itself information about its lift.
+    const input = app.querySelector("#find");
+    const hits = app.querySelector(".hits");
+    const spans = [...app.querySelectorAll(".wall [data-j]")];
+    const filter = () => {
+      const q = input.value.trim().toLowerCase();
+      let n = 0, first = null;
+      spans.forEach((el, j) => {
+        const on = !q || T.words[j].w.toLowerCase().includes(q);
+        el.style.display = on ? "" : "none";
+        if (on) { n++; if (first === null) first = j; }
+      });
+      hits.textContent = q ? `${fmt(n)} of ${fmt(spans.length)}` : `${fmt(spans.length)} words`;
+      return first;
+    };
+    input.addEventListener("input", filter);
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") { const f = filter(); if (f !== null) pick(f, true); }
+      else if (ev.key === "Escape") { input.value = ""; filter(); pick(null); }
+    });
+    app.querySelector(".wall").addEventListener("click", ev => {
+      const el = ev.target.closest("[data-j]");
+      if (el) pick(+el.dataset.j);
+    });
+    filter();
+    go(0);
+  },
+},
+{
+  n: "Kreis & Quadrat", kind: "a sortable table",
+  theme: { ramp: ramp("#7d8ca6", "#dfe2e8", 7), seam: 0.9, dash: "2 6", stroke: 2,
+           weekLead: "week " },
+  build: () => `<div class="wrap">
+    <header>
+      <div class="trio"><i></i><i></i><i></i></div>
+      <h1>The <em>load-bearing</em> vocabulary of Claude</h1>
+      <p class="standfirst">${T.standfirst}</p>
+      <div class="stats">${T.figures()}</div>
+    </header>
+    <section>
+      <p class="lede">${T.divided}</p>
+      <p class="lede">${T.share}</p>
+      <div class="plate">${T.chart()}</div>
+      <p class="readout"></p>
+      <p class="method">${T.method}</p>
+    </section>
+    <section>
+      <p class="lede">${T.familiar}</p>
+      <p class="note">${T.note("Choose a row")} Any column sorts; arrow keys walk the rows.</p>
+      ${T.panel()}
+      <div class="grid"><table>
+        <thead><tr>
+          <th style="width:4.5rem"><button data-sort="rank">rank</button></th>
+          <th><button data-sort="word">word</button></th>
+          <th><button data-sort="lift">lift ×</button></th>
+          <th><button data-sort="total">appearances</button></th>
+          <th><button data-sort="peak">peak/week</button></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+    <footer><p class="label">${T.generated}</p></footer>
+  </div>`,
+  wire: () => {
+    // the cloud showed one word's numbers at a time and encoded lift as size. The table shows
+    // every word's numbers at once and keeps the encoding as a rule under the word, so nothing
+    // the cloud said is lost and the ordering becomes something the reader controls.
+    const body = app.querySelector("tbody");
+    const heads = [...app.querySelectorAll("thead button")];
+    let key = "rank", dir = 1;
+    const draw = () => {
+      const rows = T.words.slice().sort((a, b) => {
+        const v = key === "word" ? a.w.localeCompare(b.w)
+                : key === "rank" ? a.j - b.j
+                : a[key] - b[key];
+        return v * dir;
+      });
+      body.innerHTML = rows.map(r => `<tr data-j="${r.j}">
+        <td>${r.j + 1}</td>
+        <td class="w">${esc(r.w)}<i style="width:${(r.t * 100).toFixed(1)}%"></i></td>
+        <td>${r.lift}</td><td>${fmt(r.total)}</td><td>${fmt(r.peak)}</td></tr>`).join("");
+      heads.forEach(h => {
+        const th = h.closest("th");
+        if (h.dataset.sort === key) th.setAttribute("aria-sort",
+          dir === 1 ? "ascending" : "descending");
+        else th.removeAttribute("aria-sort");
+      });
+      if (S.j !== null) paint();
+    };
+    heads.forEach(h => h.addEventListener("click", () => {
+      const k = h.dataset.sort;
+      // ascending first for the two that read up -- rank and the alphabet -- descending first
+      // for the three that are quantities, where the interesting end is the top
+      if (k === key) dir = -dir; else { key = k; dir = (k === "rank" || k === "word") ? 1 : -1; }
+      draw();
+    }));
+    body.addEventListener("click", ev => {
+      const tr = ev.target.closest("tr[data-j]");
+      if (tr) pick(+tr.dataset.j === S.j ? null : +tr.dataset.j);
+    });
+    const grid = app.querySelector(".grid");
+    grid.tabIndex = 0;
+    grid.addEventListener("keydown", ev => {
+      const order = [...body.querySelectorAll("tr[data-j]")].map(tr => +tr.dataset.j);
+      let i = order.indexOf(S.j);
+      if (ev.key === "ArrowDown") i = Math.min(order.length - 1, i + 1);
+      else if (ev.key === "ArrowUp") i = Math.max(0, i - 1);
+      else if (ev.key === "Home") i = 0;
+      else if (ev.key === "End") i = order.length - 1;
+      else if (ev.key === "Escape") { pick(null); return; }
+      else return;
+      ev.preventDefault();
+      pick(order[Math.max(0, i)], true);
+    });
+    draw();
+  },
+},
+{
+  n: "Werkstatt", kind: "a console · type it",
+  theme: { ramp: ramp("#8a8478", "#e3ded4", 7), seam: 0.7, dash: "2 4", stroke: 1.8,
+           weekLead: "week " },
+  build: () => `<div class="wrap">
+    <header>
+      <div class="bar"></div>
+      <h1>the <em>load-bearing</em><br>vocabulary of claude</h1>
+      <p class="standfirst">${T.standfirst}</p>
+      <div class="stats">${T.figures()}</div>
+    </header>
+    <section>
+      <div class="bar thin"></div>
+      <p class="lede">${T.divided}</p>
+      <p class="lede">${T.share}</p>
+      ${T.chart()}
+      <p class="readout"></p>
+      <p class="method">${T.method}</p>
+    </section>
+    <section>
+      <p class="lede">${T.familiar}</p>
+      <p class="note">${T.note("Type a word")} Tab completes, escape clears.</p>
+      <div class="cli">
+        <div class="line"><b>word&gt;</b>
+          <input id="cmd" type="text" autocomplete="off" spellcheck="false"
+                 aria-label="type a word" placeholder="refusal"></div>
+        <div class="comp"></div>
+      </div>
+      ${T.panel()}
+      <p class="log"></p>
+      ${T.wall()}
+    </section>
+    <footer><p class="label">${T.generated}</p></footer>
+  </div>`,
+  wire: () => {
+    // typed, not hovered: the completions are the interface, and the log prints what a tooltip
+    // would otherwise have shown and taken away again
+    const input = app.querySelector("#cmd");
+    const comp = app.querySelector(".comp");
+    const log = app.querySelector(".log");
+    const say = s => { log.textContent = s; };
+    let shown = [];
+    const complete = () => {
+      const q = input.value.trim().toLowerCase();
+      shown = q ? T.words.filter(r => r.w.toLowerCase().startsWith(q)).slice(0, 12) : [];
+      const rest = q ? T.words.filter(r => r.w.toLowerCase().includes(q)).length : 0;
+      comp.innerHTML = shown.map((r, i) =>
+        `<button data-j="${r.j}" class="${i ? "" : "first"}">${esc(r.w)}</button>`).join("")
+        || (q ? `no word starts with ${esc(q)}${rest ? ` · ${rest} contain it` : ""}` : "");
+    };
+    input.addEventListener("input", complete);
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        const q = input.value.trim().toLowerCase();
+        const hit = T.words.find(r => r.w.toLowerCase() === q) || shown[0];
+        if (hit) { input.value = hit.w; pick(hit.j, true); complete();
+                   say(`plotted ${hit.w} · rank ${hit.j + 1} of ${fmt(T.words.length)} `
+                       + `by lift`); }
+        else say(`no word ${q ? "matches " + q : "given"}`);
+      } else if (ev.key === "Tab" && shown.length) {
+        ev.preventDefault();
+        input.value = shown[0].w;
+        complete();
+      } else if (ev.key === "Escape") {
+        input.value = ""; complete(); pick(null); say("cleared");
+      }
+    });
+    comp.addEventListener("click", ev => {
+      const b = ev.target.closest("[data-j]");
+      if (!b) return;
+      const r = T.words[+b.dataset.j];
+      input.value = r.w; complete(); pick(r.j, true);
+      say(`plotted ${r.w} · rank ${r.j + 1} of ${fmt(T.words.length)} by lift`);
+    });
+    app.querySelector(".wall").addEventListener("click", ev => {
+      const el = ev.target.closest("[data-j]");
+      if (!el) return;
+      const r = T.words[+el.dataset.j];
+      input.value = r.w; complete(); pick(r.j);
+      say(`plotted ${r.w} · rank ${r.j + 1} of ${fmt(T.words.length)} by lift`);
+    });
+    say(`${fmt(T.words.length)} words loaded · type one`);
+    complete();
+  },
+},
+];
+
+/* ------------------------------------------------------------------ the page */
+
+// the interface currently mounted may claim the keyboard; `build` clears the claim first, so
+// the arrow keys of an interface that has been switched away from cannot still be listening
+let keyHook = null;
+addEventListener("keydown", ev => {
+  if (!keyHook) return;
+  const t = ev.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+  keyHook(ev);
+});
 
 function nav() {
   const el = document.getElementById("index");
@@ -717,24 +1086,28 @@ function nav() {
     <div class="set">${PROPS.map((p, i) =>
       `<button data-p="${i + 1}" aria-pressed="false"><em>${i + 1}</em>
         <span>${p.n}</span></button>`).join("")}</div>
-    <div class="keys">press 1–5</div>`;
+    <div class="kind"></div>`;
   el.addEventListener("click", ev => {
     const b = ev.target.closest("button[data-p]");
     if (b) go(+b.dataset.p);
   });
   addEventListener("keydown", ev => {
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    const t = ev.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     const n = +ev.key;
     if (n >= 1 && n <= PROPS.length) go(n);
   });
 }
 
 function go(n) {
+  if (n === P && app.firstChild) return;
   P = n;
   TH = PROPS[n - 1].theme;
   document.body.dataset.p = n;
   document.querySelectorAll("#index button").forEach(b =>
     b.setAttribute("aria-pressed", +b.dataset.p === n));
+  document.querySelector("#index .kind").textContent = PROPS[n - 1].kind;
   const q = new URLSearchParams(location.search);
   q.set("p", n);
   history.replaceState(null, "", location.pathname + "?" + q);
@@ -742,40 +1115,19 @@ function go(n) {
 }
 
 function build() {
-  app.innerHTML = PROPS[P - 1].build(prepared());
+  tip.classList.remove("on");
+  keyHook = null;
+  app.innerHTML = PROPS[P - 1].build();
+  PROPS[P - 1].wire();
   render();
-  // the wall is rebuilt on every switch, so its own listener is attached here; the delegated
-  // one on `app` is attached once at startup, or switching five times would call `probe` five
-  // times for one hover
-  app.querySelectorAll(".wall").forEach((wall, i) =>
-    wall.addEventListener("pointerleave", () => {
-      wall.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
-      probe(i, null);
-    }));
 }
 
-// leaving the wall restores the whole component, so the panel is never left showing a word the
-// pointer has moved off
-app.addEventListener("pointerover", ev => {
-  const el = ev.target.closest(".wall [data-j]");
-  if (!el) return;
-  app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
-  el.classList.add("on");
-  probe(+el.dataset.lead, +el.dataset.j);
-});
-
+/* The charts are measured from the layout, so they are drawn after it and again when it
+   changes. The selection survives both, and survives switching interface. */
 function render() {
-  const svg = document.getElementById("stack");
-  if (svg) stack(svg);
-  const want = new URLSearchParams(location.search).get("w");
-  A.components.filter(c => c.lead).forEach((c, i) => {
-    const j = want ? c.word_list.indexOf(want) : -1;
-    probe(i, j >= 0 ? j : null);
-    if (j >= 0) {
-      const el = app.querySelector(`.wall [data-lead="${i}"][data-j="${j}"]`);
-      if (el) el.classList.add("on");
-    }
-  });
+  const svg = app.querySelector("#stack");
+  if (svg && svg.clientWidth) stack(svg);
+  paint();
 }
 
 let t;
@@ -786,8 +1138,13 @@ tag.src = DATA;
 tag.onload = () => {
   A = window.ANALYSIS;
   if (!A) return fail();
+  T = prep();
+  const q = new URLSearchParams(location.search);
+  const w = q.get("w");
+  S.j = w ? (T.lead.word_list.indexOf(w) + 1 || 0) - 1 : null;
+  if (S.j < 0) S.j = null;
   nav();
-  const asked = +new URLSearchParams(location.search).get("p");
+  const asked = +q.get("p");
   go(asked >= 1 && asked <= PROPS.length ? asked : 1);
 };
 tag.onerror = fail;
