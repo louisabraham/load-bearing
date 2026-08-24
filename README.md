@@ -277,15 +277,31 @@ probability zero and no description can be infinitely far from anywhere.
 ### One run, and what that costs
 
 There are no restarts, and the honest statement of the price is this: **the figure on the page is
-one run's figure.** Fitting the same corpus from 16 different starting points, the arriving
-component ends anywhere between 29.8% and 62.9% of the recent weeks, `load-bearing` ranks first
-in 9 of those runs and in the top five in 14, and the arrival check passes in 9. The total cost
-varies by 0.93% across them, and the published seed is the sixth lowest of the sixteen — the fit
-that gets published is a representative run and not the best one found.
+one run's figure, and the seed moves it.** Fitting the same corpus from 32 different starting
+points:
 
-So `SEED` is a real choice and it is listed as one in §7. What removes the *variance* from the
-answer is not restarts but the seeding: every run is a k-means++ run, and they agree on the
-component's existence, its words and its shape, while disagreeing on where exactly it ends.
+| | across 32 runs |
+|---|---|
+| where the arriving component ends | 29.8% to 62.9%, median 49.0% |
+| `load-bearing`'s rank in its words | first in 21, top five in 28, top forty in 31 |
+| the arrival check | passes in 21 |
+| total cost | spread of 0.93% |
+| agreement on the weekly *shape* | mean `r` = 0.985 between any two runs |
+| agreement on *which* descriptions | mean F1 = 0.744, and as low as 0.13 |
+
+So the thing the page is about is not in doubt — every run finds a way of writing that arrives,
+almost every run puts the title word at or near the top of it, and the curves lie on top of each
+other. Where exactly it ends is one run's answer.
+
+**Restarts would not fix that, and it is worth being precise about why.** Cost is what a restart
+would choose on, and cost is nearly independent of everything the page reports: across those 32
+runs its correlation with the final share is **+0.03**, and picking the cheapest of eight runs
+leaves the median share where one run left it. What restarts do buy is that the arrival check
+stops firing — it passes for 65% of single runs, 94% of best-of-four, 99% of best-of-eight — so
+they are worth about eighteen seconds if a daily job that occasionally refuses to publish is
+worse than one that always does. They are not worth anything as a route to a truer number.
+
+`SEED` is therefore a real choice, and it is listed as one in §7.
 
 ### Speed
 
