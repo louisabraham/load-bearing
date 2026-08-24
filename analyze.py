@@ -1,39 +1,24 @@
-"""A mixture over ways of writing, with no model of time at all.
+"""KL k-means over pull request descriptions, with no model of time at all.
 
-    W_k        a fixed distribution over the vocabulary -- one way of writing
-    pi_k       how much of the whole window was written that way, sum_k pi_k = 1
+    W[c]   one way of writing: a fixed distribution over the vocabulary
+    p_d    one description, as a distribution over the vocabulary
 
-Generative, per document d:
+Every description is assigned to the way of writing it is closest to, under the divergence that
+belongs to word counts:
 
-    z_d ~ Categorical(pi)
-    x_d | z_d = k ~ Multinomial(n_d, W_k)
+    assign d to argmin_c  n_d * KL(p_d || W[c])
 
-**Time appears nowhere in the model.** There is one mixture for the entire window, not one per
+and each W[c] is then the middle of what it was given. Seeded by greedy k-means++ under the same
+divergence, iterated to a fixed point, once -- no restarts.
+
+**Time appears nowhere in it.** There is one set of centres for the entire window, not one per
 week, so the fit has no parameter that could describe a trend and no freedom to place one. The
-weekly curves the page draws are then pure attribution: each document is assigned by its words
-alone, and the weeks are added up afterwards. If a component still rises, the rise is in what
+weekly curves the page draws are pure attribution: each description is assigned by its words
+alone, and the weeks are counted up afterwards. If a way of writing rises, the rise is in what
 people wrote, because it cannot be anywhere else.
 
-This began as an ablation against a version with a per-week `pi_tk` and a smoothness penalty on
-it. The ablation preserved the rise, which made the per-week version's extra parameters --
-`T x k` of them, plus a penalty weight to tune -- machinery that bought nothing but the
-suspicion that the model had drawn the trend itself. So the ablation became the model.
-
-Fitted by EM: attribute documents, refit the word distributions, refit the mixture. The
-attribution is SOFT -- each document is split across the components in proportion to how well
-each explains its words, and it is those fractions, `r_dk`, that the weekly curves add up. No
-document is ever assigned to one component. The E step and the M step's sufficient statistics
-are fused into a single numba pass over the documents; `_em_sweep_numpy` is the readable
-reference the selftest checks it against.
-
-Two ablations of that, because the question "is this really a mixture model, or is it k-means?"
-deserves an answer in code rather than in prose: `--hard` attributes each document wholly to its
-likeliest component, and `--no-pi` drops the mixing weight from the comparison. Both together
-are KL k-means -- see `fit`.
-
     python analyze.py               # writes analysis.js, read by index.html
-    python analyze.py --selftest    # recovers a planted component from synthetic data
-    python analyze.py --hard --no-pi --loose -o /dev/null   # the same corpus, as KL k-means
+    python analyze.py --selftest    # recovers a planted way of writing from synthetic data
 """
 
 import argparse
@@ -44,61 +29,26 @@ import re
 from collections import Counter
 from datetime import date, timedelta
 
-import numba
 import numpy as np
-from numba import njit, prange
 from scipy.sparse import csr_matrix
 
-# Eight, and the number was chosen for a reason that has to be stated plainly: it is the
-# coarsest setting at which `load-bearing` -- the word the page is named after -- ranks among
-# the five most characteristic words of the arriving component, and it does so under 7 of 8
-# starting seeds. At 16 it ranks 45th, at 24 third, at 32 first, at 48 nowhere near.
-#
-# SO THIS IS SELECTION ON THE OUTCOME, and it cannot also be evidence for it. Held-out
-# likelihood prefers many more components than eight; a coarser model lumps registers that a
-# finer one separates, which is exactly why one word can dominate it. What eight buys is a
-# page whose title matches its own top line. What it costs is that no ranking on this page may
-# be read as having been discovered -- the vocabulary is real, but its ORDER was tuned until a
-# chosen word came first. An earlier version of this project made the same mistake without
-# noticing, picking k by counting how many hand-picked marker words each setting reproduced;
-# that one is retracted in the README, and this one is disclosed instead of retracted only
-# because it was asked for deliberately.
-K = 8
-# EM runs to convergence rather than for a fixed number of passes, so there is no iteration
-# count to have picked arbitrarily. Stop when a pass improves the log-likelihood by less than
-# TOL of itself. Measured on this corpus: 6 passes reports the register at 43.2% of the recent
-# weeks, 12 at 62.1%, and everything from 24 on at 61.6-61.7%. A fixed 12 was the old setting
-# and it overstated the headline by half a point while looking converged.
-TOL = 1e-6                          # relative log-likelihood gain
-MAX_PASSES = 200                    # a runaway guard, not a setting; convergence hits ~50
-N_INIT = 8                          # restarts; see `fit_best`
-SEED = 0
-# ATTRIBUTION. The published fit is soft and keeps the mixing prior: a document is split across
-# components in proportion to how well each explains it. Both halves of that can be dropped --
-# `--hard` sends each document entirely to its likeliest component, `--no-pi` takes `log pi_k`
-# out of the comparison -- and with both dropped the fit is exactly KL k-means over documents.
-# See `fit` for the algebra and the README for what the four settings report on this corpus:
-# the arrival survives all four, and hard attribution is what moves the headline, not the prior.
-HARD = False                        # winner-take-all attribution (Classification EM)
-USE_PI = True                       # let `log pi_k` into the attribution
+K = 8                               # ways of writing; see the README, it is not neutral
+TRIALS = 3                          # k-means++ candidates per centre; see `kmeanspp`
+SEED = 0                            # the one run's starting point
+SMOOTH = 0.01                       # pseudo-count, so no centre gives a word zero probability
+MAX_PASSES = 200                    # a runaway guard, not a setting; the fixed point comes at 30
 WORDS_LISTED = 40                   # per component; the cut is arbitrary and `tail` says so
 WORDS_LEAD = 1000                   # for each component that arrives; see `pack`
-# WHICH COMPONENT THE PAGE IS ABOUT: the largest one of the last LEAD_WINDOW weeks. Nothing is
-# selected on how much it grew. Growth thresholds used to do the selecting and that was
-# fragile -- at a 1% start one fit rejected its own biggest component, 1.06% -> 40.35%, for
-# beginning six hundredths of a point too high.
 TREND_WEEKS = 12                    # weeks the reported trend is fitted over
-LEAD_WINDOW = 4                     # weeks counted as "now". A month, not a week: a week is
-                                    # 700 descriptions, and the subject of the whole page
-                                    # should not turn on which of two close components
-                                    # happened to lead across one of them.
-# LEAD_START and LEAD_END no longer select; they CHECK. Picking the biggest component says
-# nothing about whether it arrived, and the page's headline claim is that it arrived, so that
-# claim is tested against the component actually chosen. A test may be a round number in a way
-# a selector may not: nothing is being ranked and there is no runner-up to exclude unfairly.
-#
-# Stated as two absolute shares rather than a growth ratio, because end/start explodes when the
-# start is near zero and so moves by a factor of ten on one day of new data.
+# WHICH COMPONENT THE PAGE IS ABOUT: the largest one of the last LEAD_WINDOW weeks. Nothing is
+# selected on how much it grew. A month rather than a week, because a week is 700 descriptions
+# and the subject of the whole page should not turn on which of two close components led across
+# one of them.
+LEAD_WINDOW = 4
+# LEAD_START and LEAD_END do not select; they CHECK. Picking the biggest component says nothing
+# about whether it arrived, and the page's headline claim is that it arrived, so that claim is
+# tested against the component actually chosen. Two absolute shares rather than a growth ratio,
+# because end/start explodes when the start is near zero.
 LEAD_START = 0.02                   # started under this much of the first eight weeks
 LEAD_END = 0.20                     # and ended at or above this much of the last eight
 
@@ -119,11 +69,10 @@ URL_RE = re.compile(r"https?://[^\s<>\"'`)\]}]+")
 TAG_RE = re.compile(r"<[a-z/!][^<>]*>")   # html markup, not prose: `a > b` is not a tag
 EM_DASH = "\u2014"                       # a word by fiat; see `tokens`
 WORD_RE = re.compile(r"[a-z0-9_/-]*[a-z][a-z0-9_/-]*")
-# One vulnerability identifier per advisory, the same shape of problem as one link per
-# item: `snyk-js-axios-6144788` and 1,400 siblings, 113 of them clearing the frequency
-# floors, between them occupying seven of sixteen components. Collapsed to one token,
-# which says the useful thing -- that the description cites a Snyk advisory at all.
-# The trailing run of digits is what distinguishes an identifier from `snyk-top-banner`.
+# One vulnerability identifier per advisory, the same shape of problem as one link per item:
+# `snyk-js-axios-6144788` and 1,400 siblings. Collapsed to one token, which says the useful
+# thing -- that the description cites a Snyk advisory at all. The trailing run of digits is
+# what distinguishes an identifier from `snyk-top-banner`.
 SNYK_ID_RE = re.compile(r"^snyk-.+-\d{4,}$")
 MIN_WORDS = 5                      # a body needs this many distinct words to be prose
 MIN_TF = 45                        # a word needs this many total appearances.
@@ -142,13 +91,9 @@ MIN_TF = 45                        # a word needs this many total appearances.
                                    # this constant shapes the list even where it no longer
                                    # shapes the headline.
 MIN_AUTHORS = 20                   # and this many distinct accounts; see `documents`
-MIN_DF = 25                        # and this many distinct documents. Total appearances
-                                   # alone is not breadth: `multi-draw` appears 101 times
-                                   # inside ONE document, `m0` 140 times, and each was
-                                   # ranking among a component's most representative words
-                                   # because lift cannot tell a widespread word from a
-                                   # word someone repeated. The ceiling is `load-bearing`
-                                   # again, in 45 documents.
+MIN_DF = 25                        # and this many distinct documents. Total appearances alone
+                                   # is not breadth: `multi-draw` appears 101 times inside ONE
+                                   # document and lift cannot tell that from a widespread word.
 MAX_PER_AUTHOR = 3                 # per author per week; see `documents`
 
 def domain_token(url):
@@ -156,11 +101,9 @@ def domain_token(url):
 
     Kept whole, every distinct link was its own word, and a tool that puts a
     per-item link in each description got one word per item instead of one word.
-    Snyk alone contributed thousands: its vulnerability links were the most
-    representative words of eight of sixteen components, each holding a different
-    handful of them. Collapsing by domain says the useful thing -- that a
-    description links to Snyk at all -- in one token that can then clear the
-    frequency floors and be compared across weeks.
+    Collapsing by domain says the useful thing -- that a description links to Snyk
+    at all -- in one token that can clear the frequency floors and be compared
+    across weeks.
 
     The registrable domain is taken as the second-to-last label, which is wrong
     for `example.co.uk` and right for everything that turns up here.
@@ -379,217 +322,94 @@ def documents(log=print):
 
 # -------------------------------------------------------------------------- model
 
-@njit(parallel=True, cache=True)
-def _em_sweep(indptr, indices, data, logW, logpi, week_of, Wacc, Cacc, Aacc, llacc, hard):
-    """One E step, accumulating everything the M step needs, in a single pass.
+def kmeanspp(X, k, rng, S):
+    """Greedy k-means++ under KL. Returns k centres, each a distribution over the vocabulary.
 
-    Fused on purpose. The obvious formulation materialises a D-by-k matrix of logits, softmaxes
-    it, then multiplies it back against the sparse matrix -- three passes over the data and two
-    dense intermediates the size of the corpus. Here each document is visited once: its logits
-    are built in a length-k scratch array, softmaxed in place, and spent immediately on the word
-    totals, the weekly counts and the likelihood. Nothing D-sized is ever allocated.
+    D^2 sampling with the multinomial's own divergence in place of squared distance: the first
+    centre is a random description, and each next one is drawn with probability proportional to
+    its divergence from the nearest centre chosen so far -- best of TRIALS draws, which is what
+    "greedy" means and what scikit-learn's `k-means++` does by default.
 
-    Parallel over contiguous blocks of documents rather than over documents, so each thread owns
-    one slice of every accumulator and no two threads ever touch the same cell. The caller sums
-    the leading axis. That costs `nthreads * k * V` floats -- six megabytes at sixteen threads,
-    a thousandth of what the dense logits would have cost -- and buys freedom from atomics.
+    `S` is the first term of
 
-    `hard` switches the E step from a softmax to a winner-take-all: the document goes entirely
-    to its likeliest component and the objective becomes `max_k` where it was `log sum_k`. See
-    `fit` for what that is and what it costs.
+        n_d * KL(p_d || W_c)  =  sum_v x_dv log(x_dv / n_d)  -  x_d . log W_c
+
+    which depends on the description alone, so the sampling costs one sparse product per
+    candidate.
     """
-    k, V = logW.shape
-    D = indptr.shape[0] - 1
-    nt = Wacc.shape[0]
-    for b in prange(nt):
-        z = np.empty(k)
-        for d in range(D * b // nt, D * (b + 1) // nt):
-            s0, s1 = indptr[d], indptr[d + 1]
-            for c in range(k):
-                z[c] = logpi[c]
-            n_d = 0.0
-            for pp in range(s0, s1):
-                v, x = indices[pp], data[pp]
-                n_d += x
-                for c in range(k):
-                    z[c] += x * logW[c, v]
-            best = 0                                    # the max, and where it was
-            m = z[0]
-            for c in range(1, k):
-                if z[c] > m:
-                    m = z[c]
-                    best = c
-            if hard:
-                for c in range(k):                      # winner takes all
-                    z[c] = 0.0
-                z[best] = 1.0
-                tot = 1.0
-                llacc[b] += m
-            else:
-                tot = 0.0                               # log-sum-exp, shifted by the max
-                for c in range(k):
-                    z[c] = np.exp(z[c] - m)
-                    tot += z[c]
-                llacc[b] += np.log(tot) + m
-            t = week_of[d]
-            for c in range(k):
-                z[c] /= tot                             # z is now the responsibility r_dk
-                Cacc[b, t, c] += z[c]
-                Aacc[b, t, c] += z[c] * n_d
-            for pp in range(s0, s1):
-                v, x = indices[pp], data[pp]
-                for c in range(k):
-                    Wacc[b, c, v] += z[c] * x
+    D = X.shape[0]
+
+    def centre(i):
+        w = X[i].toarray().ravel() + SMOOTH
+        return w / w.sum()
+
+    def cost_to(W):
+        return np.maximum(S - X @ np.log(W), 0.0)
+
+    W = [centre(rng.integers(D))]
+    cost = cost_to(W[0])
+    for _ in range(1, k):
+        best = None
+        for _ in range(TRIALS):
+            cand = centre(int(rng.choice(D, p=cost / cost.sum())))
+            left = np.minimum(cost, cost_to(cand))
+            if best is None or left.sum() < best[0]:
+                best = (left.sum(), cand, left)
+        W.append(best[1])
+        cost = best[2]
+    return np.array(W)
 
 
-def _em_sweep_numpy(X, logW, logpi, week_of, T, hard=False):
-    """The same sweep, written the obvious way. The selftest holds `_em_sweep` to this.
+def fit(X, week_of, T, k=K, seed=SEED, log=print):
+    """KL k-means. Returns (W, C, A, cost).
 
-    A hand-written parallel kernel is exactly the kind of code that is wrong in a way tests
-    written against its own output cannot see, so the thing it must agree with is spelled out
-    separately in six lines of numpy and compared to eight decimal places.
-    """
-    k = logW.shape[0]
-    z = X @ logW.T + logpi
-    m = z.max(axis=1, keepdims=True)
-    if hard:
-        r = np.zeros_like(z)                            # first max wins, as in the kernel
-        r[np.arange(z.shape[0]), z.argmax(axis=1)] = 1.0
-        ll = float(m.sum())
-    else:
-        e = np.exp(z - m)
-        tot = e.sum(axis=1, keepdims=True)
-        r = e / tot
-        ll = float((np.log(tot) + m).sum())
-    C = np.zeros((T, k))
-    np.add.at(C, week_of, r)
-    A = np.zeros((T, k))
-    np.add.at(A, week_of, r * np.asarray(X.sum(axis=1)))
-    return np.asarray(r.T @ X), C, A, ll
+        W[c]   the c-th way of writing: a distribution over the vocabulary
+        C[t,c] descriptions of week t assigned to c
+        A[t,c] their word appearances
+        cost   sum_d n_d KL(p_d || W_assigned), the quantity minimised
 
+    Lloyd's algorithm: assign every description to the centre it is closest to under KL, move
+    each centre to the middle of what it was given, repeat until nothing moves. Assignment is
+    hard, so a description belongs to exactly one way of writing and the weekly curves are
+    counts of whole descriptions.
 
-def fit(X, week_of, T, k=K, tol=TOL, seed=SEED, log=print, hard=HARD, use_pi=USE_PI):
-    """One EM run. Returns (W, pi, C, A, objective).
-
-    One run from one starting point. `fit_best` is what callers want.
-
-    Two switches turn this into k-means, and they are separate:
-
-    `use_pi=False` drops `log pi_k` from the attribution, so a document goes where its words fit
-    best and not partly where the crowd already is. What remains is the plain multinomial
-    mixture with `pi` pinned uniform -- still a likelihood, still monotone under EM -- and the
-    thing k-means also lacks: a k-means centroid has no prior on how many points it should own.
-
-    `hard=True` replaces the softmax with a winner-take-all, which is Classification EM, and
-    with both switches the fit is exactly KL k-means. Writing `p_d = x_d / n_d` for a
-    document's own word distribution,
-
-        x_d . log W_k  =  -n_d * ( KL(p_d || W_k) + H(p_d) )
-
-    and `H(p_d)` does not depend on `k`, so choosing the likeliest component *is* choosing the
-    nearest centroid under KL, and the M step's `W_k = mean of the documents assigned to it` is
-    the KL-centroid of its cluster. The only trace of the probability model left is the `n_d`
-    weight -- a long document pulls its centroid harder, which is right here and is what makes
-    this KL k-means over documents rather than over word-frequency vectors.
-
-    What the objective means changes with the switches, so runs are only comparable within a
-    setting: `sum_d log sum_k pi_k P(x_d|W_k)` with both on, the same with `pi` uniform when
-    `use_pi=False`, and `sum_d max_k [log pi_k +] log P(x_d|W_k)` when `hard=True`. Each is
-    monotone under its own passes, which is all the convergence test needs.
+    Since x_d . log W_c = -n_d ( KL(p_d || W_c) + H(p_d) ) and H(p_d) does not vary with c, the
+    nearest centre is the one maximising x_d . log W_c -- one sparse product for the whole
+    corpus -- and the KL-centroid of a cluster is the sum of its descriptions, normalised. The
+    n_d weight is the only trace of counting left in it: a long description pulls harder.
     """
     rng = np.random.default_rng(seed)
-    D, V = X.shape
+    D = X.shape[0]
+    X = X.tocsr()
+    rows, ones = np.arange(D), np.ones(D)
+    n_d = np.asarray(X.sum(axis=1)).ravel()
+    ent = np.bincount(np.repeat(rows, np.diff(X.indptr)),
+                      weights=X.data * np.log(X.data), minlength=D) - n_d * np.log(n_d)
 
-    # seeded from a handful of real documents each, the usual start for a multinomial mixture:
-    # a uniform start leaves every component identical and the first step cannot break the tie
-    W = np.zeros((k, V))
-    for c in range(k):
-        pick = rng.choice(D, size=min(40, D), replace=False)
-        W[c] = np.asarray(X[pick].sum(axis=0)).ravel() + 0.1
-    W /= W.sum(axis=1, keepdims=True)
-    pi = np.full(k, 1.0 / k)
-
-    Xc = X.tocsr()
-    indptr = Xc.indptr.astype(np.int64)
-    indices = Xc.indices.astype(np.int64)
-    data = Xc.data.astype(np.float64)
-    week = np.asarray(week_of).astype(np.int64)
-    nt = numba.get_num_threads()
-
-    def sweep(W, pi):
-        Wacc = np.zeros((nt, k, V))
-        Cacc = np.zeros((nt, T, k))
-        Aacc = np.zeros((nt, T, k))
-        llacc = np.zeros(nt)
-        # zeros, not log pi, when the prior is out: it drops the term from the attribution and
-        # from the objective at once, which is what "drop the component likelihood" means
-        logpi = np.log(np.maximum(pi, 1e-300)) if use_pi else np.zeros(k)
-        _em_sweep(indptr, indices, data, np.log(np.maximum(W, 1e-12)),
-                  logpi, week, Wacc, Cacc, Aacc, llacc, hard)
-        return Wacc.sum(0), Cacc.sum(0), Aacc.sum(0), float(llacc.sum())
-
-    ll, prev = -np.inf, -np.inf
+    W, lab = kmeanspp(X, k, rng, ent), None
     for it in range(MAX_PASSES):
-        Wsum, C, A, ll = sweep(W, pi)
-        W = Wsum + 0.01                                   # word distributions
-        W /= W.sum(axis=1, keepdims=True)
-        share = C.sum(axis=0)                             # one mixture for the whole window
-        pi = share / max(share.sum(), 1e-12)              # reported even when unused above
-        log(f"  iter {it + 1:2d}  loglik {ll:,.0f}")
-        if prev > -np.inf and ll - prev < tol * abs(ll):
+        z = X @ np.log(W).T
+        new = z.argmax(axis=1)
+        if lab is not None and (new == lab).all():
             break
-        prev = ll
+        lab = new
+        R = csr_matrix((ones, (rows, lab)), shape=(D, k))
+        W = np.asarray((R.T @ X).todense()) + SMOOTH
+        W /= W.sum(axis=1, keepdims=True)
+        log(f"  pass {it + 1:2d}  cost {ent.sum() - z[rows, lab].sum():,.0f}")
     else:
-        log(f"  warning: {MAX_PASSES} passes without converging to {tol:g}")
+        log(f"  warning: {MAX_PASSES} passes without a fixed point")
 
-    # once more, so what is reported is the attribution under the parameters actually returned
-    # rather than under the ones from the pass before the last update
-    _, C, A, ll = sweep(W, pi)
-    return W, pi, C, A, ll
-
-
-def fit_best(X, week_of, T, k=K, tol=TOL, n_init=N_INIT, seed=SEED, log=print,
-             hard=HARD, use_pi=USE_PI):
-    """Fit `n_init` times from different starting points and keep the highest likelihood.
-
-    Restarts survived the simplification of everything around them, because the measurement
-    said they had to. Fitting once, at seed 0 and k=16, put `[transifex-url]` and `transifex`
-    at ranks one and two of the register's most characteristic words -- a translation service's
-    boilerplate welded onto the prose, which is what a mixed local optimum looks like from
-    outside. Across 16 seeds at the settings actually used:
-
-        loglik        best -36,889,990   worst -37,032,477   spread 0.39%
-        end share     min 36.0%   median 55.0%   max 63.4%
-        `load-bearing` rank   1 nine times, 2 twice, 3 twice, then 40, 243, 565
-
-    So the likelihood barely separates the runs while the answer moves by nearly a factor of
-    two, and the run that wins is worth finding. It is also easy to find: the best appeared at
-    the second restart and 30 further restarts never beat it. Eight is generous.
-
-    At 0.5s a restart the whole thing costs four seconds, which is why the argument against
-    restarts -- that ten of them cost five minutes -- stopped applying once the sweep became a
-    numba kernel.
-
-    One thing not to claim from this. At k=16 the likeliest fit was the one that divided the
-    register most finely and so reported the *smallest* share of any seed, which made the
-    published figure a floor. That is not true here: at k=8 the likeliest fit reports 62.1%
-    against a median of 55.0%, near the top of the range. The figure is the likeliest fit's
-    figure and nothing more.
-    """
-    best = None
-    for i in range(n_init):
-        out = fit(X, week_of, T, k, tol, seed + i, log=lambda *_: None,
-                  hard=hard, use_pi=use_pi)
-        log(f"  restart {i + 1}/{n_init}  loglik {out[-1]:,.0f}")
-        if best is None or out[-1] > best[-1]:
-            best = out
-    log(f"  kept loglik {best[-1]:,.0f}")
-    return best
+    idx = week_of * k + lab
+    C = np.bincount(idx, minlength=T * k).reshape(T, k).astype(float)
+    A = np.bincount(idx, weights=n_d, minlength=T * k).reshape(T, k)
+    return W, C, A, float(ent.sum() - z[rows, lab].sum())
 
 
 # --------------------------------------------------------------------------- out
 
-def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days=0, strict=True):
+def pack(X, week_of, weeks, vocab, W, C, A, cost, n_days=0, strict=True):
+    share = C.sum(axis=0) / max(C.sum(), 1e-12)            # each component's share of the corpus
     # Each component's share of all word appearances, used to build the baseline below.
     mass_c = A.sum(axis=0)
     mass_c = mass_c / max(mass_c.sum(), 1e-12)
@@ -611,24 +431,13 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days=0, strict=True):
     vocab_arr = np.asarray(vocab)
     obs = C / np.maximum(C.sum(axis=1, keepdims=True), 1e-12)
     start, end = obs[:8].mean(axis=0), obs[-8:].mean(axis=0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = np.where(start > 0, end / np.maximum(start, 1e-12), np.inf)
 
-    # The component this page is about is simply the largest one of the last month. It is not
-    # chosen by how much it grew, which is what the two thresholds below used to do and what
-    # made the choice fragile: at a 1% start one fit rejected its own biggest component,
-    # 1.06% -> 40.35%, for beginning six hundredths of a point too high. "Whatever is most of
-    # the writing now" needs no threshold and cannot reject anything.
-    #
-    # A month rather than a week because a week is 700 descriptions, and the subject of the
-    # whole page should not turn on which of two close components happened to lead across one
-    # of them.
+    # The component this page is about is simply the largest one of the last month:
+    # "whatever is most of the writing now" needs no threshold and cannot reject anything.
     lead = int(np.argmax(recent))
 
-    # The thresholds no longer select; they check. Selecting the biggest component says nothing
-    # about whether it arrived, and the page's headline claim is that it arrived, so that claim
-    # is tested separately against the component actually chosen. If this fires, the largest
-    # component is one that was always there and the page should not be published from the fit.
+    # The thresholds check rather than select: if this fires, the largest component is one that
+    # was always there and the page should not be published from the fit.
     arrived = bool(start[lead] < LEAD_START and end[lead] >= LEAD_END)
     if strict:
         assert arrived, (
@@ -640,39 +449,32 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days=0, strict=True):
     for c in order:
         # Lift against the corpus *without* this component. Dividing by the whole corpus
         # understates a large component's own words, because its occurrences are most of what
-        # it is being compared against -- at the end of the window one component is a third of
-        # everything written, so its vocabulary was being measured partly against itself. The
-        # baseline here is the mixture of every other component, weighted by their share of
-        # appearances, which asks the question that was meant: how much more probable is this
-        # word here than in the writing that is not this.
+        # it is being compared against. The baseline here is every other component, weighted by
+        # its share of appearances: how much more probable is this word here than in the
+        # writing that is not this.
         other = np.delete(mass_c, c)
         base = (np.delete(W, c, axis=0) * other[:, None]).sum(axis=0) / max(other.sum(), 1e-12)
         lift = W[c] / np.maximum(base, 1e-12)
-        # ties broken on the word itself, so the order is deterministic. Without it the
-        # arbitrary order among equal lifts moves between builds -- `mudan` and `gina` are both
-        # 58152.63 here -- and the daily commit churns for no reason.
+        # ties broken on the word itself, so two builds of the same corpus are byte-identical
+        # and the daily commit does not churn on words that score the same
         rank = np.lexsort((vocab_arr, -lift))
         # the arriving component gets a long list, because it is the one anybody will read
         # past the first handful of, and the cut has to fall somewhere
         n = WORDS_LEAD if c == lead else WORDS_LISTED
         comps.append({
-            "id": int(c),
             "lead": bool(c == lead),
-            # pi is one number per component now, not a curve: the model has no time in it.
-            # What varies by week is the attribution, `count`.
-            "share": round(float(pi[c]), 5),
+            "share": round(float(share[c]), 5),
             "start_share": round(float(start[c]), 5),
             "end_share": round(float(end[c]), 5),
-            "count": [round(float(v), 1) for v in C[:, c]],
+            "count": [int(v) for v in C[:, c]],
             "appearances": [int(round(v)) for v in A[:, c]],
             "word_list": [vocab[j] for j in rank[:n]],
             "word_lift": [round(float(lift[j]), 2) for j in rank[:n]],
             # each listed word's own weekly appearances, so the page can show a word's
             # history on hover. Only for the lead: at 85 weeks a thousand words is 85,000
-            # integers, worth carrying once and not sixteen times.
+            # integers, worth carrying once and not eight times.
             "series": ([[int(v) for v in per_word[j]] for j in rank[:n]]
                        if c == lead else None),
-            "tail": {t: int((lift >= t).sum()) for t in (5, 3, 2)},
         })
     # Points per week that the lead component has moved over the last TREND_WEEKS, by least
     # squares on its observed weekly share. The page reads this rather than being told the
@@ -684,18 +486,15 @@ def pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days=0, strict=True):
     return {"generated": date.today().isoformat(), "weeks": weeks, "days": int(n_days),
             "arrived": bool(arrived), "lead_window": LEAD_WINDOW,
             "trend": round(slope, 6), "trend_weeks": tw,
-            # reported for information, never selected on: growth is a continuum here rather
-            # than two separated groups
-            "lead_ratio": round(float(ratio[lead]), 1),
             "documents": int(X.shape[0]), "appearances": int(X.sum()),
             "docs_per_week": [int(v) for v in docs_per_week],
             "words_per_week": [int(v) for v in words_per_week],
             "vocab": len(vocab), "k": len(comps),
-            "loglik": round(ll, 1), "components": comps}
+            "cost": round(cost, 1), "components": comps}
 
 
 def selftest():
-    """A planted component that arrives partway through must be recovered."""
+    """A planted way of writing that arrives partway through must be recovered."""
     rng = np.random.default_rng(0)
     T, V, D_per, arrives = 40, 60, 60, 22
     Wt = rng.dirichlet(np.full(V, 0.4), size=3)
@@ -711,96 +510,48 @@ def selftest():
             week_of.append(t); d += 1
     X = csr_matrix((vals, (rows, cols)), shape=(d, V))
     week_of = np.array(week_of)
-    Xc = X.tocsr()
-    nt = numba.get_num_threads()
+    W, C, A, cost = fit(X, week_of, T, k=3, log=lambda *_: None)
 
-    # Every attribution rule must recover the plant, not just the published one: an ablation
-    # that cannot find a component it was handed says nothing about the one it did not.
-    found = {}
-    for hard in (False, True):
-        for use_pi in (True, False):
-            W, pi, C, A, ll = fit(X, week_of, T, k=3, log=lambda *_: None,
-                                  hard=hard, use_pi=use_pi)
-            name = f"{'hard' if hard else 'soft'}/{'pi' if use_pi else 'no-pi'}"
+    assert np.allclose(W.sum(axis=1), 1.0), "the centres are not distributions"
+    assert cost > 0, "the cost must be a positive divergence"
+    # every description belongs to exactly one component, so the counts are whole and they
+    # reconstruct each week
+    assert np.allclose(C, np.round(C)) and \
+        (C.sum(axis=1) == np.bincount(week_of, minlength=T)).all(), \
+        "the counts do not reconstruct the week"
+    assert np.allclose(A.sum(axis=1), np.bincount(week_of, minlength=T) * 50), \
+        "the appearance counts do not reconstruct the week"
 
-            assert abs(pi.sum() - 1.0) < 1e-6, f"{name}: the mixture must sum to 1"
-            assert (pi >= 0).all() and np.allclose(W.sum(axis=1), 1.0), \
-                f"{name}: factors are malformed"
-            # C must recover each week's document count, since every document's r sums to 1 --
-            # which is as true of a one-hot r as of a softmaxed one
-            assert np.allclose(C.sum(axis=1), np.bincount(week_of, minlength=T), rtol=1e-6), \
-                f"{name}: the counts do not reconstruct the week"
-            assert np.allclose(A.sum(axis=1),
-                               np.bincount(week_of, minlength=T) * 50, rtol=0.02), \
-                f"{name}: the appearance counts do not reconstruct the week"
+    # the planted way of writing must be found rising even though the model cannot represent
+    # time: this is the whole claim of the thing, tested where the answer is known
+    obs = C / C.sum(axis=1, keepdims=True)
+    late = int(np.argmax([Wt[2] @ np.log(W[c]) for c in range(3)]))
+    before, after = obs[:arrives, late].mean(), obs[arrives:, late].mean()
+    assert before < 0.5 * after, f"the planted component did not rise ({before:.3f} " \
+                                 f"then {after:.3f})"
 
-            # the planted component must be found rising even though the model cannot represent
-            # time: this is the whole claim of the thing, tested where the answer is known
-            obs = C / C.sum(axis=1, keepdims=True)
-            late = int(np.argmax([Wt[2] @ np.log(np.maximum(W[c], 1e-12)) for c in range(3)]))
-            before, after = obs[:arrives, late].mean(), obs[arrives:, late].mean()
-            assert before < 0.5 * after, f"{name}: the planted component did not rise " \
-                                         f"({before:.3f} then {after:.3f})"
-            found[name] = (before, after)
-
-            # and the numba kernel must agree with the plain numpy statement of the same sweep,
-            # under both attribution rules. A hand-written parallel reduction is wrong in ways
-            # tests written against its own output cannot reveal.
-            logW = np.log(np.maximum(W, 1e-12))
-            logpi = np.log(np.maximum(pi, 1e-300)) if use_pi else np.zeros(3)
-            Wacc = np.zeros((nt, 3, V)); Cacc = np.zeros((nt, T, 3))
-            Aacc = np.zeros((nt, T, 3)); llacc = np.zeros(nt)
-            _em_sweep(Xc.indptr.astype(np.int64), Xc.indices.astype(np.int64),
-                      Xc.data.astype(np.float64), logW, logpi,
-                      week_of.astype(np.int64), Wacc, Cacc, Aacc, llacc, hard)
-            rW, rC, rA, rll = _em_sweep_numpy(X, logW, logpi, week_of, T, hard)
-            for got, want, what in ((Wacc.sum(0), rW, "word totals"),
-                                    (Cacc.sum(0), rC, "counts"),
-                                    (Aacc.sum(0), rA, "appearances")):
-                assert np.allclose(got, want, rtol=1e-8, atol=1e-8), \
-                    f"{name}: the numba sweep disagrees with numpy on the {what}"
-            assert abs(llacc.sum() - rll) < 1e-6 * max(abs(rll), 1.0), \
-                f"{name}: the numba sweep disagrees with numpy on the objective " \
-                f"({llacc.sum()} vs {rll})"
-            # hard attribution must actually be hard: one component per document, no fractions
-            if hard:
-                assert np.allclose(rC, np.round(rC)), \
-                    f"{name}: winner-take-all left fractional counts"
-
-    plant = ", ".join(f"{n} {b:.3f} -> {a:.3f}" for n, (b, a) in found.items())
-    print(f"selftest: ok  (mixture sums to 1, counts reconstruct each week, numba agrees with "
-          f"numpy under both attribution rules, planted component at week {arrives}: {plant})")
+    print(f"selftest: ok  (centres are distributions, counts are whole and reconstruct each "
+          f"week, planted component {before:.3f} -> {after:.3f} at week {arrives})")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--k", type=int, default=K)
-    ap.add_argument("--tol", type=float, default=TOL)
-    ap.add_argument("--n-init", type=int, default=N_INIT, dest="n_init")
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--out", "-o", default="analysis.js")
-    ap.add_argument("--hard", action="store_true",
-                    help="winner-take-all attribution instead of soft (Classification EM)")
-    ap.add_argument("--no-pi", action="store_false", dest="use_pi",
-                    help="drop log pi_k from the attribution; with --hard, KL k-means")
-    ap.add_argument("--loose", action="store_false", dest="strict",
-                    help="report a fit that fails the arrival check instead of refusing it")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
         return selftest()
 
     X, week_of, weeks, vocab, n_days = documents()
-    W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, tol=args.tol,
-                               n_init=args.n_init, seed=args.seed,
-                               hard=args.hard, use_pi=args.use_pi)
-    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days, strict=args.strict)
+    W, C, A, cost = fit(X, week_of, len(weeks), k=args.k, seed=args.seed)
+    out = pack(X, week_of, weeks, vocab, W, C, A, cost, n_days)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("window.ANALYSIS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
         fh.write(";\n")
-    print(f"\n{'hard' if args.hard else 'soft'} attribution, "
-          f"pi {'in' if args.use_pi else 'out'}, objective {ll:,.0f}, wrote {args.out} "
+    print(f"\ncost {cost:,.0f}, wrote {args.out} "
           f"({os.path.getsize(args.out)/1e3:.0f} kB)\n")
     for c in out["components"]:
         print(f"  {'lead' if c['lead'] else '    '}  share {c['share']:6.1%}  "
