@@ -386,6 +386,31 @@ text this long *is* hard attribution to three decimal places, and the four fits 
 component a description belongs to for 94.6% to 100% of the corpus. The finding is not an
 artefact of soft attribution, which is the only thing this ablation was run to find out.
 
+### How good is KL k-means at finding the component?
+
+Good, and not because it is a good clustering rule — because on this corpus the choice of local
+optimum swamps the choice of rule. Taking the published fit's own partition as the target (the
+7,328 descriptions it puts in the arriving component), and scoring the other rules against it by
+F1 over 16 restarts each:
+
+| variant | F1, likeliest fit | F1, median seed | F1, worst seed | top-40 words shared | `load-bearing` top 5 | its own seed-to-seed F1 |
+|---|---|---|---|---|---|---|
+| soft, $\pi$ in (published) | 1.000 | 0.844 | 0.706 | 31/40 | 13 of 16 | 0.784 |
+| soft, $\pi$ out | 0.982 | 0.841 | 0.612 | 31/40 | 13 of 16 | 0.772 |
+| hard, $\pi$ in | 0.969 | 0.829 | 0.660 | 30/40 | 13 of 16 | 0.774 |
+| hard, $\pi$ out — KL k-means | **0.956** | 0.826 | 0.671 | 30/40 | 13 of 16 | 0.772 |
+
+The likeliest KL k-means fit **keeps 7,129 of the published component's 7,328 descriptions
+(97.3%) and adds 465**, ranks `load-bearing` third on the same lift measure, shares 37 of the
+published top 40 words, and draws a weekly curve correlating 0.99971 with the published one.
+
+The last two columns are the ones to read twice. Every rule puts `load-bearing` in the top five
+for the same 13 seeds of 16, and every rule agrees with *itself* across seeds only about as well
+as it agrees with a different rule — mean pairwise F1 of 0.77 within a variant, against 0.83
+median agreement between variants. **The seed is the variable; soft-versus-hard is not.** Which
+is the same lesson the restarts section reaches from the other direction, and it is why `N_INIT`
+is the setting that earns its keep and `HARD` is the one that does not matter.
+
 Robustness across all eight restarts, not just the winner:
 
 | variant | headline across 8 seeds | `load-bearing` in top 5 | 8 restarts |
@@ -402,11 +427,16 @@ cost of it is half a second per restart on a fit that is already the cheap part 
 Hardening buys 2× on the fit and nothing else. **In 32 runs no component ever emptied**, so the
 hard variants are reported as they ran, with no reseeding.
 
-One thing the table exposes that is not about attribution: on this corpus **7 of 8 individual
-restarts start the largest component above `LEAD_START` = 2%** and so would fail the arrival
-check, in every variant. The likeliest restart — the only one published — passes in all four, at
-0.94% to 1.51%. The check is doing its job on the fit that gets published, and it is closer to
-its threshold than the published margin suggests.
+One thing these tables expose that is not about attribution: **about half of individual restarts
+would fail the arrival check** — 8 of 16 seeds in the published setting, 6, 9 and 9 in the other
+three — because they start the largest component above `LEAD_START` = 2% rather than because it
+fails to end large. The likeliest restart, the only one published, passes in all four variants at
+0.94% to 1.51%. So the check is doing its job on the fit that gets published, and it sits closer
+to its threshold than the published margin suggests. The split is not even across the seed range:
+of the eight seeds the fit actually uses, 0–7, only one passes, while seven of seeds 8–15 do.
+That is a fact about which local optima those seeds happen to land in and not about the seeds,
+but it is worth knowing that `SEED = 0` and `N_INIT = 8` were not the lucky choice they look
+like — the run that wins on likelihood passes the check from either range.
 
 ### Speed
 
