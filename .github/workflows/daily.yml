@@ -41,7 +41,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python fetch_day.py --backfill ${{ inputs.backfill || 0 }}
 
-      # Under a minute: one k-means++ run to a fixed point, on two sparse products a pass.
+      # About half a minute: eight k-means++ runs, each two sparse products a pass.
       - name: Analyse
         run: |
           python analyze.py --selftest

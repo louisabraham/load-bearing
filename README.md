@@ -1,8 +1,8 @@
 # The load-bearing vocabulary of Claude
 
 Groups of words whose frequency in GitHub pull request descriptions changed at the same time,
-found without being told what to look for. One of them was 1.3% of the corpus at the start of
-2025 and is 60% of it by the middle of 2026.
+found without being told what to look for. One of them was 1.1% of the corpus at the start of
+2025 and is 47% of it by the middle of 2026.
 
 **[louisabraham.github.io/load-bearing](https://louisabraham.github.io/load-bearing/)**
 
@@ -19,7 +19,7 @@ export GITHUB_TOKEN=$(gh auth token)
 
 python fetch_day.py                  # yesterday, one request
 python fetch_day.py --backfill 30    # and the last 30 days, if missing
-python analyze.py                    # ~11 s end to end
+python analyze.py                    # ~30 s end to end
 python analyze.py --selftest         # the invariants, on synthetic data
 open index.html
 ```
@@ -274,44 +274,46 @@ k-means implementation usually has to invent. Thirty-six passes on this corpus.
 A pseudo-count of 0.01 is added to every centre before normalising, so no centre gives a word
 probability zero and no description can be infinitely far from anywhere.
 
-### One run, and what that costs
+### Eight restarts, and a retry
 
-There are no restarts, and the honest statement of the price is this: **the figure on the page is
-one run's figure, and the seed moves it.** Fitting the same corpus from 32 different starting
-points:
+Eight fits from eight seeds, and the cheapest is published. **The restarts are not there to find
+a better answer**, and it is worth being precise about that: cost is the only quality measure
+this model has, and across 32 runs its correlation with the share the page reports is **+0.03**.
+The cheapest of eight is not a truer fit than the first of one.
 
-| | across 32 runs |
+They are there so that the daily job publishes something. A single fit passes the arrival check
+about two times in three; the cheapest of eight passes it ninety-nine times in a hundred. If the
+cheapest of a batch still does not arrive, the whole batch is run again from eight fresh seeds,
+up to four batches, and then nothing is published and the job stops.
+
+**That retry conditions the fit on the check.** On a day one happens, `LEAD_START` and `LEAD_END`
+select rather than test, and the published start share is under 2% by construction. So the
+evidence that the component arrived is not that the published fit passed — it is the rate at
+which *unconditioned* fits arrive at all. Over 32 single runs of the same corpus:
+
+| | across 32 single fits |
 |---|---|
-| where the arriving component ends | 29.8% to 62.9%, median 49.0% |
-| `load-bearing`'s rank in its words | first in 21, top five in 28, top forty in 31 |
 | the arrival check | passes in 21 |
+| where the component ends | 29.8% to 62.9%, median 49.0% |
+| `load-bearing`'s rank in its words | first in 21, top five in 28, top forty in 31 |
 | total cost | spread of 0.93% |
 | agreement on the weekly *shape* | mean `r` = 0.985 between any two runs |
 | agreement on *which* descriptions | mean F1 = 0.744, and as low as 0.13 |
 
-So the thing the page is about is not in doubt — every run finds a way of writing that arrives,
-almost every run puts the title word at or near the top of it, and the curves lie on top of each
-other. Where exactly it ends is one run's answer.
-
-**Restarts would not fix that, and it is worth being precise about why.** Cost is what a restart
-would choose on, and cost is nearly independent of everything the page reports: across those 32
-runs its correlation with the final share is **+0.03**, and picking the cheapest of eight runs
-leaves the median share where one run left it. What restarts do buy is that the arrival check
-stops firing — it passes for 65% of single runs, 94% of best-of-four, 99% of best-of-eight — so
-they are worth about eighteen seconds if a daily job that occasionally refuses to publish is
-worse than one that always does. They are not worth anything as a route to a truer number.
-
-`SEED` is therefore a real choice, and it is listed as one in §7.
+So the thing the page is about is not in doubt: every one of those runs finds a way of writing
+that ends between 30% and 63% of the recent weeks, almost every one puts the title word at or
+near the top of it, and any two of them draw the same weekly shape. **Where exactly it ends is
+one fit's answer**, and `SEED` is listed as a real choice in §7 for that reason.
 
 ### Speed
 
-About eleven seconds end to end, on 51,964 descriptions and 5.7 million word appearances,
-four threads.
+About half a minute end to end, on 51,964 descriptions and 5.7 million word appearances, four
+threads.
 
 | stage | time |
 |---|---|
 | reading the corpus — regexes, interning, building the matrix | 8.4 s |
-| seeding and fitting, 36 passes | 2.4 s |
+| eight fits, seeding and ~36 passes each | 23 s |
 | ranking words, packing, writing `analysis.js` | 0.1 s |
 
 **There is no `numba` any more, and that is a measurement rather than a preference.** The whole
@@ -368,11 +370,11 @@ starting at 0.3% for no good reason, and be least stable exactly where it matter
 The page says the component is still growing, and that sentence is read off the data rather than
 typed into the markup: `analyze.py` fits a least-squares line to the component's observed weekly
 share over the last 12 weeks and reports the slope, and the page phrases itself from the sign.
-Currently **+1.3 points a week**, over a stretch running 49.3% to 66.4%. If it ever flattens the
+Currently **+1.2 points a week**, over a stretch running 37.2% to 52.1%. If it ever flattens the
 page will say it has levelled off instead, without anyone editing it — a claim that can go stale
 should not be a string constant.
 
-Note that the last eight weeks alone are noisy around 60% and would not support the claim on
+Note that the last eight weeks alone are noisy around 47% and would not support the claim on
 their own; twelve weeks is what makes the slope clear of the week-to-week scatter.
 
 ### The stacked chart
@@ -395,13 +397,13 @@ $$\mathrm{lift}_k(v) = W_{vk} \Big/ \frac{\sum_{j \neq k} m_j W_{vj}}{\sum_{j \n
 
 where $m_j$ is component $j$'s share of all word appearances.
 
-**The exclusion is doing enormous work.** The component is now most of the recent weeks, so
-dividing by the whole corpus would compare its vocabulary mostly against itself.
-`load-bearing` scores **3.76× against the whole corpus and 4,062× against everything that is
-not this component** — a thousandfold difference, from one choice of denominator.
+**The exclusion is doing enormous work.** The component is close to half of the recent weeks, so
+dividing by the whole corpus would compare its vocabulary substantially against itself.
+`load-bearing` scores **4.65× against the whole corpus and 183× against everything that is not
+this component** — a fortyfold difference, from one choice of denominator.
 
 Size and shade follow the *logarithm* of that multiple, because it spans three orders of
-magnitude — 4,062× down to 4.07× across the thousand words shown — and on a linear ramp every
+magnitude — 183× down to 3.62× across the thousand words shown — and on a linear ramp every
 word past the first dozen would sit at the minimum.
 
 ### Hovering
@@ -422,7 +424,9 @@ been different. **Two were chosen by looking at the answer**, and both are marke
 | `MIN_TF` | 45 | **chosen on the outcome** — see below |
 | `MIN_AUTHORS` | 20 | measured, but a thin margin: bots at 16 and 18, real words at 91 and 132 |
 | `EXCLUDE_APPS` | 4 apps | measured — 90% of App-authored bodies |
-| `SEED` | 0 | **consequential** — there is one run, and the seed moves the headline; see §5 |
+| `SEED` | 0 | **consequential** — the seed moves the headline; see §5 |
+| `N_INIT` | 8 | measured — a single fit publishes 2 times in 3, the cheapest of eight 99 in 100 |
+| `RETRIES` | 4 | **arbitrary** — batches to run before giving up; a second one is a 1-in-100 day |
 | `TRIALS` | 3 | judgement — k-means++ candidates per centre; `scikit-learn` uses 4 at this `k` |
 | `SMOOTH` | 0.01 | **arbitrary** pseudo-count, so no centre gives a word probability zero |
 | `LEAD_WINDOW` | 4 weeks | judgement — "a month", to stop one week deciding the subject |
@@ -455,18 +459,19 @@ this is not a bias in *time*; it is a varying effective width.
 ### How many components, and why that is not a neutral choice
 
 `k = 8`, and the number was chosen so that `load-bearing` — the word this page is named after —
-would rank among the most characteristic words of the arriving component. It does, at rank 1.
+would rank among the most characteristic words of the arriving component. It does, at rank 1, and
+`k = 8` is the only setting in the sweep below where that and the arrival check hold together.
 
 | k | rank of `load-bearing` | the arrival check |
 |---|---|---|
-| 4 | 2 | fails — the largest component starts at 7.7% |
-| 6 | 1 | passes |
+| 4 | 17 | fails — the largest component starts at 6.4%, and it is Spanish and French |
+| 6 | 1 | fails — starts at 3.3% |
 | **8** | **1** | **passes** |
-| 12 | 1 | passes |
-| 16 | 4 | passes |
-| 24 | 4 | passes |
-| 32 | 36 | fails — nothing ends above 20% |
-| 48 | 48 | fails |
+| 12 | 56 | passes |
+| 16 | 2 | passes |
+| 24 | 10 | passes |
+| 32 | 18 | fails — nothing ends above 20% |
+| 48 | 4,474 | fails |
 
 **That is selection on the outcome, and it cannot also be evidence for the outcome.** Nothing in
 the fit can choose `k` for you: the total cost falls monotonically as `k` rises — 13.7 M at four
@@ -477,10 +482,10 @@ matches its own top line. What it costs is that no ranking here may be read as h
 discovered: the vocabulary is real and the rise is real, but the *order* was tuned until a
 chosen word came first.
 
-The finding itself does not depend on it. A way of writing going from near nothing to most of
-the recent weeks, with these words, is there at every `k` from 6 to 24. Only the ranking of
-individual words within it moves, and past 24 the register is split finely enough that no single
-piece of it is large enough to be called the subject of the page.
+The finding itself does not depend on it. A way of writing going from near nothing to a large
+share of the recent weeks, with these words, is there at every `k` from 6 to 24. What moves is
+the ranking of individual words within it — and past 24 the register is split finely enough that
+no single piece of it is large enough to be called the subject of the page.
 
 **Retracted: "marker recovery".** This is the second time this project has chosen `k` by looking
 at the answer. The first was an accident: an earlier version scored each setting by how many of
@@ -490,11 +495,12 @@ disclosed, because it was asked for deliberately.
 
 ## 8. Caveats to carry
 
-**On the title.** Words naming Claude are elevated inside this component — `claude` at 5.24×
-and its link at 5.67× — while Cursor sits at 1.36×, ChatGPT at 1.29×, Codex at 0.81× and
-Copilot at 0.61×, at or near the baseline. But `gpt-5` is elevated further than any of them,
-at 10.89×. The register is far more strongly associated with Claude than with most assistants,
-and it is not Claude's alone.
+**On the title.** Words naming Claude are the only assistant names elevated inside this
+component — `claude` at 3.54× and its link at 4.55× — while Cursor sits at 0.79×, ChatGPT at
+0.66×, Codex at 0.52× and Copilot at 0.46×, all below the baseline, and `gpt-5` only just above
+it at 1.89×. The register is far more strongly associated with Claude than with any other
+assistant. That is an association between a way of writing and a name people write down, and
+nothing more.
 
 **A confound in the denominator.** The corpus only contains pull requests whose author wrote a
 description, and that condition loosens over the window — empty descriptions fall from about a
