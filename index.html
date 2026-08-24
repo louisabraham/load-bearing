@@ -3,76 +3,368 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The load-bearing vocabulary of Claude</title>
 <style>
-/* Two colours carry meaning rather than identity. Sixteen stacked bands cannot each have a
-   hue -- a sixteen-step single-hue ramp holds neither adequate lightness gaps nor both ends
-   visible against the surface -- so the bands are one muted tone and the accent is reserved
-   for the component that arrives. Both are contrast-checked against both surfaces: the
-   accent clears 3:1 as a mark on each ground, and `muted` is the darkest step that also
-   clears 4.5:1 for body text on paper. */
+/* Five propositions on the same numbers.
+ *
+ * Every one of them is Bauhaus in the same two senses: the primaries (red, blue, yellow)
+ * against black on paper, and geometry doing the work that decoration would otherwise do --
+ * the circle, the square, the triangle, the rule, the grid. They differ in composition, not
+ * in content: the words, the figures and the charts are identical in all five, because the
+ * information is the thing being designed, and the design is the variable.
+ *
+ * The theme is light in all five. Bauhaus printing was ink on paper; a dark ground would
+ * invert the whole premise, so `prefers-color-scheme` is deliberately not honoured here.
+ *
+ * Colour still carries meaning rather than identity: in every proposition the accent is
+ * reserved for the one component that arrives, and the other seven are one ramp of one hue.
+ * Sixteen -- here eight -- stacked bands cannot each have a hue without becoming a chart about
+ * its own palette, so only the arrival is coloured. Every accent clears 4.5:1 against its own
+ * ground -- it is set as small text in the word panel, not only used as a mark -- and so does
+ * every `--muted` pairing.
+ */
+
+/* ---------------------------------------------------------------- shared */
+
 :root {
-  --ground:#f4f1ea; --ink:#14110f; --muted:#6b6459; --accent:#e8452c;
-  --hairline:#ddd7ca; --band:#c9c1b2; --fill:#e8452c2e;
-  --sans: ui-sans-serif, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* Geometric sans first, in the Futura line the school actually printed with; grotesk and
+     mono as the fallbacks. No web fonts: the page is one file that reads one file. */
+  --geo: Futura, "Futura PT", "Century Gothic", "URW Gothic", "Avant Garde", ui-sans-serif,
+         system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --grotesk: "Helvetica Neue", Helvetica, Inter, ui-sans-serif, system-ui, Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --barh: 48px;
 }
-@media (prefers-color-scheme: dark) {
-  :root { --ground:#14110f; --ink:#f4f1ea; --muted:#a39b8e; --accent:#f0563a;
-          --hairline:#302b26; --band:#3d372f; --fill:#f0563a33; }
-}
-* { box-sizing:border-box; }
-body { margin:0; background:var(--ground); color:var(--ink);
-       font:400 18px/1.55 var(--sans); -webkit-font-smoothing:antialiased; }
-.wrap { max-width:1020px; margin:0 auto; padding:0 24px 96px; }
-header { padding:72px 0 0; }
-h1 { margin:0; font-weight:900; letter-spacing:-0.035em; line-height:0.9;
-     font-size:clamp(2.2rem,6.6vw,4.4rem); text-transform:uppercase; }
-h1 em { font-style:normal; color:var(--accent); }
-.standfirst { margin:28px 0 0; max-width:62ch; font-size:clamp(1.05rem,2.1vw,1.28rem); }
-.label { font:500 11px/1.3 var(--mono); text-transform:uppercase;
-         letter-spacing:0.12em; color:var(--muted); }
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-         margin:40px 0 0; border-top:4px solid var(--ink); border-bottom:4px solid var(--ink); }
-.stat { padding:18px 20px 16px; border-right:1px solid var(--hairline); }
-.stat:last-child { border-right:0; }
-.stat b { display:block; font-size:2rem; font-weight:900; letter-spacing:-0.02em; }
-section { border-top:4px solid var(--ink); margin-top:56px; padding-top:22px; }
-header + section { border-top:0; margin-top:34px; padding-top:0; }
-.lede { margin:0 0 14px; max-width:60ch; letter-spacing:-0.012em;
-        font:500 clamp(1.15rem,2.6vw,1.6rem)/1.3 var(--sans); }
-.lede:last-of-type { margin-bottom:26px; }
-.lede b { font-weight:900; color:var(--accent); }
-.note { color:var(--muted); max-width:66ch; margin:0 0 20px; font-size:0.95rem; }
-.chart svg { display:block; width:100%; height:280px; }
-.axis { position:relative; height:15px; margin-top:6px; }
-.axis span { position:absolute; top:0; white-space:nowrap; }
-.axis .last { right:0; }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; padding-top: var(--barh); background: var(--ground); color: var(--ink);
+       font: 400 18px/1.55 var(--body); -webkit-font-smoothing: antialiased; }
+svg { display: block; width: 100%; }
+b { font-weight: 700; }
 
-/* the word chart: fixed above the wall, so hovering a word never moves the thing you are
+/* the index. Deliberately plain chrome in all five: a black bar that belongs to the site
+   rather than to any one proposition, so switching compares the designs and not their menus */
+#index { position: fixed; inset: 0 0 auto; height: var(--barh); z-index: 20;
+         background: #111; color: #f4f2ee; display: flex; align-items: stretch;
+         font: 500 12px/1 var(--grotesk); letter-spacing: 0.09em; text-transform: uppercase; }
+#index .home { display: flex; align-items: center; padding: 0 16px; gap: 10px;
+               border-right: 1px solid #333; white-space: nowrap; }
+#index .home i { width: 11px; height: 11px; background: #e2231a; border-radius: 50%; }
+#index .set { display: flex; overflow-x: auto; scrollbar-width: none; }
+#index .set::-webkit-scrollbar { display: none; }
+#index button { appearance: none; background: none; border: 0; border-right: 1px solid #333;
+                color: #9d9990; font: inherit; letter-spacing: inherit;
+                text-transform: inherit; padding: 0 15px; cursor: pointer; display: flex;
+                align-items: center; gap: 9px; white-space: nowrap; }
+#index button:hover { color: #f4f2ee; }
+#index button em { font-style: normal; width: 20px; height: 20px; display: grid;
+                   place-items: center; background: #333; color: #f4f2ee; font-size: 11px; }
+#index button[aria-pressed="true"] { color: #111; background: #f4f2ee; }
+#index button[aria-pressed="true"] em { background: #e2231a; color: #fff; }
+#index button:nth-child(2)[aria-pressed="true"] em { background: #1f4ea3; }
+#index button:nth-child(3)[aria-pressed="true"] em { background: #f0b400; color: #111; }
+#index button:nth-child(4)[aria-pressed="true"] em { background: #1f4ea3; }
+#index .keys { margin-left: auto; align-self: center; padding: 0 16px; color: #6f6b64;
+               font-size: 11px; white-space: nowrap; }
+@media (max-width: 860px) { #index button span { display: none; }
+                            #index .keys, #index .home b { display: none; } }
+
+/* the word panel: fixed above the wall, so hovering a word never moves the thing you are
    reading, and there is room for a real chart rather than a tooltip-sized one */
-.probe { border:1px solid var(--hairline); padding:14px 16px 10px; margin:0 0 18px;
-         position:sticky; top:0; background:var(--ground); z-index:5; }
-.probe .who { display:flex; justify-content:space-between; align-items:baseline; gap:12px;
-              flex-wrap:wrap; }
-.probe .word { font:500 1.1rem/1.2 var(--mono); }
-.probe .word b { color:var(--accent); font-weight:500; }
-.probe svg { display:block; width:100%; height:90px; margin-top:8px; }
+.probe { position: sticky; top: var(--barh); z-index: 5; background: var(--ground); }
+.probe .who { display: flex; justify-content: space-between; align-items: baseline;
+              gap: 12px; flex-wrap: wrap; }
+.probe .word { font: 500 clamp(1.05rem,1.6vw,1.3rem)/1.2 var(--mono); }
+.probe .word b { color: var(--accent); font-weight: 500; }
+.probe .meta { font: 500 11px/1.4 var(--mono); letter-spacing: 0.06em; color: var(--muted);
+               text-transform: uppercase; }
+.probe svg { height: 92px; margin-top: 8px; }
 
-.wall span { display:inline-block; font-family:var(--mono); margin:0 7px 5px 0;
-             white-space:nowrap; cursor:default; }
-.wall span:hover, .wall span.on { color:var(--accent); }
-footer { border-top:1px solid var(--hairline); margin-top:56px; padding-top:20px; }
-#tip { position:fixed; pointer-events:none; opacity:0; z-index:10; background:var(--ink);
-       color:var(--ground); padding:7px 9px; font:500 11px/1.45 var(--mono);
-       white-space:nowrap; }
-#tip.on { opacity:1; }
+.chart svg { height: 300px; }
+.axis { position: relative; height: 15px; margin-top: 7px; font: 500 10px/1.3 var(--mono);
+        letter-spacing: 0.1em; color: var(--muted); }
+.axis span { position: absolute; top: 0; white-space: nowrap; }
+.axis span:first-child { left: 0; }
+.axis .last { right: 0; }
+
+.wall span { display: inline-block; font-family: var(--mono); margin: 0 7px 5px 0;
+             white-space: nowrap; cursor: default; }
+.wall span:hover, .wall span.on { color: var(--accent); }
+
+.label { font: 500 11px/1.3 var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
+         color: var(--muted); }
+
+/* how the grouping was done, in the same words in all five, placed differently in each */
+.method { margin: 0 0 22px; max-width: 66ch; color: var(--muted); font-size: 0.9rem;
+          line-height: 1.5; }
+.method a { color: var(--accent); text-decoration: underline;
+            text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.method a:hover, .method a:focus-visible { color: var(--ink);
+            text-decoration-color: var(--accent); text-decoration-thickness: 2px; }
+.method abbr { text-transform: uppercase; text-decoration: none; letter-spacing: 0.01em; }
+
+#tip { position: fixed; pointer-events: none; opacity: 0; z-index: 30; background: #111;
+       color: #f4f2ee; padding: 7px 9px; font: 500 11px/1.45 var(--mono);
+       white-space: nowrap; }
+#tip.on { opacity: 1; }
+
+/* ------------------------------------------------- 1 · GRUNDKURS (the poster)
+ * The preliminary course taught composition before craft, so this one is a poster: one
+ * asymmetric column of black type, the three figures carried by the three primaries on the
+ * three elementary shapes, and rules heavy enough to be printed. */
+
+body[data-p="1"] { --ground:#f2efe6; --ink:#100f0d; --muted:#655f55; --accent:#ce291b;
+                   --hairline:#d7d0c2; --fill:#ce291b24; --body:var(--geo); }
+[data-p="1"] .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 110px; }
+[data-p="1"] .rail { display: flex; align-items: center; gap: 14px; padding: 40px 0 26px; }
+[data-p="1"] .rail i { flex: 1; height: 7px; background: var(--ink); }
+[data-p="1"] h1 { margin: 0; font: 700 clamp(2.4rem,8.4vw,5.6rem)/0.88 var(--geo);
+                  letter-spacing: -0.03em; text-transform: uppercase; }
+[data-p="1"] h1 em { font-style: normal; color: var(--accent); }
+[data-p="1"] .standfirst { margin: 26px 0 0; max-width: 46ch;
+                           font-size: clamp(1.05rem,2.1vw,1.3rem); }
+[data-p="1"] .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr));
+                      gap: 0; margin: 34px 0 0; border-top: 8px solid var(--ink);
+                      border-bottom: 8px solid var(--ink); }
+[data-p="1"] .stat { padding: 22px 22px 20px; border-right: 1px solid var(--hairline);
+                     display: flex; align-items: flex-start; gap: 16px; }
+[data-p="1"] .stat:last-child { border-right: 0; }
+[data-p="1"] .stat b { display: block; font-size: clamp(1.8rem,4vw,2.5rem); font-weight: 700;
+                       letter-spacing: -0.02em; line-height: 1; }
+[data-p="1"] .stat .label { display: block; margin-top: 8px; }
+[data-p="1"] .glyph { flex: 0 0 34px; height: 34px; margin-top: 3px; }
+[data-p="1"] .glyph.sq { background: #1f4ea3; }
+[data-p="1"] .glyph.ci { background: var(--accent); border-radius: 50%; }
+[data-p="1"] .glyph.tr { width: 0; height: 0; background: none;
+                         border-left: 17px solid transparent; border-right: 17px solid transparent;
+                         border-bottom: 34px solid #f0b400; }
+[data-p="1"] section { border-top: 8px solid var(--ink); margin-top: 60px; padding-top: 24px; }
+[data-p="1"] .lede { margin: 0 0 14px; max-width: 54ch; letter-spacing: -0.015em;
+                     font: 500 clamp(1.2rem,2.8vw,1.75rem)/1.24 var(--geo); }
+[data-p="1"] .lede:last-of-type { margin-bottom: 28px; }
+[data-p="1"] .lede b { font-weight: 700; color: var(--accent); }
+[data-p="1"] .note { margin: 0 0 20px; max-width: 62ch; color: var(--muted);
+                     font-size: 0.95rem; }
+[data-p="1"] .probe { border: 1px solid var(--hairline); padding: 14px 16px 10px;
+                      margin: 0 0 20px; }
+[data-p="1"] .method { border-left: 7px solid var(--accent); padding-left: 14px;
+                       margin-bottom: 26px; }
+[data-p="1"] footer { border-top: 1px solid var(--hairline); margin-top: 60px;
+                      padding-top: 18px; }
+
+/* ------------------------------------------------- 2 · RASTERFELD (the lattice)
+ * Everything is a cell. One 12-column field, black hairlines all the way through, each figure
+ * and each paragraph sitting in its own compartment with a primary marking the corner. The
+ * catalogue page rather than the poster: white, exact, and read cell by cell. */
+
+body[data-p="2"] { --ground:#ffffff; --ink:#0d0d0d; --muted:#5f5f5f; --accent:#de301e;
+                   --hairline:#0d0d0d; --fill:#de301e1f; --body:var(--grotesk); }
+[data-p="2"] .wrap { max-width: 1180px; margin: 0 auto; padding: 26px 22px 110px; }
+[data-p="2"] .grid { display: grid; grid-template-columns: repeat(12,1fr);
+                     border: 2px solid var(--ink); border-bottom: 0; }
+[data-p="2"] .cell { grid-column: span 12; padding: 20px 22px; border-bottom: 2px solid var(--ink);
+                     position: relative; }
+[data-p="2"] .cell.title { grid-column: span 8; }
+[data-p="2"] .cell.mark { grid-column: span 4; border-left: 2px solid var(--ink);
+                          display: grid; place-items: center; padding: 22px; }
+[data-p="2"] .cell.stat { grid-column: span 4; border-left: 2px solid var(--ink); }
+[data-p="2"] .cell.stat:nth-child(3) { border-left: 0; }
+[data-p="2"] .cell.wide { grid-column: span 12; }
+[data-p="2"] .cell.said { grid-column: span 7; }
+[data-p="2"] .cell.said + .said { grid-column: span 5; border-left: 2px solid var(--ink); }
+[data-p="2"] h1 { margin: 0; font: 700 clamp(1.9rem,5.2vw,3.5rem)/0.96 var(--grotesk);
+                  letter-spacing: -0.04em; text-transform: uppercase; }
+[data-p="2"] h1 em { font-style: normal; background: var(--accent); color: #fff;
+                     padding: 0 0.12em; }
+[data-p="2"] .standfirst { margin: 16px 0 0; max-width: 52ch; font-size: 1.05rem; }
+[data-p="2"] .figure { display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+                       width: 100%; max-width: 190px; aspect-ratio: 1; }
+[data-p="2"] .figure i:nth-child(1) { background: #de301e; }
+[data-p="2"] .figure i:nth-child(2) { background: #0b5cab; border-radius: 0 100% 0 0; }
+[data-p="2"] .figure i:nth-child(3) { background: #ffcf33; border-radius: 0 0 0 100%; }
+[data-p="2"] .figure i:nth-child(4) { background: #0d0d0d; border-radius: 50%; }
+[data-p="2"] .cell.stat b { display: block; font: 700 clamp(2rem,5vw,3.1rem)/1 var(--grotesk);
+                            letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
+[data-p="2"] .cell.stat .label { display: block; margin-top: 10px; font-family: var(--grotesk);
+                                 letter-spacing: 0.16em; }
+[data-p="2"] .cell.stat::after { content: ""; position: absolute; top: 0; right: 0;
+                                 width: 14px; height: 14px; background: var(--accent); }
+[data-p="2"] .cell.stat:nth-child(4)::after { background: #0b5cab; }
+[data-p="2"] .cell.stat:nth-child(5)::after { background: #ffcf33; }
+[data-p="2"] .lede { margin: 0; font: 500 clamp(1.1rem,2.3vw,1.5rem)/1.28 var(--grotesk);
+                     letter-spacing: -0.02em; }
+[data-p="2"] .lede + .lede { margin-top: 12px; }
+[data-p="2"] .lede b { color: var(--accent); font-weight: 700; }
+[data-p="2"] .note { margin: 12px 0 0; color: var(--muted); font-size: 0.92rem; }
+[data-p="2"] .cell.method { grid-column: span 12; margin: 0; max-width: none;
+                            font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.02em;
+                            text-transform: uppercase; color: var(--muted); }
+[data-p="2"] .probe { grid-column: span 12; padding: 16px 22px 14px;
+                      border-bottom: 2px solid var(--ink); }
+[data-p="2"] .wall { grid-column: span 12; padding: 20px 22px 24px;
+                     border-bottom: 2px solid var(--ink); }
+[data-p="2"] .wall span { border: 1px solid #d5d5d5; padding: 3px 6px; margin: 0 4px 4px 0; }
+[data-p="2"] .wall span:hover, [data-p="2"] .wall span.on { border-color: var(--accent); }
+[data-p="2"] footer { border: 2px solid var(--ink); border-top: 0; padding: 14px 22px; }
+
+/* ------------------------------------------------- 3 · DIAGONALE (the dynamic sheet)
+ * Moholy-Nagy's diagonal: a yellow field cut across the corner, the section numbers turned
+ * onto their side in a left rail, and a narrow measure held off-centre. The only proposition
+ * where the page has a direction of travel. */
+
+body[data-p="3"] { --ground:#f7f5ef; --ink:#141414; --muted:#5d5951; --accent:#d12e10;
+                   --hairline:#dcd6c8; --fill:#d12e1016; --body:var(--grotesk); }
+[data-p="3"] .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px 120px;
+                     position: relative; }
+[data-p="3"] .field { position: absolute; inset: 0 0 auto; height: 620px; overflow: hidden;
+                      z-index: 0; pointer-events: none; }
+[data-p="3"] .field i { position: absolute; background: #f5c518; width: 150%; height: 150px;
+                        left: -25%; top: 150px; transform: rotate(-6deg); }
+[data-p="3"] .field u { position: absolute; right: 6%; top: 300px; width: 112px; height: 112px;
+                        border-radius: 50%; border: 12px solid #1a4fa0; }
+[data-p="3"] .sheet { position: relative; z-index: 1; display: grid;
+                      grid-template-columns: 74px minmax(0,1fr); gap: 0; }
+[data-p="3"] .num { writing-mode: vertical-rl; transform: rotate(180deg);
+                    font: 500 11px/1 var(--mono); letter-spacing: 0.34em;
+                    text-transform: uppercase; color: var(--ink); padding: 4px 0;
+                    border-right: 2px solid var(--ink); margin-right: 22px;
+                    align-self: start; }
+[data-p="3"] header.sheet { padding-top: 66px; }
+[data-p="3"] h1 { margin: 0; font: 700 clamp(2.1rem,6.4vw,4.3rem)/0.95 var(--grotesk);
+                  letter-spacing: -0.045em; }
+[data-p="3"] h1 em { font-style: italic; color: var(--accent); }
+[data-p="3"] .standfirst { margin: 22px 0 0; max-width: 44ch; font-size: 1.1rem; }
+[data-p="3"] .stats { display: flex; flex-wrap: wrap; margin: 30px 0 0; }
+[data-p="3"] .stat { padding: 0 30px 0 0; margin: 0 30px 14px 0;
+                     border-right: 2px solid var(--ink); }
+[data-p="3"] .stat:last-child { border-right: 0; }
+[data-p="3"] .stat b { display: block; font: 700 clamp(1.7rem,4.4vw,2.7rem)/1 var(--grotesk);
+                       letter-spacing: -0.04em; }
+[data-p="3"] .stat .label { display: block; margin-top: 7px; }
+[data-p="3"] section.sheet { margin-top: 68px; }
+[data-p="3"] .lede { margin: 0 0 12px; max-width: 46ch;
+                     font: 400 clamp(1.25rem,3vw,1.85rem)/1.22 var(--grotesk);
+                     letter-spacing: -0.028em; }
+[data-p="3"] .lede:last-of-type { margin-bottom: 26px; }
+[data-p="3"] .lede b { color: var(--accent); font-weight: 700; }
+[data-p="3"] .note { margin: 0 0 18px; max-width: 58ch; color: var(--muted); font-size: 0.93rem; }
+[data-p="3"] .chart, [data-p="3"] .probe { border-top: 2px solid var(--ink);
+                                           padding-top: 14px; }
+[data-p="3"] .probe { margin-bottom: 22px; padding-bottom: 12px;
+                      border-bottom: 1px solid var(--hairline); }
+[data-p="3"] .method { margin: 18px 0 0; max-width: 52ch; font-size: 0.86rem; }
+[data-p="3"] footer { margin-top: 70px; border-top: 2px solid var(--ink); padding-top: 16px; }
+
+/* ------------------------------------------------- 4 · KREIS & QUADRAT (the symmetric plate)
+ * Kandinsky's questionnaire gave the circle to blue, the square to red, the triangle to
+ * yellow. This one takes it literally and centres everything: three discs for three figures,
+ * a square plate for the stack, wide tracking, a lot of paper. */
+
+body[data-p="4"] { --ground:#eeebe3; --ink:#111111; --muted:#605b52; --accent:#cb2127;
+                   --hairline:#d3ccbc; --fill:#cb21271f; --body:var(--geo); }
+[data-p="4"] .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px 120px;
+                     text-align: center; }
+[data-p="4"] header { padding: 62px 0 0; }
+[data-p="4"] .trio { display: flex; justify-content: center; align-items: center; gap: 0;
+                     margin: 0 0 34px; }
+[data-p="4"] .trio i { width: 46px; height: 46px; background: #1a49a0; border-radius: 50%; }
+[data-p="4"] .trio i + i { background: var(--accent); border-radius: 0; margin-left: -10px; }
+[data-p="4"] .trio i + i + i { width: 0; height: 0; background: none; margin-left: 6px;
+                               border-left: 23px solid transparent;
+                               border-right: 23px solid transparent;
+                               border-bottom: 46px solid #f5c600; }
+[data-p="4"] h1 { margin: 0 auto; max-width: 22ch;
+                  font: 500 clamp(1.9rem,5.4vw,3.5rem)/1.06 var(--geo);
+                  letter-spacing: 0.02em; text-transform: uppercase; }
+[data-p="4"] h1 em { font-style: normal; color: var(--accent); font-weight: 700; }
+[data-p="4"] .standfirst { margin: 24px auto 0; max-width: 44ch; font-size: 1.05rem; }
+[data-p="4"] .stats { display: flex; justify-content: center; flex-wrap: wrap; gap: 26px;
+                      margin: 40px 0 0; }
+[data-p="4"] .stat { width: 178px; height: 178px; border-radius: 50%; display: grid;
+                     place-content: center; color: #fff; padding: 0 12px; }
+[data-p="4"] .stat:nth-child(1) { background: #c31f26; }
+[data-p="4"] .stat:nth-child(2) { background: #1a49a0; }
+[data-p="4"] .stat:nth-child(3) { background: #f5c600; color: #111; }
+[data-p="4"] .stat b { display: block; font: 700 1.75rem/1 var(--geo); letter-spacing: -0.02em; }
+[data-p="4"] .stat .label { display: block; margin-top: 9px; color: inherit; opacity: 0.92;
+                            letter-spacing: 0.16em; }
+[data-p="4"] section { margin-top: 74px; }
+[data-p="4"] .lede { margin: 0 auto 12px; max-width: 34ch;
+                     font: 500 clamp(1.2rem,2.9vw,1.7rem)/1.3 var(--geo);
+                     letter-spacing: -0.005em; }
+[data-p="4"] .lede:last-of-type { margin-bottom: 30px; }
+[data-p="4"] .lede b { color: var(--accent); font-weight: 700; }
+[data-p="4"] .note { margin: 14px auto 20px; max-width: 52ch; color: var(--muted);
+                     font-size: 0.93rem; }
+[data-p="4"] .plate { border: 3px solid var(--ink); padding: 20px 20px 14px;
+                      background: var(--ground); }
+[data-p="4"] .probe { border: 3px solid var(--ink); padding: 14px 18px 10px; margin: 0 0 20px;
+                      text-align: left; }
+[data-p="4"] .method { margin: 18px auto 0; max-width: 54ch; text-align: center;
+                       font-size: 0.86rem; }
+[data-p="4"] .wall { text-align: left; max-width: 780px; margin: 0 auto; }
+[data-p="4"] footer { margin-top: 74px; }
+[data-p="4"] footer .label { display: inline-block; border-top: 3px solid var(--ink);
+                             padding-top: 14px; }
+
+/* ------------------------------------------------- 5 · WERKSTATT (the workshop sheet)
+ * Bayer's universal alphabet had no capitals, and the workshop's printing had two inks. So:
+ * everything lowercase, everything flush left against a single hard margin, red and black
+ * only, and the figures set as large as the type case allows. */
+
+body[data-p="5"] { --ground:#f4f2ec; --ink:#0f0f0f; --muted:#5b5b5b; --accent:#d42118;
+                   --hairline:#dad6cc; --fill:#d421181c; --body:var(--geo); }
+[data-p="5"] .wrap { max-width: 1000px; margin: 0 auto; padding: 0 26px 120px;
+                     text-transform: lowercase; }
+[data-p="5"] .wrap .wall span, [data-p="5"] .wrap .meta { text-transform: lowercase; }
+[data-p="5"] header { padding: 54px 0 0; }
+[data-p="5"] .bar { height: 22px; background: var(--accent); width: 100%; margin: 0 0 26px; }
+[data-p="5"] .bar.thin { height: 6px; background: var(--ink); margin: 0 0 20px; }
+[data-p="5"] h1 { margin: 0; font: 400 clamp(2.2rem,7vw,4.6rem)/0.98 var(--geo);
+                  letter-spacing: -0.02em; }
+[data-p="5"] h1 em { font-style: normal; font-weight: 700; color: var(--accent); }
+[data-p="5"] .standfirst { margin: 24px 0 0; max-width: 48ch; font-size: 1.06rem; }
+[data-p="5"] .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr));
+                      margin: 32px 0 0; border-top: 6px solid var(--ink); }
+[data-p="5"] .stat { padding: 18px 0 16px; }
+[data-p="5"] .stat + .stat { border-left: 6px solid var(--accent); padding-left: 20px; }
+[data-p="5"] .stat b { display: block; font: 700 clamp(1.9rem,4.6vw,2.9rem)/1 var(--geo);
+                       letter-spacing: -0.03em; }
+[data-p="5"] .stat .label { display: block; margin-top: 8px; text-transform: lowercase;
+                            letter-spacing: 0.1em; }
+[data-p="5"] section { margin-top: 58px; }
+[data-p="5"] .lede { margin: 0 0 10px; max-width: 50ch;
+                     font: 400 clamp(1.25rem,3vw,1.85rem)/1.2 var(--geo);
+                     letter-spacing: -0.025em; }
+[data-p="5"] .lede:last-of-type { margin-bottom: 26px; }
+[data-p="5"] .lede b { font-weight: 700; color: var(--accent); }
+[data-p="5"] .note { margin: 0 0 18px; max-width: 60ch; color: var(--muted); font-size: 0.93rem; }
+[data-p="5"] .probe { border-top: 6px solid var(--ink); border-bottom: 1px solid var(--hairline);
+                      padding: 12px 0 10px; margin: 0 0 18px; }
+[data-p="5"] .method { border-top: 3px solid var(--accent); padding-top: 10px; max-width: 60ch; }
+[data-p="5"] footer { margin-top: 60px; border-top: 6px solid var(--ink); padding-top: 16px; }
+[data-p="5"] footer .label { text-transform: lowercase; }
+/* ---------------------------------------------------------------- narrow screens
+ * The compositions hold down to about 700px on their own. Below that the lattice cannot keep
+ * three figures on one row without setting them smaller than the words around them, and the
+ * diagonal's turned rail costs more width than it earns, so both give way. */
+@media (max-width: 700px) {
+  [data-p="2"] .cell.title, [data-p="2"] .cell.mark, [data-p="2"] .cell.stat,
+  [data-p="2"] .cell.said, [data-p="2"] .cell.said + .said { grid-column: span 12;
+    border-left: 0; }
+  [data-p="2"] .cell.stat { border-bottom: 2px solid var(--ink); }
+  [data-p="2"] .cell.mark { padding: 26px; }
+  [data-p="3"] .sheet { grid-template-columns: 30px minmax(0,1fr); }
+  [data-p="3"] .num { margin-right: 14px; letter-spacing: 0.2em; }
+  [data-p="4"] .stat { width: 148px; height: 148px; }
+}
 </style>
 
-<div class="wrap" id="app"></div>
+<nav id="index" aria-label="design propositions"></nav>
+<div id="app"></div>
 <div id="tip"></div>
 
 <script>
 const DATA = "analysis.js";
-let A = null;
+let A = null, TH = null, P = 1;
 const app = document.getElementById("app");
 const tip = document.getElementById("tip");
 const fmt = n => Math.round(n).toLocaleString("en-US");
@@ -83,24 +375,189 @@ const pc = v => { const x = v * 100;
           : x.toPrecision(2)) + "%"; };
 const esc = s => s.replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
-/* One area chart from one series, scaled to `hi`. Used for the stack's bands, the arrival's
-   own curve and every word's history, so they all read the same way. */
-function area(svg, vals, hi, colour, pad) {
-  const w = svg.clientWidth || 800, h = svg.clientHeight || 90, T = vals.length;
-  const bot = h - (pad || 0);
-  const x = i => (i / (T - 1)) * w, y = v => bot - (v / (hi || 1)) * (bot - 2);
+/* ------------------------------------------------------------------ the five
+
+   Each proposition supplies a name, a chart theme and a template. The template receives the
+   same prepared text and the same component builders, so no proposition can quietly say
+   something the others do not: the only thing a template chooses is arrangement. */
+
+/* seven neutral steps for the seven components that were always there, and the accent for the
+   one that arrives. Ordered light to dark or dark to light per proposition, never by hue. */
+const ramp = (from, to, n) => {
+  const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const a = hex(from), b = hex(to);
+  return Array.from({ length: n }, (_, i) => {
+    const t = n === 1 ? 0 : i / (n - 1);
+    return "#" + a.map((v, k) => Math.round(v + (b[k] - v) * t)
+      .toString(16).padStart(2, "0")).join("");
+  });
+};
+
+const PROPS = [
+  { n: "Grundkurs",
+    theme: { ramp: ramp("#9d9689", "#e7e2d6", 7), seam: 0.7, dash: "2 5", stroke: 1.9 },
+    build: T => `<div class="wrap">
+      <header>
+        <div class="rail"><i></i></div>
+        <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
+        <p class="standfirst">${T.standfirst}</p>
+        <div class="stats">
+          ${T.stats.map((s, i) => `<div class="stat">
+            <span class="glyph ${["sq","ci","tr"][i]}"></span>
+            <span><b>${s.v}</b><span class="label">${s.k}</span></span></div>`).join("")}
+        </div>
+      </header>
+      <section>
+        <p class="lede">${T.divided}</p>
+        <p class="lede">${T.share}</p>
+        <p class="method">${T.method}</p>
+        ${T.stack()}
+      </section>
+      <section>
+        <p class="lede">${T.familiar}</p>
+        <p class="note">${T.note}</p>
+        ${T.probe()}
+        ${T.wall()}
+      </section>
+      <footer><p class="label">${T.generated}</p></footer>
+    </div>` },
+
+  { n: "Rasterfeld",
+    theme: { ramp: ramp("#7d7d7d", "#e6e6e6", 7), seam: 0.8, dash: "1 4", stroke: 1.6 },
+    build: T => `<div class="wrap">
+      <div class="grid">
+        <div class="cell title">
+          <h1>The <em>load-bearing</em> vocabulary of Claude</h1>
+          <p class="standfirst">${T.standfirst}</p>
+        </div>
+        <div class="cell mark"><div class="figure"><i></i><i></i><i></i><i></i></div></div>
+        ${T.stats.map(s => `<div class="cell stat"><b>${s.v}</b>
+          <span class="label">${s.k}</span></div>`).join("")}
+        <div class="cell said"><p class="lede">${T.divided}</p></div>
+        <div class="cell said"><p class="lede">${T.share}</p></div>
+        <div class="cell wide method">${T.method}</div>
+        <div class="cell wide">${T.stack()}</div>
+        <div class="cell wide"><p class="lede">${T.familiar}</p>
+          <p class="note">${T.note}</p></div>
+        ${T.probe()}
+        ${T.wall()}
+      </div>
+      <footer><p class="label">${T.generated}</p></footer>
+    </div>` },
+
+  { n: "Diagonale",
+    theme: { ramp: ramp("#8f8a7c", "#e4dfd0", 7), seam: 0.6, dash: "3 6", stroke: 2 },
+    build: T => `<div class="wrap">
+      <div class="field"><i></i><u></u></div>
+      <header class="sheet">
+        <div class="num">the corpus</div>
+        <div>
+          <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
+          <p class="standfirst">${T.standfirst}</p>
+          <div class="stats">
+            ${T.stats.map(s => `<div class="stat"><b>${s.v}</b>
+              <span class="label">${s.k}</span></div>`).join("")}
+          </div>
+        </div>
+      </header>
+      <section class="sheet">
+        <div class="num">the division</div>
+        <div>
+          <p class="lede">${T.divided}</p>
+          <p class="lede">${T.share}</p>
+          ${T.stack()}
+          <p class="method">${T.method}</p>
+        </div>
+      </section>
+      <section class="sheet">
+        <div class="num">the words</div>
+        <div>
+          <p class="lede">${T.familiar}</p>
+          <p class="note">${T.note}</p>
+          ${T.probe()}
+          ${T.wall()}
+        </div>
+      </section>
+      <footer><p class="label">${T.generated}</p></footer>
+    </div>` },
+
+  { n: "Kreis & Quadrat",
+    theme: { ramp: ramp("#7d8ca6", "#dfe2e8", 7), seam: 0.9, dash: "2 6", stroke: 2 },
+    build: T => `<div class="wrap">
+      <header>
+        <div class="trio"><i></i><i></i><i></i></div>
+        <h1>The <em>load-bearing</em> vocabulary of Claude</h1>
+        <p class="standfirst">${T.standfirst}</p>
+        <div class="stats">
+          ${T.stats.map(s => `<div class="stat"><b>${s.v}</b>
+            <span class="label">${s.k}</span></div>`).join("")}
+        </div>
+      </header>
+      <section>
+        <p class="lede">${T.divided}</p>
+        <p class="lede">${T.share}</p>
+        <div class="plate">${T.stack()}</div>
+        <p class="method">${T.method}</p>
+      </section>
+      <section>
+        <p class="lede">${T.familiar}</p>
+        <p class="note">${T.note}</p>
+        ${T.probe()}
+        ${T.wall()}
+      </section>
+      <footer><p class="label">${T.generated}</p></footer>
+    </div>` },
+
+  { n: "Werkstatt",
+    theme: { ramp: ramp("#8a8478", "#e3ded4", 7), seam: 0.7, dash: "2 4", stroke: 1.8 },
+    build: T => `<div class="wrap">
+      <header>
+        <div class="bar"></div>
+        <h1>the <em>load-bearing</em><br>vocabulary of claude</h1>
+        <p class="standfirst">${T.standfirst}</p>
+        <div class="stats">
+          ${T.stats.map(s => `<div class="stat"><b>${s.v}</b>
+            <span class="label">${s.k}</span></div>`).join("")}
+        </div>
+      </header>
+      <section>
+        <div class="bar thin"></div>
+        <p class="lede">${T.divided}</p>
+        <p class="lede">${T.share}</p>
+        <p class="method">${T.method}</p>
+        ${T.stack()}
+      </section>
+      <section>
+        <div class="bar thin"></div>
+        <p class="lede">${T.familiar}</p>
+        <p class="note">${T.note}</p>
+        ${T.probe()}
+        ${T.wall()}
+      </section>
+      <footer><p class="label">${T.generated}</p></footer>
+    </div>` },
+];
+
+/* ------------------------------------------------------------------ the charts
+
+   One area chart from one series, scaled to `hi`. Used for the arrival's own curve and every
+   word's history, so they all read the same way. */
+function area(svg, vals, hi) {
+  const w = svg.clientWidth || 800, h = svg.clientHeight || 92, T = vals.length;
+  const x = i => (i / (T - 1)) * w, y = v => h - (v / (hi || 1)) * (h - 2);
   let d = `M0,${y(vals[0]).toFixed(1)}`;
   vals.forEach((v, i) => { d += `L${x(i).toFixed(1)},${y(v).toFixed(1)}`; });
   let years = "";
   A.weeks.forEach((wk, i) => {
     if (i && wk.slice(0, 4) !== A.weeks[i - 1].slice(0, 4)) {
-      years += `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="0" y2="${bot}"
+      years += `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="0" y2="${h}"
                  stroke="var(--hairline)" stroke-width="1"/>`;
     }
   });
-  svg.innerHTML = years + `<path d="${d}L${w},${bot}L0,${bot}Z" fill="var(--fill)"/>` +
-    `<path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8"/>` +
-    `<line x1="0" x2="${w}" y1="${bot}" y2="${bot}" stroke="var(--ink)" stroke-width="1"/>`;
+  svg.innerHTML = years + `<path d="${d}L${w},${h}L0,${h}Z" fill="var(--fill)"/>` +
+    `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="${TH.stroke}"/>` +
+    `<line x1="0" x2="${w}" y1="${h - 0.5}" y2="${h - 0.5}" stroke="var(--ink)"
+      stroke-width="1"/>`;
 }
 
 /* The stack, as a share of each week. Every band is one way of writing and they fill the
@@ -109,34 +566,35 @@ function area(svg, vals, hi, colour, pad) {
    been earlier: every day contributes one full page of descriptions, so the denominator is
    near constant and a band cannot appear to shrink merely because the week around it grew. */
 function stack(svg) {
-  const w = svg.clientWidth || 800, h = svg.clientHeight || 280, T = A.weeks.length;
+  const w = svg.clientWidth || 800, h = svg.clientHeight || 300, T = A.weeks.length;
   const tot = A.weeks.map((_, i) => A.components.reduce((s, c) => s + c.count[i], 0) || 1);
   const x = i => (i / (T - 1)) * w;
-  let acc = new Array(T).fill(0), out = "";
+  let acc = new Array(T).fill(0), out = "", k = 0;
   for (const c of A.components) {
     const top = c.count.map((v, i) => acc[i] + v / tot[i]);
     let d = `M0,${(h - acc[0] * h).toFixed(1)}`;
     for (let i = 0; i < T; i++) d += `L${x(i).toFixed(1)},${(h - top[i] * h).toFixed(1)}`;
     for (let i = T - 1; i >= 0; i--) d += `L${x(i).toFixed(1)},${(h - acc[i] * h).toFixed(1)}`;
-    out += `<path d="${d}Z" fill="${c.lead ? "var(--accent)" : "var(--band)"}"
-             stroke="var(--ground)" stroke-width="0.6"/>`;
+    out += `<path d="${d}Z" fill="${c.lead ? "var(--accent)" : TH.ramp[k++ % TH.ramp.length]}"
+             stroke="var(--ground)" stroke-width="${TH.seam}"/>`;
     acc = top;
   }
-  let years = "";
+  let rules = "";
   for (const f of [0.25, 0.5, 0.75]) {
     const y = h - f * h;
-    years += `<line x1="0" x2="${w}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"
-               stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 5" opacity="0.3"/>`
-           + `<text x="6" y="${(y - 5).toFixed(1)}" fill="var(--ink)" opacity="0.55"
-               font-size="10" font-family="inherit" letter-spacing="0.5">${f * 100}%</text>`;
+    rules += `<line x1="0" x2="${w}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"
+               stroke="var(--ink)" stroke-width="1" stroke-dasharray="${TH.dash}"
+               opacity="0.34"/>`
+           + `<text x="6" y="${(y - 5).toFixed(1)}" fill="var(--ink)" opacity="0.62"
+               font-size="10" font-family="var(--mono)">${f * 100}%</text>`;
   }
   A.weeks.forEach((wk, i) => {
     if (i && wk.slice(0, 4) !== A.weeks[i - 1].slice(0, 4)) {
-      years += `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="0" y2="${h}"
-                 stroke="var(--ground)" stroke-width="1" opacity="0.6"/>`;
+      rules += `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="0" y2="${h}"
+                 stroke="var(--ink)" stroke-width="1" opacity="0.22"/>`;
     }
   });
-  svg.innerHTML = out + years + `<line class="cross" x1="0" x2="0" y1="0" y2="${h}"
+  svg.innerHTML = out + rules + `<line class="cross" x1="0" x2="0" y1="0" y2="${h}"
     stroke="var(--ink)" stroke-width="1" opacity="0"/>`;
   const lead = A.components.find(c => c.lead);
   svg.onpointermove = ev => {
@@ -167,10 +625,12 @@ function show(text, ev, r) {
    scale is that word's own peak, printed beside it -- a shared scale would flatten every word
    except the handful of common ones, and these differ by three orders of magnitude. */
 /* `?w=word` opens with that word already selected, which makes a particular word's history a
-   link someone can send, and makes the hover state testable. */
+   link someone can send, and makes the hover state testable. `?p=` does the same for the
+   proposition, so a design can be pointed at too. */
 function probe(i, j) {
   const c = A.components.filter(x => x.lead)[i];
   const p = app.querySelector(`.probe[data-lead="${i}"]`);
+  if (!p) return;
   const svg = p.querySelector("svg");
   if (j === null) {
     p.querySelector(".word").innerHTML =
@@ -178,7 +638,7 @@ function probe(i, j) {
     p.querySelector(".meta").textContent =
       `${fmt(c.count[c.count.length - 1])} of `
       + `${fmt(A.docs_per_week[A.docs_per_week.length - 1])} descriptions in the last week`;
-    area(svg, c.count, Math.max(...A.docs_per_week), "var(--accent)", 0);
+    area(svg, c.count, Math.max(...A.docs_per_week));
     return;
   }
   const s = c.series[j], total = s.reduce((a, b) => a + b, 0);
@@ -186,7 +646,7 @@ function probe(i, j) {
   p.querySelector(".meta").textContent =
     `${c.word_lift[j]}× more probable here than elsewhere · `
     + `${fmt(total)} appearances · peak ${fmt(Math.max(...s))} in a week`;
-  area(svg, s, Math.max(...s), "var(--accent)", 0);
+  area(svg, s, Math.max(...s));
 }
 
 function axis() {
@@ -200,7 +660,9 @@ function axis() {
   return out + `<span class="last">${A.weeks[A.weeks.length - 1]}</span>`;
 }
 
-function build() {
+/* ------------------------------------------------------------------ the page */
+
+function prepared() {
   const lead = A.components.find(c => c.lead);
   const W = A.lead_window;
   const sum = a => a.reduce((s, v) => s + v, 0);
@@ -210,8 +672,7 @@ function build() {
   const monthShare = monthDocs ? pc(sum(lead.count.slice(-W)) / monthDocs) : "—";
   // whether it is still rising is read off the fitted trend, never asserted: a claim that can
   // go stale should not be typed into the markup
-  const growing = A.trend > 0.0005;
-  const still = growing ? "and is still growing" : "and has levelled off";
+  const still = A.trend > 0.0005 ? "and is still growing" : "and has levelled off";
 
   const hiL = lead.word_lift[0], loL = lead.word_lift[lead.word_lift.length - 1];
   // log scale, because measuring lift against everything-else spreads it over three orders of
@@ -220,58 +681,72 @@ function build() {
   const wall = lead.word_list.map((w, j) => {
     const t = (lg(lead.word_lift[j]) - lg(loL)) / sp;
     return `<span data-lead="0" data-j="${j}" style="font-size:${(10.5 + 8 * t).toFixed(1)}px;`
-      + `opacity:${(0.4 + 0.6 * t).toFixed(2)}">${esc(w)}</span>`;
+      + `opacity:${(0.45 + 0.55 * t).toFixed(2)}">${esc(w)}</span>`;
   }).join("");
 
-  app.innerHTML = `<header>
-    <h1>The <em>load-bearing</em><br>vocabulary of Claude</h1>
-    <p class="standfirst">We scrape GitHub daily to analyse trends in vocabulary.
-      So far we have analysed:</p>
-    <div class="stats">
-      <div class="stat"><b>${fmt(A.days)}</b><span class="label">days</span></div>
-      <div class="stat"><b>${fmt(A.documents)}</b>
-        <span class="label">pull requests</span></div>
-      <div class="stat"><b>${fmt(A.appearances)}</b><span class="label">words</span></div>
-    </div></header>
+  return {
+    standfirst: "We scrape GitHub daily to analyse trends in vocabulary. "
+      + "So far we have analysed:",
+    stats: [{ v: fmt(A.days), k: "days" },
+            { v: fmt(A.documents), k: "pull requests" },
+            { v: fmt(A.appearances), k: "words" }],
+    divided: `We divided them into <b>${A.k}</b> distinct ways of writing.`,
+    share: `One of them was <b>${monthShare}</b> of all pull requests last month, ${still}.`,
+    familiar: "Its representative words should look familiar to anyone who uses a "
+      + "coding agent.",
+    note: "The thousand most characteristic. <b>Hover any word</b> to see its own "
+      + "week-by-week history.",
+    // the two acronyms are marked up so that the lowercase proposition can keep them
+    // upright: `kl divergence` and `em` are not the same words as KL divergence and EM
+    method: 'Grouped by <a href="https://jmlr.csail.mit.edu/papers/volume6/banerjee05b/'
+      + 'banerjee05b.pdf" target="_blank" rel="noopener">k-means clustering under '
+      + '<abbr>KL</abbr> divergence</a> \u2014 in its soft form, one multinomial mixture '
+      + 'over the whole window, fitted by <abbr>EM</abbr>.',
+    generated: `generated ${A.generated}`,
+    stack: () => `<div class="chart"><svg id="stack"></svg><div class="axis">${axis()}</div></div>`,
+    probe: () => `<div class="probe" data-lead="0">
+        <div class="who"><span class="word"></span><span class="meta"></span></div>
+        <svg></svg><div class="axis">${axis()}</div></div>`,
+    wall: () => `<div class="wall">${wall}</div>`,
+  };
+}
 
-    <section>
-      <p class="lede">We divided them into <b>${A.k}</b> distinct ways of writing.</p>
-      <p class="lede">One of them was <b>${monthShare}</b> of all pull requests last month,
-        ${still}.</p>
-      <div class="chart"><svg id="stack"></svg><div class="axis label">${axis()}</div></div>
-    </section>
-
-    <section>
-      <p class="lede">Its representative words should look familiar to anyone who uses a
-        coding agent.</p>
-      <p class="note">The thousand most characteristic.
-        <b>Hover any word</b> to see its own week-by-week history.</p>
-      <div class="probe" data-lead="0">
-        <div class="who"><span class="word"></span>
-          <span class="label meta"></span></div>
-        <svg></svg>
-        <div class="axis label">${axis()}</div>
-      </div>
-      <div class="wall">${wall}</div>
-    </section>
-
-    <footer>
-      <p class="label">generated ${A.generated}</p>
-    </footer>`;
-
-  render();
-  let t;
-  addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
-
-  app.addEventListener("pointerover", ev => {
-    const el = ev.target.closest(".wall [data-j]");
-    if (!el) return;
-    app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
-    el.classList.add("on");
-    probe(+el.dataset.lead, +el.dataset.j);
+function nav() {
+  const el = document.getElementById("index");
+  el.innerHTML = `<div class="home"><i></i><b>load-bearing</b></div>
+    <div class="set">${PROPS.map((p, i) =>
+      `<button data-p="${i + 1}" aria-pressed="false"><em>${i + 1}</em>
+        <span>${p.n}</span></button>`).join("")}</div>
+    <div class="keys">press 1–5</div>`;
+  el.addEventListener("click", ev => {
+    const b = ev.target.closest("button[data-p]");
+    if (b) go(+b.dataset.p);
   });
-  // leaving the wall restores the whole component, so the panel is never left showing a word
-  // the pointer has moved off
+  addEventListener("keydown", ev => {
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    const n = +ev.key;
+    if (n >= 1 && n <= PROPS.length) go(n);
+  });
+}
+
+function go(n) {
+  P = n;
+  TH = PROPS[n - 1].theme;
+  document.body.dataset.p = n;
+  document.querySelectorAll("#index button").forEach(b =>
+    b.setAttribute("aria-pressed", +b.dataset.p === n));
+  const q = new URLSearchParams(location.search);
+  q.set("p", n);
+  history.replaceState(null, "", location.pathname + "?" + q);
+  build();
+}
+
+function build() {
+  app.innerHTML = PROPS[P - 1].build(prepared());
+  render();
+  // the wall is rebuilt on every switch, so its own listener is attached here; the delegated
+  // one on `app` is attached once at startup, or switching five times would call `probe` five
+  // times for one hover
   app.querySelectorAll(".wall").forEach((wall, i) =>
     wall.addEventListener("pointerleave", () => {
       wall.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
@@ -279,8 +754,19 @@ function build() {
     }));
 }
 
+// leaving the wall restores the whole component, so the panel is never left showing a word the
+// pointer has moved off
+app.addEventListener("pointerover", ev => {
+  const el = ev.target.closest(".wall [data-j]");
+  if (!el) return;
+  app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
+  el.classList.add("on");
+  probe(+el.dataset.lead, +el.dataset.j);
+});
+
 function render() {
-  stack(document.getElementById("stack"));
+  const svg = document.getElementById("stack");
+  if (svg) stack(svg);
   const want = new URLSearchParams(location.search).get("w");
   A.components.filter(c => c.lead).forEach((c, i) => {
     const j = want ? c.word_list.indexOf(want) : -1;
@@ -292,15 +778,24 @@ function render() {
   });
 }
 
+let t;
+addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
 
 const tag = document.createElement("script");
 tag.src = DATA;
-tag.onload = () => { A = window.ANALYSIS; A ? build() : fail(); };
+tag.onload = () => {
+  A = window.ANALYSIS;
+  if (!A) return fail();
+  nav();
+  const asked = +new URLSearchParams(location.search).get("p");
+  go(asked >= 1 && asked <= PROPS.length ? asked : 1);
+};
 tag.onerror = fail;
 document.head.appendChild(tag);
 
 function fail() {
-  app.innerHTML = `<p style="padding:80px 0;font-family:ui-monospace,monospace">`
+  document.body.dataset.p = 1;
+  app.innerHTML = `<p style="padding:80px 24px;font-family:ui-monospace,monospace">`
     + `<b>${DATA}</b> not found.<br>Run <b>python analyze.py</b> first.</p>`;
 }
 </script>

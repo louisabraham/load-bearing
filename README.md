@@ -10,7 +10,7 @@ found without being told what to look for. One of them was 1.6% of the corpus at
 |---|---|
 | `fetch_day.py` | one request a day to GitHub's search API, one `data/days/YYYY-MM-DD.jsonl`. Standard library only. |
 | `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js`. Needs `numpy`, `scipy`, `numba`. |
-| `index.html` | reads `analysis.js`. No build step. Open it. |
+| `index.html` | reads `analysis.js`. Five design propositions on the same numbers, `?p=1`…`?p=5`. No build step. Open it. |
 | `.github/workflows/daily.yml` | does all of the above, daily, and commits the result. |
 
 ```bash
