@@ -19,13 +19,21 @@ it. The ablation preserved the rise, which made the per-week version's extra par
 `T x k` of them, plus a penalty weight to tune -- machinery that bought nothing but the
 suspicion that the model had drawn the trend itself. So the ablation became the model.
 
-Fitted by EM: attribute documents, refit the word distributions, refit the mixture. One run,
-no restarts. The E step and the M step's sufficient statistics are fused into a single numba
-pass over the documents; `_em_sweep_numpy` is the readable reference the selftest checks it
-against.
+Fitted by EM: attribute documents, refit the word distributions, refit the mixture. The
+attribution is SOFT -- each document is split across the components in proportion to how well
+each explains its words, and it is those fractions, `r_dk`, that the weekly curves add up. No
+document is ever assigned to one component. The E step and the M step's sufficient statistics
+are fused into a single numba pass over the documents; `_em_sweep_numpy` is the readable
+reference the selftest checks it against.
+
+Two ablations of that, because the question "is this really a mixture model, or is it k-means?"
+deserves an answer in code rather than in prose: `--hard` attributes each document wholly to its
+likeliest component, and `--no-pi` drops the mixing weight from the comparison. Both together
+are KL k-means -- see `fit`.
 
     python analyze.py               # writes analysis.js, read by index.html
     python analyze.py --selftest    # recovers a planted component from synthetic data
+    python analyze.py --hard --no-pi --loose -o /dev/null   # the same corpus, as KL k-means
 """
 
 import argparse
@@ -65,6 +73,14 @@ TOL = 1e-6                          # relative log-likelihood gain
 MAX_PASSES = 200                    # a runaway guard, not a setting; convergence hits ~50
 N_INIT = 8                          # restarts; see `fit_best`
 SEED = 0
+# ATTRIBUTION. The published fit is soft and keeps the mixing prior: a document is split across
+# components in proportion to how well each explains it. Both halves of that can be dropped --
+# `--hard` sends each document entirely to its likeliest component, `--no-pi` takes `log pi_k`
+# out of the comparison -- and with both dropped the fit is exactly KL k-means over documents.
+# See `fit` for the algebra and the README for what the four settings report on this corpus:
+# the arrival survives all four, and hard attribution is what moves the headline, not the prior.
+HARD = False                        # winner-take-all attribution (Classification EM)
+USE_PI = True                       # let `log pi_k` into the attribution
 WORDS_LISTED = 40                   # per component; the cut is arbitrary and `tail` says so
 WORDS_LEAD = 1000                   # for each component that arrives; see `pack`
 # WHICH COMPONENT THE PAGE IS ABOUT: the largest one of the last LEAD_WINDOW weeks. Nothing is
@@ -364,7 +380,7 @@ def documents(log=print):
 # -------------------------------------------------------------------------- model
 
 @njit(parallel=True, cache=True)
-def _em_sweep(indptr, indices, data, logW, logpi, week_of, Wacc, Cacc, Aacc, llacc):
+def _em_sweep(indptr, indices, data, logW, logpi, week_of, Wacc, Cacc, Aacc, llacc, hard):
     """One E step, accumulating everything the M step needs, in a single pass.
 
     Fused on purpose. The obvious formulation materialises a D-by-k matrix of logits, softmaxes
@@ -377,6 +393,10 @@ def _em_sweep(indptr, indices, data, logW, logpi, week_of, Wacc, Cacc, Aacc, lla
     one slice of every accumulator and no two threads ever touch the same cell. The caller sums
     the leading axis. That costs `nthreads * k * V` floats -- six megabytes at sixteen threads,
     a thousandth of what the dense logits would have cost -- and buys freedom from atomics.
+
+    `hard` switches the E step from a softmax to a winner-take-all: the document goes entirely
+    to its likeliest component and the objective becomes `max_k` where it was `log sum_k`. See
+    `fit` for what that is and what it costs.
     """
     k, V = logW.shape
     D = indptr.shape[0] - 1
@@ -393,15 +413,24 @@ def _em_sweep(indptr, indices, data, logW, logpi, week_of, Wacc, Cacc, Aacc, lla
                 n_d += x
                 for c in range(k):
                     z[c] += x * logW[c, v]
-            m = z[0]                                    # log-sum-exp, shifted by the max
+            best = 0                                    # the max, and where it was
+            m = z[0]
             for c in range(1, k):
                 if z[c] > m:
                     m = z[c]
-            tot = 0.0
-            for c in range(k):
-                z[c] = np.exp(z[c] - m)
-                tot += z[c]
-            llacc[b] += np.log(tot) + m
+                    best = c
+            if hard:
+                for c in range(k):                      # winner takes all
+                    z[c] = 0.0
+                z[best] = 1.0
+                tot = 1.0
+                llacc[b] += m
+            else:
+                tot = 0.0                               # log-sum-exp, shifted by the max
+                for c in range(k):
+                    z[c] = np.exp(z[c] - m)
+                    tot += z[c]
+                llacc[b] += np.log(tot) + m
             t = week_of[d]
             for c in range(k):
                 z[c] /= tot                             # z is now the responsibility r_dk
@@ -413,7 +442,7 @@ def _em_sweep(indptr, indices, data, logW, logpi, week_of, Wacc, Cacc, Aacc, lla
                     Wacc[b, c, v] += z[c] * x
 
 
-def _em_sweep_numpy(X, logW, logpi, week_of, T):
+def _em_sweep_numpy(X, logW, logpi, week_of, T, hard=False):
     """The same sweep, written the obvious way. The selftest holds `_em_sweep` to this.
 
     A hand-written parallel kernel is exactly the kind of code that is wrong in a way tests
@@ -423,20 +452,50 @@ def _em_sweep_numpy(X, logW, logpi, week_of, T):
     k = logW.shape[0]
     z = X @ logW.T + logpi
     m = z.max(axis=1, keepdims=True)
-    e = np.exp(z - m)
-    tot = e.sum(axis=1, keepdims=True)
-    r = e / tot
+    if hard:
+        r = np.zeros_like(z)                            # first max wins, as in the kernel
+        r[np.arange(z.shape[0]), z.argmax(axis=1)] = 1.0
+        ll = float(m.sum())
+    else:
+        e = np.exp(z - m)
+        tot = e.sum(axis=1, keepdims=True)
+        r = e / tot
+        ll = float((np.log(tot) + m).sum())
     C = np.zeros((T, k))
     np.add.at(C, week_of, r)
     A = np.zeros((T, k))
     np.add.at(A, week_of, r * np.asarray(X.sum(axis=1)))
-    return np.asarray(r.T @ X), C, A, float((np.log(tot) + m).sum())
+    return np.asarray(r.T @ X), C, A, ll
 
 
-def fit(X, week_of, T, k=K, tol=TOL, seed=SEED, log=print):
-    """One EM run. Returns (W, pi, C, A, log-likelihood).
+def fit(X, week_of, T, k=K, tol=TOL, seed=SEED, log=print, hard=HARD, use_pi=USE_PI):
+    """One EM run. Returns (W, pi, C, A, objective).
 
-    One EM run from one starting point. `fit_best` is what callers want.
+    One run from one starting point. `fit_best` is what callers want.
+
+    Two switches turn this into k-means, and they are separate:
+
+    `use_pi=False` drops `log pi_k` from the attribution, so a document goes where its words fit
+    best and not partly where the crowd already is. What remains is the plain multinomial
+    mixture with `pi` pinned uniform -- still a likelihood, still monotone under EM -- and the
+    thing k-means also lacks: a k-means centroid has no prior on how many points it should own.
+
+    `hard=True` replaces the softmax with a winner-take-all, which is Classification EM, and
+    with both switches the fit is exactly KL k-means. Writing `p_d = x_d / n_d` for a
+    document's own word distribution,
+
+        x_d . log W_k  =  -n_d * ( KL(p_d || W_k) + H(p_d) )
+
+    and `H(p_d)` does not depend on `k`, so choosing the likeliest component *is* choosing the
+    nearest centroid under KL, and the M step's `W_k = mean of the documents assigned to it` is
+    the KL-centroid of its cluster. The only trace of the probability model left is the `n_d`
+    weight -- a long document pulls its centroid harder, which is right here and is what makes
+    this KL k-means over documents rather than over word-frequency vectors.
+
+    What the objective means changes with the switches, so runs are only comparable within a
+    setting: `sum_d log sum_k pi_k P(x_d|W_k)` with both on, the same with `pi` uniform when
+    `use_pi=False`, and `sum_d max_k [log pi_k +] log P(x_d|W_k)` when `hard=True`. Each is
+    monotone under its own passes, which is all the convergence test needs.
     """
     rng = np.random.default_rng(seed)
     D, V = X.shape
@@ -462,8 +521,11 @@ def fit(X, week_of, T, k=K, tol=TOL, seed=SEED, log=print):
         Cacc = np.zeros((nt, T, k))
         Aacc = np.zeros((nt, T, k))
         llacc = np.zeros(nt)
+        # zeros, not log pi, when the prior is out: it drops the term from the attribution and
+        # from the objective at once, which is what "drop the component likelihood" means
+        logpi = np.log(np.maximum(pi, 1e-300)) if use_pi else np.zeros(k)
         _em_sweep(indptr, indices, data, np.log(np.maximum(W, 1e-12)),
-                  np.log(np.maximum(pi, 1e-300)), week, Wacc, Cacc, Aacc, llacc)
+                  logpi, week, Wacc, Cacc, Aacc, llacc, hard)
         return Wacc.sum(0), Cacc.sum(0), Aacc.sum(0), float(llacc.sum())
 
     ll, prev = -np.inf, -np.inf
@@ -472,7 +534,7 @@ def fit(X, week_of, T, k=K, tol=TOL, seed=SEED, log=print):
         W = Wsum + 0.01                                   # word distributions
         W /= W.sum(axis=1, keepdims=True)
         share = C.sum(axis=0)                             # one mixture for the whole window
-        pi = share / max(share.sum(), 1e-12)
+        pi = share / max(share.sum(), 1e-12)              # reported even when unused above
         log(f"  iter {it + 1:2d}  loglik {ll:,.0f}")
         if prev > -np.inf and ll - prev < tol * abs(ll):
             break
@@ -486,7 +548,8 @@ def fit(X, week_of, T, k=K, tol=TOL, seed=SEED, log=print):
     return W, pi, C, A, ll
 
 
-def fit_best(X, week_of, T, k=K, tol=TOL, n_init=N_INIT, seed=SEED, log=print):
+def fit_best(X, week_of, T, k=K, tol=TOL, n_init=N_INIT, seed=SEED, log=print,
+             hard=HARD, use_pi=USE_PI):
     """Fit `n_init` times from different starting points and keep the highest likelihood.
 
     Restarts survived the simplification of everything around them, because the measurement
@@ -515,7 +578,8 @@ def fit_best(X, week_of, T, k=K, tol=TOL, n_init=N_INIT, seed=SEED, log=print):
     """
     best = None
     for i in range(n_init):
-        out = fit(X, week_of, T, k, tol, seed + i, log=lambda *_: None)
+        out = fit(X, week_of, T, k, tol, seed + i, log=lambda *_: None,
+                  hard=hard, use_pi=use_pi)
         log(f"  restart {i + 1}/{n_init}  loglik {out[-1]:,.0f}")
         if best is None or out[-1] > best[-1]:
             best = out
@@ -647,45 +711,65 @@ def selftest():
             week_of.append(t); d += 1
     X = csr_matrix((vals, (rows, cols)), shape=(d, V))
     week_of = np.array(week_of)
-    W, pi, C, A, ll = fit(X, week_of, T, k=3, log=lambda *_: None)
-
-    assert abs(pi.sum() - 1.0) < 1e-6, "the mixture must sum to 1"
-    assert (pi >= 0).all() and np.allclose(W.sum(axis=1), 1.0), "factors are malformed"
-    # C must recover each week's document count, since every document's r sums to 1
-    assert np.allclose(C.sum(axis=1), np.bincount(week_of, minlength=T), rtol=1e-6), \
-        "the counts do not reconstruct the week"
-
-    # the planted component must be found rising even though the model cannot represent time:
-    # this is the whole claim of the thing, tested on data where the answer is known
-    obs = C / C.sum(axis=1, keepdims=True)
-    late = int(np.argmax([Wt[2] @ np.log(np.maximum(W[c], 1e-12)) for c in range(3)]))
-    before, after = obs[:arrives, late].mean(), obs[arrives:, late].mean()
-    assert before < 0.5 * after, f"the planted component did not rise ({before:.3f} " \
-                                 f"then {after:.3f})"
-    assert np.allclose(A.sum(axis=1),
-                       np.bincount(week_of, minlength=T) * 50, rtol=0.02), \
-        "the appearance counts do not reconstruct the week"
-
-    # and the numba kernel must agree with the plain numpy statement of the same sweep. A
-    # hand-written parallel reduction is wrong in ways its own output cannot reveal.
-    logW = np.log(np.maximum(W, 1e-12))
-    logpi = np.log(np.maximum(pi, 1e-300))
+    Xc = X.tocsr()
     nt = numba.get_num_threads()
-    Wacc = np.zeros((nt, 3, V)); Cacc = np.zeros((nt, T, 3))
-    Aacc = np.zeros((nt, T, 3)); llacc = np.zeros(nt)
-    _em_sweep(X.tocsr().indptr.astype(np.int64), X.tocsr().indices.astype(np.int64),
-              X.tocsr().data.astype(np.float64), logW, logpi,
-              week_of.astype(np.int64), Wacc, Cacc, Aacc, llacc)
-    rW, rC, rA, rll = _em_sweep_numpy(X, logW, logpi, week_of, T)
-    for got, want, name in ((Wacc.sum(0), rW, "word totals"), (Cacc.sum(0), rC, "counts"),
-                            (Aacc.sum(0), rA, "appearances")):
-        assert np.allclose(got, want, rtol=1e-8, atol=1e-8), \
-            f"the numba sweep disagrees with numpy on the {name}"
-    assert abs(llacc.sum() - rll) < 1e-6 * max(abs(rll), 1.0), \
-        f"the numba sweep disagrees with numpy on the likelihood ({llacc.sum()} vs {rll})"
 
+    # Every attribution rule must recover the plant, not just the published one: an ablation
+    # that cannot find a component it was handed says nothing about the one it did not.
+    found = {}
+    for hard in (False, True):
+        for use_pi in (True, False):
+            W, pi, C, A, ll = fit(X, week_of, T, k=3, log=lambda *_: None,
+                                  hard=hard, use_pi=use_pi)
+            name = f"{'hard' if hard else 'soft'}/{'pi' if use_pi else 'no-pi'}"
+
+            assert abs(pi.sum() - 1.0) < 1e-6, f"{name}: the mixture must sum to 1"
+            assert (pi >= 0).all() and np.allclose(W.sum(axis=1), 1.0), \
+                f"{name}: factors are malformed"
+            # C must recover each week's document count, since every document's r sums to 1 --
+            # which is as true of a one-hot r as of a softmaxed one
+            assert np.allclose(C.sum(axis=1), np.bincount(week_of, minlength=T), rtol=1e-6), \
+                f"{name}: the counts do not reconstruct the week"
+            assert np.allclose(A.sum(axis=1),
+                               np.bincount(week_of, minlength=T) * 50, rtol=0.02), \
+                f"{name}: the appearance counts do not reconstruct the week"
+
+            # the planted component must be found rising even though the model cannot represent
+            # time: this is the whole claim of the thing, tested where the answer is known
+            obs = C / C.sum(axis=1, keepdims=True)
+            late = int(np.argmax([Wt[2] @ np.log(np.maximum(W[c], 1e-12)) for c in range(3)]))
+            before, after = obs[:arrives, late].mean(), obs[arrives:, late].mean()
+            assert before < 0.5 * after, f"{name}: the planted component did not rise " \
+                                         f"({before:.3f} then {after:.3f})"
+            found[name] = (before, after)
+
+            # and the numba kernel must agree with the plain numpy statement of the same sweep,
+            # under both attribution rules. A hand-written parallel reduction is wrong in ways
+            # tests written against its own output cannot reveal.
+            logW = np.log(np.maximum(W, 1e-12))
+            logpi = np.log(np.maximum(pi, 1e-300)) if use_pi else np.zeros(3)
+            Wacc = np.zeros((nt, 3, V)); Cacc = np.zeros((nt, T, 3))
+            Aacc = np.zeros((nt, T, 3)); llacc = np.zeros(nt)
+            _em_sweep(Xc.indptr.astype(np.int64), Xc.indices.astype(np.int64),
+                      Xc.data.astype(np.float64), logW, logpi,
+                      week_of.astype(np.int64), Wacc, Cacc, Aacc, llacc, hard)
+            rW, rC, rA, rll = _em_sweep_numpy(X, logW, logpi, week_of, T, hard)
+            for got, want, what in ((Wacc.sum(0), rW, "word totals"),
+                                    (Cacc.sum(0), rC, "counts"),
+                                    (Aacc.sum(0), rA, "appearances")):
+                assert np.allclose(got, want, rtol=1e-8, atol=1e-8), \
+                    f"{name}: the numba sweep disagrees with numpy on the {what}"
+            assert abs(llacc.sum() - rll) < 1e-6 * max(abs(rll), 1.0), \
+                f"{name}: the numba sweep disagrees with numpy on the objective " \
+                f"({llacc.sum()} vs {rll})"
+            # hard attribution must actually be hard: one component per document, no fractions
+            if hard:
+                assert np.allclose(rC, np.round(rC)), \
+                    f"{name}: winner-take-all left fractional counts"
+
+    plant = ", ".join(f"{n} {b:.3f} -> {a:.3f}" for n, (b, a) in found.items())
     print(f"selftest: ok  (mixture sums to 1, counts reconstruct each week, numba agrees with "
-          f"numpy, planted component {before:.3f} -> {after:.3f} at week {arrives})")
+          f"numpy under both attribution rules, planted component at week {arrives}: {plant})")
 
 
 def main():
@@ -694,7 +778,13 @@ def main():
     ap.add_argument("--tol", type=float, default=TOL)
     ap.add_argument("--n-init", type=int, default=N_INIT, dest="n_init")
     ap.add_argument("--seed", type=int, default=SEED)
-    ap.add_argument("--out", default="analysis.js")
+    ap.add_argument("--out", "-o", default="analysis.js")
+    ap.add_argument("--hard", action="store_true",
+                    help="winner-take-all attribution instead of soft (Classification EM)")
+    ap.add_argument("--no-pi", action="store_false", dest="use_pi",
+                    help="drop log pi_k from the attribution; with --hard, KL k-means")
+    ap.add_argument("--loose", action="store_false", dest="strict",
+                    help="report a fit that fails the arrival check instead of refusing it")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -702,13 +792,15 @@ def main():
 
     X, week_of, weeks, vocab, n_days = documents()
     W, pi, C, A, ll = fit_best(X, week_of, len(weeks), k=args.k, tol=args.tol,
-                               n_init=args.n_init, seed=args.seed)
-    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days)
+                               n_init=args.n_init, seed=args.seed,
+                               hard=args.hard, use_pi=args.use_pi)
+    out = pack(X, week_of, weeks, vocab, W, pi, C, A, ll, n_days, strict=args.strict)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("window.ANALYSIS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
         fh.write(";\n")
-    print(f"\nloglik {ll:,.0f}, wrote {args.out} "
+    print(f"\n{'hard' if args.hard else 'soft'} attribution, "
+          f"pi {'in' if args.use_pi else 'out'}, objective {ll:,.0f}, wrote {args.out} "
           f"({os.path.getsize(args.out)/1e3:.0f} kB)\n")
     for c in out["components"]:
         print(f"  {'lead' if c['lead'] else '    '}  share {c['share']:6.1%}  "

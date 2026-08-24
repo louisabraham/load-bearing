@@ -21,6 +21,7 @@ python fetch_day.py                  # yesterday, one request
 python fetch_day.py --backfill 30    # and the last 30 days, if missing
 python analyze.py                    # ~8 s end to end
 python analyze.py --selftest         # the invariants, on synthetic data
+python analyze.py --hard --no-pi --loose -o /dev/null   # the same corpus, as KL k-means
 open index.html
 ```
 
@@ -274,6 +275,11 @@ Expectation-maximisation: attribute the descriptions, refit the word distributio
 mixture. Repeat **to convergence**, from eight different starting points, keeping the highest
 likelihood.
 
+The attribution is **soft**. No description is ever assigned to a component: the E step gives
+each one a vector $r_{d\cdot}$ of fractions summing to 1, and the weekly curves are sums of those
+fractions. A description that reads half like one register and half like another counts half in
+each week-total, and that is the quantity the chart draws.
+
 ### Convergence, not a pass count
 
 There is no iteration count. EM stops when a pass improves the log-likelihood by less than
@@ -319,6 +325,88 @@ Do not read the published share as a bound in either direction. At `k = 16` the 
 happened to be the one that split the register most finely and so reported the *smallest* share
 of any seed; at `k = 8` it reports near the top of the range. It is the likeliest fit's figure
 and nothing more.
+
+### Soft, hard, and KL k-means
+
+Asked directly: could the mixture be dropped and this run as k-means instead? Two things
+separate it from k-means, and they are separable in the code.
+
+**The prior.** $\log \pi_k$ sits inside the comparison, so a description goes partly where the
+crowd already is and not only where its words fit best. A k-means centroid has no such term —
+nothing tells it how many points it ought to own. `--no-pi` takes it out, which leaves the same
+multinomial mixture with $\pi$ pinned uniform.
+
+**The softmax.** `--hard` sends each description entirely to its likeliest component. That is
+Classification EM, and with both switches thrown the fit is exactly **KL k-means**. Writing
+$p_d = x_d / n_d$ for a description's own word distribution,
+
+$$x_d \cdot \log W_k \;=\; -\,n_d\left(\mathrm{KL}(p_d \,\|\, W_k) + H(p_d)\right)$$
+
+and $H(p_d)$ does not depend on $k$ — so picking the likeliest component **is** picking the
+nearest centroid under KL, and the M step's "average the descriptions assigned to it" is that
+cluster's KL-centroid. The only trace of the probability model left is the $n_d$ weight: a long
+description pulls its centroid harder, which is what makes this KL k-means over *descriptions*
+rather than over word-frequency vectors.
+
+All four settings, best of the same eight restarts, `k = 8`, on the 85-week corpus ending
+2026-08-17:
+
+| attribution | $\pi$ | own objective | as a mixture | headline | trend | `r` with the published curve | worst week | one run, 4 threads |
+|---|---|---|---|---|---|---|---|---|
+| **soft** (published) | **in** | −37,865,248 | **−37,865,248** | **56.43%** | +1.49 | — | — | 0.93 s |
+| soft | out | −37,764,492 | −37,865,384 | 56.43% | +1.46 | 0.99994 | 0.9 pt | 0.73 s |
+| hard | in | −37,871,472 | −37,868,352 | 56.48% | +1.50 | 0.99973 | 1.2 pt | 0.49 s |
+| hard — **KL k-means** | out | −37,771,410 | −37,869,407 | 56.65% | +1.45 | 0.99971 | 1.7 pt | 0.47 s |
+
+The last column is from a four-thread machine and not from the one the speed table below was
+measured on, so read the ratio and not the seconds.
+
+Each variant maximises a different objective, so "own objective" is not comparable across rows:
+dropping $\pi$ *raises* it by deleting a negative term, which is bookkeeping and not a better
+fit. The column that compares them is the next one — every fitted $(W, \pi)$ scored as an
+ordinary mixture, which is the thing the page's claim is stated in. There the published setting
+wins by **4,159 nats out of 37.9 million, 0.011%**, and the arriving component's weekly curve is
+the same curve to four decimal places of correlation, never more than 1.7 points apart in any
+single week.
+
+**Nothing survives being hardened because the attribution was already hard.** On the published
+fit:
+
+| | |
+|---|---|
+| mean $\max_k r_{dk}$ | 0.951 (median 1.000, min 0.220) |
+| descriptions with $\max_k r_{dk} \ge 0.999$ | 68.2% |
+| … $\ge 0.9$ | 85.8% |
+| mean entropy of $r_{d\cdot}$ | 0.128 nats, against $\ln 8 = 2.079$ — 1.14 effective components |
+| rounding every $r_d$ to its argmax | moves the reported mixture by ≤ 0.2 points |
+
+A description is 110 tokens on average, and $n_d$ multiplies the per-word log-likelihood gap
+between two components before the softmax sees it, so the softmax saturates. Soft attribution on
+text this long *is* hard attribution to three decimal places, and the four fits agree on which
+component a description belongs to for 94.6% to 100% of the corpus. The finding is not an
+artefact of soft attribution, which is the only thing this ablation was run to find out.
+
+Robustness across all eight restarts, not just the winner:
+
+| variant | headline across 8 seeds | `load-bearing` in top 5 | 8 restarts |
+|---|---|---|---|
+| soft, $\pi$ in | 46.6 – 63.5%, median 56.6% | 7 of 8 | 8.4 s |
+| soft, $\pi$ out | 42.2 – 63.3%, median 56.8% | 7 of 8 | 10.2 s |
+| hard, $\pi$ in | 48.3 – 63.5%, median 56.5% | 7 of 8 | 5.5 s |
+| hard, $\pi$ out | 49.0 – 63.3%, median 56.9% | 7 of 8 | 5.5 s |
+
+So the mixture stays, on four small reasons rather than one large one: it wins the common
+yardstick, if barely; $r_{dk}$ is the model's own posterior rather than a separate estimator
+bolted on; it has no empty-cluster failure mode to write a reseeding rule for; and the whole
+cost of it is half a second per restart on a fit that is already the cheap part of the run.
+Hardening buys 2× on the fit and nothing else. **In 32 runs no component ever emptied**, so the
+hard variants are reported as they ran, with no reseeding.
+
+One thing the table exposes that is not about attribution: on this corpus **7 of 8 individual
+restarts start the largest component above `LEAD_START` = 2%** and so would fail the arrival
+check, in every variant. The likeliest restart — the only one published — passes in all four, at
+0.94% to 1.51%. The check is doing its job on the fit that gets published, and it is closer to
+its threshold than the published margin suggests.
 
 ### Speed
 
@@ -390,7 +478,10 @@ Run before every publish, and the daily job stops if it fails: the mixture sums 
 weekly counts reconstruct each week's document total, the appearance counts reconstruct it too,
 the numba kernel matches numpy to 1e-8, and **a planted component is recovered from synthetic
 data** — rising from 0.000 to 0.350 at the week it was planted, even though the model has no
-way to represent time.
+way to represent time. All of it runs under **all four attribution rules**, soft and hard, with
+$\pi$ in and out: an ablation that cannot find a component it was handed says nothing about the
+one it did not. The hard rules are additionally required to leave whole counts, since an
+attribution that claims to be winner-take-all and returns fractions is not.
 
 ## 6. How the results are displayed
 
@@ -493,6 +584,7 @@ been different. **Two were chosen by looking at the answer**, and both are marke
 | ten prose terms | 10 | **arbitrary**, though only their union matters |
 | `SNYK_ID_RE` digits | 4+ | **arbitrary** |
 | `SEED` | 0 | arbitrary and immaterial — best-of-8 spans seeds 0–7 |
+| `HARD`, `USE_PI` | soft, in | measured — all four settings report the same arrival, §5 |
 
 **`MIN_TF = 45` was picked by looking at the answer.** `load-bearing` had 51 appearances on the
 corpus of the day, so 45 let it through and 60 would not have. That is the same species of
