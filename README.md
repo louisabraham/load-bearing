@@ -1,31 +1,31 @@
 # The load-bearing vocabulary of Claude
 
 Groups of words whose frequency in GitHub pull request descriptions changed at the same time,
-found without being told what to look for. One of them was 1.6% of the corpus at the start of
-2025 and is 62% of it by the middle of 2026.
+found without being told what to look for. One of them was 1.1% of the corpus at the start of
+2025 and is 47% of it by the middle of 2026.
 
 **[louisabraham.github.io/load-bearing](https://louisabraham.github.io/load-bearing/)**
 
 | file | what it is |
 |---|---|
 | `fetch_day.py` | one request a day to GitHub's search API, one `data/days/YYYY-MM-DD.jsonl`. Standard library only. |
-| `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js`. Needs `numpy`, `scipy`, `numba`. |
+| `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js`. Needs `numpy` and `scipy`. |
 | `index.html` | reads `analysis.js`. Five design propositions on the same numbers, `?p=1`…`?p=5`. No build step. Open it. |
 | `.github/workflows/daily.yml` | does all of the above, daily, and commits the result. |
 
 ```bash
-pip install numpy scipy numba
+pip install numpy scipy
 export GITHUB_TOKEN=$(gh auth token)
 
 python fetch_day.py                  # yesterday, one request
 python fetch_day.py --backfill 30    # and the last 30 days, if missing
-python analyze.py                    # ~8 s end to end
+python analyze.py                    # ~30 s end to end
 python analyze.py --selftest         # the invariants, on synthetic data
 open index.html
 ```
 
-Current state: **598 collected days, 588 of them in 84 whole weeks** (2025-01-06 to 2026-08-10),
-51,280 descriptions, 5,564,813 word appearances, 7,059 words above the floors.
+Current state: **600 collected days, 595 of them in 85 whole weeks** (2025-01-06 to 2026-08-17),
+51,964 descriptions, 5,705,560 word appearances, 7,180 words above the floors.
 
 ---
 
@@ -188,24 +188,6 @@ There is deliberately **no probability floor**: that would throw away exactly th
 rare-but-concentrated words the ranking exists to find. Appearances alone are not breadth
 either — `multi-draw` appears 101 times inside a single description.
 
-### Rare words are not pruned, and that was tested
-
-Raising the floors would shrink the vocabulary, so it was worth checking whether they could go.
-They cannot. Sweeping them upward on one shared count matrix, so the comparison is controlled:
-
-| tf / df | words | the leading component's top words |
-|---|---|---|
-| **45 / 25** | 7,267 | survived, load-bearing, quietly, refusal, pre-fix, halves |
-| 100 / 50 | 4,670 | 17 of the previous top 40 survive |
-| 250 / 100 | 2,655 | 7 of 40 |
-| 500 / 200 | 1,605 | **0 of 40** — clippy, cargo, --check, uv, bun |
-| 1000 / 400 | 930 | 1 of 40 — generic function words |
-
-The weekly *shape* survives all of it (`r` = 0.87 to 0.99). The component's *identity* does not:
-by 500/200 the largest component is Rust tooling and this page would be about something else.
-And the only motive for pruning was speed, of which there is none to gain — the fit is a
-fraction of a second at every vocabulary size.
-
 ### Whole weeks only
 
 There is **no cap on a week's size**, and there used to be one. Weeks were once thinned to a
@@ -226,155 +208,127 @@ resulting five-day first week is dropped along with the trailing one.
 
 ## 4. What the model is
 
-Each of `k` components is a fixed probability distribution over the vocabulary — one way of
-writing. **One mixture covers the whole window**, and each description is taken to be drawn
-from one of the components:
+Each of `k` **ways of writing** is a fixed distribution over the vocabulary, and every
+description is assigned to exactly one of them: the one it is closest to, under the divergence
+that belongs to word counts.
 
-$$W_k \;\text{a distribution over the } V \text{ words},\quad \sum_v W_{vk} = 1$$
+$$W_c \;\text{a distribution over the } V \text{ words},\qquad p_d = x_d / n_d \;\text{one description}$$
 
-$$\pi \;\text{how much of the window each was},\quad \sum_k \pi_k = 1$$
+$$z_d \;=\; \arg\min_c \; n_d \, \mathrm{KL}(p_d \,\|\, W_c), \qquad W_c \;\propto \sum_{d\,:\,z_d = c} x_d$$
 
-$$z_d \sim \mathrm{Categorical}(\pi), \qquad x_d \mid z_d = k \sim \mathrm{Multinomial}(n_d, W_k)$$
+Each centre is the middle of what it was given, which is that cluster's KL-centroid. This is
+k-means with KL in place of squared distance — Bregman hard clustering — and the $n_d$ weight is
+the only trace of counting left in it: a long description pulls its centre harder than a short
+one, which is what makes this KL k-means over *descriptions* rather than over word-frequency
+vectors.
 
-Fitted by maximum likelihood, with no penalty term of any kind:
+Nothing is ever evaluated as a divergence. Since
 
-$$\max_{W,\pi}\; \sum_d \log \sum_k \pi_k \prod_v W_{vk}^{x_{dv}}$$
+$$x_d \cdot \log W_c \;=\; -\,n_d\left(\mathrm{KL}(p_d \,\|\, W_c) + H(p_d)\right)$$
 
-**There is no `t` anywhere in that.** The model has no per-week parameter, so it has nothing
-that could describe a trend and no freedom to place one. Every curve produced is attribution
-instead — each description assigned by its words alone, the weeks added up afterwards:
+and $H(p_d)$ does not vary with $c$, the nearest centre is simply the largest $x_d \cdot \log W_c$,
+and the whole assignment step is one sparse product against the corpus.
 
-$$r_{dk} = \frac{\pi_k \prod_v W_{vk}^{x_{dv}}}{\sum_j \pi_j \prod_v W_{vj}^{x_{dv}}}$$
+**There is no `t` anywhere in that.** One set of centres covers the whole window, so the fit has
+no per-week parameter — nothing that could describe a trend and no freedom to place one. Every
+curve the page draws is attribution instead, each description placed by its words alone and the
+weeks counted up afterwards:
 
-that being how much of description $d$ belongs to component $k$, and then the only place a week
-index appears anywhere:
+$$C_{tc} \;=\; \#\{\,d \;:\; t(d) = t,\; z_d = c\,\}$$
 
-$$C_{tk} = \sum_{d\,:\,t(d) = t} r_{dk}$$
+`C` is a count of whole descriptions and not a fitted quantity. It was never optimised toward
+any shape. If a way of writing rises, the rise is in what people wrote, because there is nowhere
+else for it to be.
 
-`C` is a sum over fitted responsibilities and not itself a fitted quantity. It was never
-optimised toward any shape. If a component rises, the rise is in what people wrote, because
-there is nowhere else for it to be.
-
-### This used to be the ablation
-
-An earlier version fitted a mixture *per week*, $\pi_{tk}$, with a smoothness penalty on how
-fast it could move,
-
-$$\lambda K^2 \sum_{t,k} \left(\pi_{tk} - \pi_{t-1,k}\right)^2$$
-
-and $\lambda$ chosen by held-out likelihood. Running that model with one mixture for the whole window was meant as a
-check on whether the smoothing had drawn the trend. **The rise survived the check unchanged** —
-so the per-week version's extra parameters, 84 × 8 of them plus a penalty weight to tune, were
-machinery that bought a readable curve and the suspicion that the model had drawn it. The check
-became the model, and `lambda` went with it. There is now nothing to regularise.
+**And the assignment is hard.** A description belongs to one way of writing rather than partly
+to several, so a weekly curve is a count of descriptions and can be read as one.
 
 ## 5. How the model is trained
 
-Expectation-maximisation: attribute the descriptions, refit the word distributions, refit the
-mixture. Repeat **to convergence**, from eight different starting points, keeping the highest
-likelihood.
+Greedy k-means++ under KL to place the centres, then Lloyd's algorithm to a fixed point. Once.
 
-### Convergence, not a pass count
+### Seeding
 
-There is no iteration count. EM stops when a pass improves the log-likelihood by less than
-`1e-6` of itself — about 35 passes here — because a fixed count is a number that has to be
-guessed, and the wrong guess is invisible:
+D² sampling with the multinomial's own divergence in place of squared distance: the first centre
+is a random description, and each next one is drawn with probability proportional to its
+divergence from the nearest centre already chosen. **Greedy**, meaning three candidates are drawn
+each time and the one that reduces the total cost most is kept — which is what
+`scikit-learn`'s `k-means++` does by default, at 2 + ⌊log k⌋ = 4 candidates for this `k`.
 
-| passes | log-likelihood | the headline share |
-|---|---|---|
-| 6 | -36,913,436 | **43.2%** |
-| 12 | -36,889,990 | **62.1%** |
-| 24 | -36,882,749 | 61.7% |
-| 48 | -36,881,620 | 61.6% |
-| 96 | -36,881,615 | 61.6% |
+Only the first term of
 
-The old setting was a fixed 12, which overstated the headline by half a point while looking
-perfectly converged. Tightening the criterion to `1e-8` doubles the work to 79 passes and moves
-nothing.
+$$n_d \, \mathrm{KL}(p_d \,\|\, W_c) \;=\; \sum_v x_{dv} \log \frac{x_{dv}}{n_d} \;-\; x_d \cdot \log W_c$$
 
-### Restarts are still needed, and convergence does not replace them
+depends on the description alone, so it is computed once and the sampling costs one sparse
+product per candidate — 24 of them, about a tenth of a second.
 
-The natural hope is that converging properly would make the starting point stop mattering. It
-does not. Across 16 seeds:
+Seeding this way rather than from random descriptions is what makes a single run defensible. It
+is also the only reason there is no `n_init`.
 
-| | fixed 12 passes | converged 1e-6 | converged 1e-8 |
-|---|---|---|---|
-| log-likelihood spread | 0.386% | 0.398% | 0.392% |
-| headline share range | 36.0 – 63.4% | 37.3 – 63.2% | 35.7 – 63.1% |
-| `load-bearing` in top 5 | 13/16 | **15/16** | 15/16 |
+### Iteration
 
-**The spread is between distinct local optima, not between half-finished runs.** Converging
-harder just lands each seed more precisely in its own basin. That distinction matters, because
-it is the difference between "fit it longer" and "fit it more times", and only the second one
-helps.
+Assign, recentre, repeat, and **stop when no description changes hands**. That is an exact fixed
+point, so there is no tolerance to choose and no pass count to guess — the two settings a
+k-means implementation usually has to invent. Thirty-six passes on this corpus.
 
-So the restarts stay, and they earn it: fitting once, at seed 0 and `k = 16`, put
-`[transifex-url]` and `transifex` at ranks one and two of the published word list — a
-translation service's boilerplate welded onto the prose, which is what a mixed local optimum
-looks like from outside. The likelihood barely separates the runs while the answer moves by
-nearly a factor of two, so the winning run is worth finding, and it is cheap to find: it
-appears at the second restart and thirty further restarts never beat it. Eight is generous.
+A pseudo-count of 0.01 is added to every centre before normalising, so no centre gives a word
+probability zero and no description can be infinitely far from anywhere.
 
-Do not read the published share as a bound in either direction. At `k = 16` the likeliest fit
-happened to be the one that split the register most finely and so reported the *smallest* share
-of any seed; at `k = 8` it reports near the top of the range. It is the likeliest fit's figure
-and nothing more.
+### Eight restarts, and a retry
+
+Eight fits from eight seeds, and the cheapest is published. **The restarts are not there to find
+a better answer**, and it is worth being precise about that: cost is the only quality measure
+this model has, and across 32 runs its correlation with the share the page reports is **+0.03**.
+The cheapest of eight is not a truer fit than the first of one.
+
+They are there so that the daily job publishes something. A single fit passes the arrival check
+about two times in three; the cheapest of eight passes it ninety-nine times in a hundred. If the
+cheapest of a batch still does not arrive, the whole batch is run again from eight fresh seeds,
+up to four batches, and then nothing is published and the job stops.
+
+**That retry conditions the fit on the check.** On a day one happens, `LEAD_START` and `LEAD_END`
+select rather than test, and the published start share is under 2% by construction. So the
+evidence that the component arrived is not that the published fit passed — it is the rate at
+which *unconditioned* fits arrive at all. Over 32 single runs of the same corpus:
+
+| | across 32 single fits |
+|---|---|
+| the arrival check | passes in 21 |
+| where the component ends | 29.8% to 62.9%, median 49.0% |
+| `load-bearing`'s rank in its words | first in 21, top five in 28, top forty in 31 |
+| total cost | spread of 0.93% |
+| agreement on the weekly *shape* | mean `r` = 0.985 between any two runs |
+| agreement on *which* descriptions | mean F1 = 0.744, and as low as 0.13 |
+
+So the thing the page is about is not in doubt: every one of those runs finds a way of writing
+that ends between 30% and 63% of the recent weeks, almost every one puts the title word at or
+near the top of it, and any two of them draw the same weekly shape. **Where exactly it ends is
+one fit's answer**, and `SEED` is listed as a real choice in §7 for that reason.
 
 ### Speed
 
-About eight seconds end to end, on 51,280 descriptions and 7.2 million token occurrences.
+About half a minute end to end, on 51,964 descriptions and 5.7 million word appearances, four
+threads.
 
-| stage | time | share |
-|---|---|---|
-| **reading the corpus** | **4.6 s** | |
-| — `tokens()`, the regex work | 2.4 s | 53% |
-| — interning words to integer ids | 0.8 s | 18% |
-| — building and deduplicating the matrix | 0.9 s | 21% |
-| — reading files and `json.loads` | 0.4 s | 9% |
-| **fitting** | **2.7 s** | |
-| — one EM pass over 3.3 M nonzeros | 0.013 s | |
-| — one fit, to convergence (~35 passes) | 0.33 s | |
-| — eight restarts | 2.7 s | |
-| import, numba cache load, writing `analysis.js` | ~1 s | |
+| stage | time |
+|---|---|
+| reading the corpus — regexes, interning, building the matrix | 8.4 s |
+| eight fits, seeding and ~36 passes each | 23 s |
+| ranking words, packing, writing `analysis.js` | 0.1 s |
 
-Four techniques account for it.
+**There is no `numba` any more, and that is a measurement rather than a preference.** The whole
+of the arithmetic is two sparse products per pass, which `scipy` already does in C:
 
-**The model has no per-week parameter.** This is the largest factor by a wide margin and it is a
-property of the model rather than an optimisation: with one mixture for the whole window there is
-no inner optimisation inside an EM pass, so a pass is two sparse products and a softmax. A pass
-costs 13 milliseconds.
+| one pass over 3.3 M nonzeros | time |
+|---|---|
+| `scipy` sparse products, what the code does | 55 ms |
+| hand-written parallel `numba` kernel, 4 threads | 27 ms |
 
-**The EM sweep is one fused numba kernel.** The obvious formulation builds a `D × k` matrix of
-logits, softmaxes it, then multiplies it back against the sparse matrix — three passes over the
-data and two dense intermediates the size of the corpus. `_em_sweep` visits each description
-once: its logits go into a length-`k` scratch array, are softmaxed in place, and are spent
-immediately on the word totals, the weekly counts and the likelihood. Nothing `D`-sized is
-allocated. It parallelises over contiguous *blocks* of descriptions, so each thread owns one
-slice of every accumulator and no two threads ever touch the same cell — `threads × k × V`
-floats, six megabytes at sixteen threads, and no atomics.
-
-The parallelism is the whole of the benefit, and it is worth knowing how much:
-
-| one EM pass | time | vs numpy |
-|---|---|---|
-| pure numpy — `_em_sweep_numpy`, 13 lines | 32.5 ms | — |
-| numba, 1 thread | 50.4 ms | 0.6× |
-| numba, 4 threads (what CI has) | 17.5 ms | 1.9× |
-| numba, 16 threads | 7.7 ms | 4.3× |
-
-`_em_sweep_numpy` states the same computation in thirteen readable lines and the selftest asserts
-the two agree to eight decimal places on every run, because a hand-written parallel reduction is
-exactly the kind of code that is wrong in ways tests written against its own output cannot see.
-
-**Counting is sparse-matrix work, not dictionary work.** Words become integers as they are read.
-Building the matrix collapses duplicate `(description, word)` pairs in C and sorts each row,
-which is precisely the deduplication the filters need — so the distinct-word counts, the
-per-week word-set keys and the document frequencies all fall out of a matrix that had to be built
-anyway, and a second `(author, word)` matrix gives the distinct-account counts the same way.
-
-**EM stops on convergence.** A pass that improves the log-likelihood by less than `1e-6` of
-itself ends the run, which is about 35 passes. See the table above for why a fixed count is not
-good enough.
+That is 2.0×, and it buys 1.0 s across the 36 passes. A cold JIT compile of that kernel costs
+1.5 s, and `__pycache__` is not committed, so the daily job pays it on **every** run — the
+kernel was a net loss of half a second on the machine that actually runs it, and a dependency,
+and forty lines of index arithmetic that had to be checked against a numpy reference to be
+believed. On a warm cache it wins a second; the CI cache is never warm.
 
 Two small things in the tokeniser matter more than they look, because they run seven million
 times: the Snyk-identifier pattern is guarded by a `startswith` so it is attempted a few hundred
@@ -386,11 +340,11 @@ corpus are byte-identical and the daily commit does not churn on words that scor
 
 ### What the selftest guarantees
 
-Run before every publish, and the daily job stops if it fails: the mixture sums to one, the
-weekly counts reconstruct each week's document total, the appearance counts reconstruct it too,
-the numba kernel matches numpy to 1e-8, and **a planted component is recovered from synthetic
-data** — rising from 0.000 to 0.350 at the week it was planted, even though the model has no
-way to represent time.
+Run before every publish, and the daily job stops if it fails: the centres are distributions, the
+weekly counts are whole numbers and reconstruct each week's description total, the appearance
+counts reconstruct it too, and **a planted way of writing is recovered from synthetic data** —
+rising from 0.000 to 0.350 at the week it was planted, even though the model has no way to
+represent time.
 
 ## 6. How the results are displayed
 
@@ -400,36 +354,27 @@ way to represent time.
 month rather than a week because a week is 700 descriptions, and the subject of the whole page
 should not turn on which of two close components led across one of them.
 
-Growth thresholds used to do the choosing, and it was fragile: at a 1% start one fit rejected
-its own largest component, which had gone from 1.06% to 40.35%, for beginning six hundredths of
-a point too high.
-
-Those thresholds survive but no longer select — they **check**. Picking the biggest component
+Two thresholds sit beside that choice, and they **check** rather than select. Picking the biggest component
 says nothing about whether it arrived, and arriving is what the page claims, so the claim is
 tested against the component actually chosen: **under 2% of the first eight weeks, at or above
 20% of the last eight.** A test may be a round number in a way a selector may not, because
 nothing is being ranked and there is no runner-up to exclude unfairly. If it fires, the page
 should not be published from that fit, and CI stops.
 
-**An earlier version asserted a growth ratio and a clean gap, and it was wrong.** It required
-every component growing 100-fold to be ten times clear of everything that did not, and CI
-caught it failing on the very first run — one extra day of data moved the largest non-arrival
-from 4.8× to 69×, an eight-fold swing from a hundred descriptions. A ratio of `end/start`
-explodes when the start is near zero, so it ranks a component starting at 0.07% above one
-starting at 0.3% for no good reason, and is unstable at exactly the point it matters. And the
-gap requirement encoded an assumption the data does not support: growth is a continuum here, so
-a threshold cuts through the middle of it and no gap can exist.
+They are stated as two absolute shares rather than as a growth ratio because `end/start`
+explodes when the start is near zero: it would rank a component starting at 0.07% above one
+starting at 0.3% for no good reason, and be least stable exactly where it matters.
 
 ### Whether it is "still growing"
 
 The page says the component is still growing, and that sentence is read off the data rather than
 typed into the markup: `analyze.py` fits a least-squares line to the component's observed weekly
 share over the last 12 weeks and reports the slope, and the page phrases itself from the sign.
-Currently **+1.2 points a week**, over a stretch running 47.8% to 64.8%. If it ever flattens the
+Currently **+1.2 points a week**, over a stretch running 37.2% to 52.1%. If it ever flattens the
 page will say it has levelled off instead, without anyone editing it — a claim that can go stale
 should not be a string constant.
 
-Note that the last eight weeks alone are noisy around 62% and would not support the claim on
+Note that the last eight weeks alone are noisy around 47% and would not support the claim on
 their own; twelve weeks is what makes the slope clear of the week-to-week scatter.
 
 ### The stacked chart
@@ -445,20 +390,20 @@ cutting through the arrival.
 
 ### The word wall
 
-Ranked by lift, measured against the mixture of every **other** component weighted by its share
+Ranked by lift, measured against every **other** component weighted by its share
 of appearances — not against the whole corpus:
 
 $$\mathrm{lift}_k(v) = W_{vk} \Big/ \frac{\sum_{j \neq k} m_j W_{vj}}{\sum_{j \neq k} m_j}$$
 
 where $m_j$ is component $j$'s share of all word appearances.
 
-**The exclusion is doing enormous work.** The component is now most of the recent weeks, so
-dividing by the whole corpus would compare its vocabulary mostly against itself.
-`load-bearing` scores **3.75× against the whole corpus and 3,613× against everything that is
-not this component** — a thousandfold difference, from one choice of denominator.
+**The exclusion is doing enormous work.** The component is close to half of the recent weeks, so
+dividing by the whole corpus would compare its vocabulary substantially against itself.
+`load-bearing` scores **4.65× against the whole corpus and 183× against everything that is not
+this component** — a fortyfold difference, from one choice of denominator.
 
 Size and shade follow the *logarithm* of that multiple, because it spans three orders of
-magnitude — 3,613× down to 4.12× across the thousand words shown — and on a linear ramp every
+magnitude — 183× down to 3.62× across the thousand words shown — and on a linear ramp every
 word past the first dozen would sit at the minimum.
 
 ### Hovering
@@ -475,12 +420,15 @@ been different. **Two were chosen by looking at the answer**, and both are marke
 
 | constant | value | how it was chosen |
 |---|---|---|
-| `K` | 8 | **chosen on the outcome** — the coarsest setting putting `load-bearing` in the top 5 |
+| `K` | 8 | **chosen on the outcome** — see below |
 | `MIN_TF` | 45 | **chosen on the outcome** — see below |
 | `MIN_AUTHORS` | 20 | measured, but a thin margin: bots at 16 and 18, real words at 91 and 132 |
 | `EXCLUDE_APPS` | 4 apps | measured — 90% of App-authored bodies |
-| `N_INIT` | 8 | measured — the winner appears at restart 2 and 32 never beat it |
-| `TOL` | 1e-6 | measured — 1e-8 doubles the work and changes nothing |
+| `SEED` | 0 | **consequential** — the seed moves the headline; see §5 |
+| `N_INIT` | 8 | measured — a single fit publishes 2 times in 3, the cheapest of eight 99 in 100 |
+| `RETRIES` | 4 | **arbitrary** — batches to run before giving up; a second one is a 1-in-100 day |
+| `TRIALS` | 3 | judgement — k-means++ candidates per centre; `scikit-learn` uses 4 at this `k` |
+| `SMOOTH` | 0.01 | **arbitrary** pseudo-count, so no centre gives a word probability zero |
 | `LEAD_WINDOW` | 4 weeks | judgement — "a month", to stop one week deciding the subject |
 | `LEAD_START`, `LEAD_END` | 2%, 20% | round numbers, wide margins, and they only *check* |
 | `MIN_DF` | 25 | judgement — breadth, paired with `MIN_TF` |
@@ -492,13 +440,13 @@ been different. **Two were chosen by looking at the answer**, and both are marke
 | `WINDOW_S` | 300 s | **consequential** — see below |
 | ten prose terms | 10 | **arbitrary**, though only their union matters |
 | `SNYK_ID_RE` digits | 4+ | **arbitrary** |
-| `SEED` | 0 | arbitrary and immaterial — best-of-8 spans seeds 0–7 |
+| `MAX_PASSES` | 200 | a runaway guard — the fixed point comes at 36 |
 
 **`MIN_TF = 45` was picked by looking at the answer.** `load-bearing` had 51 appearances on the
 corpus of the day, so 45 let it through and 60 would not have. That is the same species of
 choice as `K` and deserves the same label. It is no longer binding on the title word — the
-corpus has grown and it now has 101 appearances, clearing the floor by more than twice over —
-but it still shapes the list: `throwaway`, third in the published top five, has 55 appearances,
+corpus has grown and it now has 103 appearances, clearing the floor by more than twice over —
+but it still shapes the list: `throwaway`, fourth in the published top five, has 53 appearances,
 and a floor at 60 would drop it.
 
 **`WINDOW_S = 300` is more consequential than it looks.** Five minutes was chosen so a window
@@ -511,43 +459,48 @@ this is not a bias in *time*; it is a varying effective width.
 ### How many components, and why that is not a neutral choice
 
 `k = 8`, and the number was chosen so that `load-bearing` — the word this page is named after —
-would rank among the five most characteristic words of the arriving component. It does, at rank
-1, in 15 of 16 starting seeds.
+would rank among the most characteristic words of the arriving component. It does, at rank 1, and
+`k = 8` is the only setting in the sweep below where that and the arrival check hold together.
 
-| k | seeds with `load-bearing` in top 5 |
-|---|---|
-| **8** | **15 of 16** |
-| 16 | 2 of 8 (it ranks 45th at the best seed) |
-| 24 | 3 of 8 |
-| 32 | 1 of 8 |
-| 48 | 0 of 8 |
+| k | rank of `load-bearing` | the arrival check |
+|---|---|---|
+| 4 | 17 | fails — the largest component starts at 6.4%, and it is Spanish and French |
+| 6 | 1 | fails — starts at 3.3% |
+| **8** | **1** | **passes** |
+| 12 | 56 | passes |
+| 16 | 2 | passes |
+| 24 | 10 | passes |
+| 32 | 18 | fails — nothing ends above 20% |
+| 48 | 4,474 | fails |
 
-**That is selection on the outcome, and it cannot also be evidence for the outcome.** Held-out
-likelihood prefers far more components than eight — it kept improving to about `k = 128` before
-turning over at 192. A coarser model lumps together registers a finer one separates, which is
-exactly why one word can come to dominate it. What eight buys is a page whose title matches its
-own top line. What it costs is that no ranking here may be read as having been discovered: the
-vocabulary is real and the rise is real, but the *order* was tuned until a chosen word came
-first.
+**That is selection on the outcome, and it cannot also be evidence for the outcome.** Nothing in
+the fit can choose `k` for you: the total cost falls monotonically as `k` rises — 13.7 M at four
+centres, 13.0 M at eight, 11.9 M at forty-eight — as it must, because more centres can only be
+closer. A coarser setting lumps together ways of writing that a finer one separates, which is
+exactly why one word can come to dominate one of them. What eight buys is a page whose title
+matches its own top line. What it costs is that no ranking here may be read as having been
+discovered: the vocabulary is real and the rise is real, but the *order* was tuned until a
+chosen word came first.
 
-The finding itself does not depend on it. A component going from near nothing to a large share
-of the week, with these words, is there at every `k` from 6 to 48. Only the ranking of
-individual words within it moves.
+The finding itself does not depend on it. A way of writing going from near nothing to a large
+share of the recent weeks, with these words, is there at every `k` from 6 to 24. What moves is
+the ranking of individual words within it — and past 24 the register is split finely enough that
+no single piece of it is large enough to be called the subject of the page.
 
-**Retracted: "marker recovery".** This is the second time this project has chosen `k` by
-looking at the answer. The first was an accident: an earlier version scored each setting by how
-many of 22 marker words it reproduced, and those 22 had been chosen by reading the output at
-`k = 12`. It was a measure of agreement with itself, dressed as validation. Held-out likelihood
-replaced it. That one is retracted; this one is disclosed, because it was asked for
-deliberately.
+**Retracted: "marker recovery".** This is the second time this project has chosen `k` by looking
+at the answer. The first was an accident: an earlier version scored each setting by how many of
+22 marker words it reproduced, and those 22 had been chosen by reading the output at `k = 12`. It
+was a measure of agreement with itself, dressed as validation. That one is retracted; this one is
+disclosed, because it was asked for deliberately.
 
 ## 8. Caveats to carry
 
-**On the title.** Words naming Claude are elevated inside this component — `claude` at 5.05×
-and its link at 5.68× — while Cursor sits at 1.31×, ChatGPT at 1.05×, Codex at 1.06× and
-Copilot at 0.62×, at or below the baseline. But `gpt-5` is elevated further than any of them,
-at 10.12×. The register is far more strongly associated with Claude than with most assistants,
-and it is not Claude's alone.
+**On the title.** Words naming Claude are the only assistant names elevated inside this
+component — `claude` at 3.54× and its link at 4.55× — while Cursor sits at 0.79×, ChatGPT at
+0.66×, Codex at 0.52× and Copilot at 0.46×, all below the baseline, and `gpt-5` only just above
+it at 1.89×. The register is far more strongly associated with Claude than with any other
+assistant. That is an association between a way of writing and a name people write down, and
+nothing more.
 
 **A confound in the denominator.** The corpus only contains pull requests whose author wrote a
 description, and that condition loosens over the window — empty descriptions fall from about a

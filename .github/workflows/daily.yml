@@ -34,15 +34,14 @@ jobs:
           python-version: "3.13"
 
       - name: Install
-        run: pip install --quiet numpy scipy numba
+        run: pip install --quiet numpy scipy
 
       - name: Fetch yesterday
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python fetch_day.py --backfill ${{ inputs.backfill || 0 }}
 
-      # Under a minute: the EM sweep is a fused numba kernel and there is one fit, not three
-      # variants at ten restarts each. That used to be half an hour.
+      # About half a minute: eight k-means++ runs, each two sparse products a pass.
       - name: Analyse
         run: |
           python analyze.py --selftest

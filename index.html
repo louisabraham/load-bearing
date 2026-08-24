@@ -696,12 +696,12 @@ function prepared() {
       + "coding agent.",
     note: "The thousand most characteristic. <b>Hover any word</b> to see its own "
       + "week-by-week history.",
-    // the two acronyms are marked up so that the lowercase proposition can keep them
-    // upright: `kl divergence` and `em` are not the same words as KL divergence and EM
+    // the acronym is marked up so that the lowercase proposition can keep it upright: `kl
+    // divergence` is not the same word as KL divergence
     method: 'Grouped by <a href="https://jmlr.csail.mit.edu/papers/volume6/banerjee05b/'
       + 'banerjee05b.pdf" target="_blank" rel="noopener">k-means clustering under '
-      + '<abbr>KL</abbr> divergence</a> \u2014 in its soft form, one multinomial mixture '
-      + 'over the whole window, fitted by <abbr>EM</abbr>.',
+      + '<abbr>KL</abbr> divergence</a> \u2014 Bregman hard clustering, one set of centres '
+      + 'for the whole window, seeded by greedy k-means++.',
     generated: `generated ${A.generated}`,
     stack: () => `<div class="chart"><svg id="stack"></svg><div class="axis">${axis()}</div></div>`,
     probe: () => `<div class="probe" data-lead="0">
