@@ -510,17 +510,30 @@ def test_only_light_is_the_half_that_does_the_work(chromium, site, browser):
         dark.close()
 
 
-def test_the_phone_face_is_named_rather_than_left_to_a_keyword():
-    """Chrome and Firefox disagreed about how to reach the phone's own sans.
-
-    None of the named faces ahead of it exists on Android, so Chrome took `ui-sans-serif` and
-    Firefox, which does not implement that keyword, fell past it to `system-ui`. They landed on
-    different faces and Firefox's had no weight above regular, so the title, the three figures
-    and every sentence set in 500 or 700 came back at 400 -- grey text where the board wants
-    black. Naming the family settles it before either keyword is reached.
-    """
+def grotesk_stack():
     css = (ROOT / "index.html").read_text(encoding="utf-8")
-    stack = css.split("--grotesk:")[1].split(";")[0]
+    return css.split("--grotesk:")[1].split(";")[0]
+
+
+def test_the_page_does_not_ask_for_a_face_it_cannot_vouch_for():
+    """A stack is a list of wishes and the browser grants the first it can.
+
+    `Inter` was third in it. On a phone that has Inter installed the cut installed there was a
+    hairline, Firefox granted it, and every heading and figure came out at one thin stroke
+    whatever weight the CSS asked for -- measured four times thinner than the same text in
+    Chrome, which does not see that font at all. Roboto, system-ui and sans-serif all go
+    properly bold on the same phone; they were simply queued behind it.
+    """
+    assert "Inter" not in grotesk_stack(), (
+        "Inter is installed as a hairline on some phones and would be granted ahead of the "
+        "platform faces that do carry the board's weights"
+    )
+
+
+def test_the_phone_face_is_named_rather_than_left_to_a_keyword():
+    """Firefox does not implement `ui-sans-serif`, so left to the keywords the two browsers
+    reach the phone's own sans by different routes. Naming it settles that first."""
+    stack = grotesk_stack()
     for keyword in ("ui-sans-serif", "system-ui"):
         assert stack.index("Roboto") < stack.index(keyword), (
             f"Roboto must come before {keyword}, or the two browsers choose separately"

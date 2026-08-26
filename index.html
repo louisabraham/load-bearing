@@ -42,19 +42,22 @@
     /* Grotesk for the page, mono for anything that is a measurement. No web fonts: the page is
        one file that reads one file.
 
-       `Roboto` is named rather than left to the two UI keywords after it, because on a phone
-       that is the only thing either keyword can mean and the two browsers did not agree on how
-       to get there. None of Helvetica Neue, Helvetica or Inter exists on Android, so Chrome
-       took `ui-sans-serif` -- a keyword Firefox does not implement -- and Firefox fell past it
-       to `system-ui`. They landed on different faces, and the one Firefox landed on had no
-       weight above regular to give: the title, the three figures and every sentence set in 500
-       or 700 came back at 400, which on a white ground reads as grey text rather than as black.
-       Named, both browsers match the same family, and it is the same family Chrome was already
-       choosing -- so this changes what Firefox draws and not what Chrome does.
+       `Inter` is deliberately NOT in this list. A stack is a list of wishes and the browser
+       grants the first one it can, which makes any name in it a name you are promising to
+       accept in whatever cut the machine happens to hold. On a phone with Inter installed,
+       Firefox granted it -- and the cut installed there is a hairline. Every heading and every
+       figure came out at one thin stroke whether the CSS asked for 400, 500 or 700, measured
+       four times thinner than the same text in Chrome, which reads as grey text on a white
+       ground rather than as black. Chrome does not see that font at all, so only one browser
+       showed it, and each of Roboto, system-ui and sans-serif goes properly bold on the same
+       phone -- they simply sat behind Inter in the queue and never got a turn.
 
-       The keywords stay behind it for the desktops, where they mean San Francisco and Segoe. */
-    --grotesk: "Helvetica Neue", Helvetica, Inter, Roboto, ui-sans-serif, system-ui, Arial,
-      sans-serif;
+       A face is worth naming here only if every machine that has it has it in the weights the
+       board is set in. Inter is not, so it goes; the rest are the platform's own text faces,
+       which are. `Roboto` is named ahead of the two UI keywords for the same reason -- it is
+       what either can mean on a phone, and Firefox does not implement `ui-sans-serif` at all,
+       so left to the keywords the two browsers reach it by different routes. */
+    --grotesk: "Helvetica Neue", Helvetica, Roboto, ui-sans-serif, system-ui, Arial, sans-serif;
     /* every named face here is absent from a phone, so both browsers fall to the same
        `monospace` -- which is why the labels were the one thing that already matched */
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
