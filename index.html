@@ -342,7 +342,7 @@
 
   /* the week under the pointer belongs to the diagram, so it is printed at the head of the
    diagram's own cell rather than in a compartment of its own or in a tooltip that takes it
-   away again. With no pointer on the chart it holds the last week. */
+   away again. With no pointer on the chart the line asks for one. */
   .readout {
     margin: 0 0 10px;
     /* one line of room whether or not the week has been written into it yet: the chart is
@@ -350,6 +350,12 @@
        out of the chart's own height and leave the drawing taller than the box holding it */
     min-height: 1.3em;
     color: var(--ink);
+  }
+
+  /* not a measurement, so not in the ink: the invitation takes the grey every other label on
+     the board is set in, and a glance tells a reading from a prompt without reading either */
+  .readout.nudge {
+    color: var(--muted);
   }
 
   .readout b {
@@ -675,8 +681,30 @@
 
   /* ------------------------------------------------------------------ the charts */
 
+  /* Idle, the line above a chart says what the chart will do rather than standing a number in
+     the place where a reading goes. It used to hold the last week, which is a fact the board
+     never meant to assert -- the newest week is not what either chart is about -- and it hid
+     the one thing a reader who has not touched the chart yet needs to know, which is that the
+     chart answers at all.
+
+     The verb is the one the device actually has: a phone cannot hover and a mouse cannot
+     touch, and a nudge naming the wrong gesture is worse than no nudge. It is read at each
+     rest rather than once at load, so a tablet that gains a mouse is told the truth from then
+     on. */
+  const nudge = () => matchMedia("(hover: hover)").matches
+    ? "hover for any week" : "touch for any week";
+
+  /* The line is either a reading or the invitation to take one, and it is set as whichever it
+     is: a reading in the ink, the invitation in the muted grey the board's other labels take,
+     so a glance can tell a measurement from a prompt without reading either. */
+  function readout(el, html) {
+    if (!el) return;
+    el.innerHTML = html || nudge();
+    el.classList.toggle("nudge", !html);
+  }
+
   /* Both charts are scrubbed the same way, so the wiring is written once: the line follows the
-     pointer across the box, and off it the chart goes back to resting on the last week.
+     pointer across the box, and off it the chart goes back to its invitation.
 
      The pointer is captured on the way down for anything that is not a mouse. A finger dragged
      sideways does not travel in a straight line -- it drifts up or down out of a chart 200px
@@ -736,12 +764,11 @@
       stroke-width="1" opacity="0"/>`;
 
     // a finger or a pointer on this chart reads out its week, the same gesture and the same
-    // line as the stack above it. Idle, it holds the last week rather than going blank.
+    // line as the stack above it. Idle, it asks for the gesture.
     const out = app.querySelector(".probe .readout");
-    const at = i => `${A.weeks[i]} · <b>${fmt(vals[i])}</b> per million words`;
-    const say = html => { if (out) out.innerHTML = "week " + html; };
-    scrubbing(svg, N, i => say(at(i)), () => say(at(N - 1)));
-    say(at(N - 1));
+    const at = i => `week ${A.weeks[i]} · <b>${fmt(vals[i])}</b> per million words`;
+    scrubbing(svg, N, i => readout(out, at(i)), () => readout(out, null));
+    readout(out, null);
   }
 
   /* The stack, as a share of each week. Every band is one cluster of vocabulary and they fill the
@@ -775,21 +802,17 @@
     svg.innerHTML = out + rules + `<line class="cross" x1="0" x2="0" y1="0" y2="${h}"
     stroke="var(--ink)" stroke-width="1" opacity="0"/>`;
     const lead = A.components.find(c => c.lead);
-    const at = i => `${A.weeks[i]} · <b>${pc(lead.count[i] / tot[i])}</b> of the week`;
+    const at = i => `week ${A.weeks[i]} · <b>${pc(lead.count[i] / tot[i])}</b> of the week`;
     // pointer events rather than mouse events, so a finger dragged across the chart scrubs it and
     // a tap on it reads out one week
     scrubbing(svg, N, i => week(at(i)), () => week(null));
-    svg.dataset.last = at(N - 1);
     week(null);
   }
 
-  /* The week reads out at the head of the chart's own cell. Off the chart it holds the last week
-     rather than going blank, so the line is never an empty row of the board. */
+  /* The week reads out at the head of the chart's own cell. Off the chart the line carries the
+     invitation instead, so it is never an empty row of the board and never a stale one. */
   function week(html) {
-    const out = app.querySelector(".cell.chart .readout");
-    if (!out) return;
-    const svg = app.querySelector("#stack");
-    out.innerHTML = "week " + (html || (svg && svg.dataset.last) || "");
+    readout(app.querySelector(".cell.chart .readout"), html);
   }
 
   /* ------------------------------------------------------------------ the word panel */

@@ -14,6 +14,7 @@ on the machine (`CHROMIUM=/path/to/chromium` overrides).
 import functools
 import http.server
 import os
+import re
 import socketserver
 import threading
 from pathlib import Path
@@ -304,7 +305,7 @@ def test_the_chart_is_drawn_at_the_size_of_its_box(page):
 
 def test_the_week_under_the_pointer_reads_out_on_the_chart(page):
     """The week belongs to the diagram: it is printed at the head of the diagram's own cell, and
-    with no pointer on the chart it holds the last week rather than going blank."""
+    with no pointer on the chart the line goes back to asking for one."""
     resting = page.inner_text(".readout")
     box = page.locator("#stack").bounding_box()
     page.mouse.move(box["x"] + box["width"] * 0.3, box["y"] + box["height"] / 2)
@@ -315,6 +316,47 @@ def test_the_week_under_the_pointer_reads_out_on_the_chart(page):
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] - 40)
     page.wait_for_timeout(120)
     assert page.inner_text(".readout") == resting
+
+
+@pytest.mark.parametrize("readout", [".cell.chart .readout", ".probe .readout"])
+def test_an_untouched_chart_asks_to_be_touched(page, readout):
+    """Both charts used to rest on the newest week.
+
+    A date and a number sitting above a chart nobody has pointed at read as a fact the board is
+    asserting, and the newest week is not what either chart is about. Worse, it hid the only
+    thing a reader who has not touched the chart yet needs to know -- that it answers. The line
+    now carries the invitation until there is a real reading to put there.
+    """
+    line = page.inner_text(readout).strip()
+    assert "for any week" in line.lower(), f"no invitation on an untouched chart: {line!r}"
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", line), f"a week is still standing there: {line!r}"
+    # and it is set apart from a reading rather than looking like one
+    assert "nudge" in (page.get_attribute(readout, "class") or "")
+
+
+def test_the_invitation_names_the_gesture_the_device_has(browser, site):
+    """A phone cannot hover and a mouse cannot touch, so a nudge naming the wrong one is worse
+    than no nudge."""
+    for touch, wanted in ((False, "hover"), (True, "touch")):
+        page = browser.new_page(
+            viewport=PHONE, device_scale_factor=RETINA, has_touch=touch, is_mobile=touch
+        )
+        page.goto(site)
+        page.wait_for_selector('.wall [data-j="999"]')
+        assert wanted in page.inner_text(".cell.chart .readout").lower()
+        page.close()
+
+
+def test_a_reading_replaces_the_invitation_and_takes_the_ink(page):
+    """The two are different kinds of line and are set differently: the reading is a measurement
+    in the ink, the invitation is a label in the muted grey."""
+    grey = page.eval_on_selector(".cell.chart .readout", "e => getComputedStyle(e).color")
+    box = page.locator("#stack").bounding_box()
+    page.mouse.move(box["x"] + box["width"] * 0.4, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(120)
+    assert "nudge" not in (page.get_attribute(".cell.chart .readout", "class") or "")
+    ink = page.eval_on_selector(".cell.chart .readout", "e => getComputedStyle(e).color")
+    assert ink != grey, f"the reading and the invitation are set the same: {ink}"
 
 
 # ------------------------------------------------------------------ scrubbing with a finger
