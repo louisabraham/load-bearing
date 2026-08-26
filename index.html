@@ -418,9 +418,13 @@
      right lifetime for a nudge: it is gone the moment it has been taken */
   .wall::before {
     height: calc(50% - 14px);
+    /* centred in the run on both axes, which is the same rule twice: the run is a box and a
+       label in a box goes in the middle of it. Left-aligned it read as a first row of the list
+       that had lost its word. */
     display: flex;
     align-items: center;
-    content: "a thousand words · scroll";
+    justify-content: center;
+    content: "scroll · most representative first";
     color: var(--muted);
     font: 400 10px/1.3 var(--mono);
     letter-spacing: 0.12em;
@@ -694,7 +698,7 @@
     const s = c.series[S.j], total = s.reduce((a, b) => a + b, 0);
     p.querySelector(".word").innerHTML = `<b>${esc(c.word_list[S.j])}</b>`;
     p.querySelector(".meta").innerHTML =
-      `<b>${c.word_lift[S.j]}×</b> as many appearances here as outside · `
+      `<b>${c.word_lift[S.j]}×</b> more frequent in this component · `
       + `${fmt(total)} in total`;
     area(p.querySelector("svg"), s, Math.max(...s));
     app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
