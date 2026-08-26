@@ -91,6 +91,7 @@ def scroll_column(page, top):
 
 # --------------------------------------------------------------------------- what it opens on
 
+
 def test_opens_on_the_first_word(page):
     """The page used to open on an invitation to click. It opens on the word it is named after."""
     word, row = chosen(page)
@@ -99,6 +100,7 @@ def test_opens_on_the_first_word(page):
 
 
 # ------------------------------------------------------------------- choosing by clicking one
+
 
 @pytest.mark.parametrize("j", [1, 3, 40, 137, 700])
 def test_clicking_a_word_chooses_that_word(page, j):
@@ -143,6 +145,7 @@ def test_clicking_a_word_does_not_scroll_the_page(browser, site):
 
 # ------------------------------------------------------------------- choosing by scrolling it
 
+
 def test_scrolling_the_column_chooses(page):
     """The column is the chooser: what is on the line is what is drawn, and both ends are
     reachable -- the first word is the one the page is named after."""
@@ -167,6 +170,7 @@ def test_arrow_keys_step_the_choice_and_bring_it_to_the_line(page):
 
 
 # ------------------------------------------------------------------------------ what it looks
+
 
 def test_the_column_stays_inside_its_box_after_a_resize(page):
     """Portrait and back printed the words over the footer: the run above them was padding, and
@@ -202,8 +206,7 @@ def test_choosing_a_word_does_not_move_the_page_on_a_phone(browser, site):
 
 @pytest.mark.parametrize("width", [320, 390, 820, 1400])
 def test_nothing_scrolls_sideways(browser, site, width):
-    page = browser.new_page(viewport={"width": width, "height": 844},
-                            device_scale_factor=RETINA)
+    page = browser.new_page(viewport={"width": width, "height": 844}, device_scale_factor=RETINA)
     page.goto(site)
     page.wait_for_selector('.wall [data-j="999"]')
     over = page.evaluate(
