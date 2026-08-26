@@ -179,6 +179,37 @@ def test_scrolling_the_column_chooses(page):
     assert 0 < middle < 999
 
 
+def test_one_tick_of_a_mouse_wheel_is_one_word(page):
+    """A wheel with detents asks for one word. The browser would give it the hundred pixels it
+    asked for in the event, which is five of them."""
+    box = page.locator(".wall").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    seen = [int(chosen(page)[1])]
+    for _ in range(4):
+        page.mouse.wheel(0, 120)
+        page.wait_for_timeout(120)
+        seen.append(int(chosen(page)[1]))
+    for _ in range(2):
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(120)
+        seen.append(int(chosen(page)[1]))
+    assert seen == [0, 1, 2, 3, 4, 3, 2]
+
+
+def test_a_trackpad_still_moves_the_column_itself(page):
+    """It asks in pixels rather than in detents, and a finger that moved the column by three
+    words should move it by three words rather than by one per event it happened to send."""
+    box = page.locator(".wall").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    before = int(chosen(page)[1])
+    for _ in range(10):
+        page.mouse.wheel(0, 8)
+        page.wait_for_timeout(40)
+    page.wait_for_timeout(250)
+    moved = int(chosen(page)[1]) - before
+    assert 0 < moved < 10, f"ten small deltas moved {moved} words"
+
+
 def test_arrow_keys_step_the_choice_and_bring_it_to_the_line(page):
     page.keyboard.press("ArrowDown")
     page.keyboard.press("ArrowDown")

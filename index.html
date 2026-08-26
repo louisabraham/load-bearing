@@ -380,6 +380,12 @@
      drawn, so the wheel and a finger do the same thing. The scrollbar is hidden because the
      position in a thousand words is not the point — the word under the middle is. */
   .wall {
+    /* one tick of a wheel, one word. The rows are snap points and none may be skipped, so a
+       scroll that would otherwise jump five words at a time stops at the first one it meets;
+       a finger dragging the column still moves it freely and settles on a word at the end.
+       The padding puts the snap line where the chosen line is, rather than at the box's top. */
+    scroll-snap-type: y mandatory;
+    scroll-padding-top: calc(50% - 14px);
     position: relative;
     overflow: auto;
     overscroll-behavior: contain;
@@ -449,6 +455,8 @@
   /* a column, one word a line, tight enough that scrolling it is reading rather than paging */
   .wall span {
     display: block;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
     font-family: var(--mono);
     white-space: nowrap;
     line-height: 1.3;
@@ -687,7 +695,7 @@
     const s = c.series[S.j], total = s.reduce((a, b) => a + b, 0);
     p.querySelector(".word").innerHTML = `<b>${esc(c.word_list[S.j])}</b>`;
     p.querySelector(".meta").innerHTML =
-      `<b>${c.word_lift[S.j]}×</b> more probable here than elsewhere · `
+      `<b>${c.word_lift[S.j]}×</b> more probable here than in other components · `
       + `${fmt(total)} appearances`;
     area(p.querySelector("svg"), s, Math.max(...s));
     app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
@@ -845,6 +853,15 @@
       const j = middle(wall);
       if (j !== S.j) pick(j);
     });
+    // A wheel with detents asks for one word, not for the hundred pixels the browser would give
+    // it, which is five of them. A trackpad is left alone: it asks in pixels, and the column
+    // moves as far as the finger did and settles on a word by snapping.
+    wall.addEventListener("wheel", ev => {
+      if (ev.deltaMode === 0 && Math.abs(ev.deltaY) < 40) return;
+      ev.preventDefault();
+      const to = S.j + Math.sign(ev.deltaY);
+      if (to >= 0 && to < T.words.length) pick(to, true);
+    }, { passive: false });
     // up and down step the choice, and centring it scrolls the column to match, so the two
     // ways of moving cannot disagree about which word is chosen
     addEventListener("keydown", ev => {
