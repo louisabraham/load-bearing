@@ -407,8 +407,19 @@
     display: block;
   }
 
+  /* the run above the first word says what the column is and what to do with it, quietly and in
+     the lightest weight on the page. It scrolls away with the words themselves, which is the
+     right lifetime for a nudge: it is gone the moment it has been taken */
   .wall::before {
     height: calc(50% - 14px);
+    display: flex;
+    align-items: flex-end;
+    content: "a thousand words · scroll";
+    padding-bottom: 18px;
+    color: var(--muted);
+    font: 400 10px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
   }
 
   /* the run below is the taller one: the last word is the smallest on the wall, and a short box
