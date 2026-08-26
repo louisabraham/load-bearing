@@ -255,19 +255,23 @@ phrases itself from the sign — currently **+1.2 points a week**, over a stretc
 the arrival sits at the bottom, where a rising floor is easier to follow than a shape squeezed
 between others.
 
-**The words are ranked by lift, measured against every *other* component**, weighted by its share
-of appearances, rather than against the whole corpus:
+**The words are ranked by counting, not by the fit.** The assignment is hard, so every appearance
+of a word belongs to exactly one component, and the two numbers below partition its occurrences:
 
 ```math
-\mathrm{lift}_k(v) = W_{vk} \Big/ \frac{\sum_{j \neq k} m_j W_{vj}}{\sum_{j \neq k} m_j}
+\mathrm{ratio}(v) = \frac{x^{\,\text{in}}_v}{\max(x^{\,\text{out}}_v,\ 1)}
 ```
 
-where $m_j$ is component $j$'s share of all word appearances. **The exclusion is doing enormous
-work.** The component is close to half of the recent weeks, so dividing by the whole corpus would
-compare its vocabulary substantially against itself: `load-bearing` scores **4.65× against the
-whole corpus and 183× against everything that is not this component** — a fortyfold difference,
-from one choice of denominator. Size follows the *logarithm* of that multiple, which spans three
-orders of magnitude across the thousand words shown.
+The floor of one is for the words that are never written outside this component at all, which is
+most of the top of the list: without it their ratio is a division by zero rather than their own
+count. A word that *is* written outside is divided by what it was actually written, not by that
+plus a pseudo-count.
+
+**The comparison is against everything that is not this component**, rather than against the whole
+corpus. The component is close to half of the recent weeks, so a corpus-wide baseline would be
+made mostly of its own writing and would compare it against itself. `load-bearing` is written 101
+times inside it and twice outside, which is 50.5×. Size follows the *logarithm* of the ratio,
+which runs from there down to about even across the thousand words shown.
 
 Choosing a word replaces the chart beside it with that word's own weekly appearances. **Those
 curves are not the model's**: each is the raw weekly count of a word, so only the *choice* of which
@@ -296,7 +300,7 @@ answer**, and both are marked.
 corpus of the day, so 45 let it through and 60 would not have. That is the same species of choice
 as `K` and deserves the same label. It is not binding on the title word today — the corpus has
 grown and it now has 103 appearances, clearing the floor by more than twice over — but it still
-shapes the list: `throwaway`, fourth in the published top five, has 53 appearances, and a floor at
+shapes the list: `throwaway`, 32nd of the thousand published, has 53 appearances, and a floor at
 60 would drop it.
 
 **`WINDOW_S = 300` is more consequential than it looks.** Five minutes was chosen so a window would

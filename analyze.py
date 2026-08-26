@@ -417,17 +417,19 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
     idx = week_of * k + lab
     C = np.bincount(idx, minlength=T * k).reshape(T, k).astype(float)
     A = np.bincount(idx, weights=n_d, minlength=T * k).reshape(T, k)
-    return W, C, A, float(ent.sum() - z[rows, lab].sum())
+    # what each component holds, word by word: appearances, not probabilities. The assignment
+    # is hard, so this is a partition of the corpus and the ranking can be a count of things
+    # rather than a quantity the fit chose.
+    M = np.asarray((csr_matrix((ones, (rows, lab)), shape=(D, k)).T @ X).todense())
+    return W, C, A, M, float(ent.sum() - z[rows, lab].sum())
 
 
 # --------------------------------------------------------------------------- out
 
 
-def pack(X, week_of, weeks, vocab, W, C, A, cost, n_days=0, seed=SEED, fits=1):
+def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1):
     share = C.sum(axis=0) / max(C.sum(), 1e-12)  # each component's share of the corpus
-    # Each component's share of all word appearances, used to build the baseline below.
-    mass_c = A.sum(axis=0)
-    mass_c = mass_c / max(mass_c.sum(), 1e-12)
+    corpus = M.sum(axis=0)  # every appearance of every word, whoever wrote it
     docs_per_week = np.bincount(week_of, minlength=len(weeks))
     words_per_week = np.zeros(len(weeks))
     np.add.at(words_per_week, week_of, np.asarray(X.sum(axis=1)).ravel())
@@ -456,14 +458,15 @@ def pack(X, week_of, weeks, vocab, W, C, A, cost, n_days=0, seed=SEED, fits=1):
 
     comps = []
     for c in order:
-        # Lift against the corpus *without* this component. Dividing by the whole corpus
-        # understates a large component's own words, because its occurrences are most of what
-        # it is being compared against. The baseline here is every other component, weighted by
-        # its share of appearances: how much more probable is this word here than in the
-        # writing that is not this.
-        other = np.delete(mass_c, c)
-        base = (np.delete(W, c, axis=0) * other[:, None]).sum(axis=0) / max(other.sum(), 1e-12)
-        lift = W[c] / np.maximum(base, 1e-12)
+        # How many times the word is written here against how many times it is written
+        # anywhere else, counted rather than modelled: the assignment is hard, so each
+        # appearance belongs to exactly one component and the two numbers are a partition of
+        # the word's occurrences. The floor of one is for the words that are never written
+        # outside this component at all, which is most of the top of the list: without it their
+        # ratio is a division by zero rather than their own count. A word written outside is
+        # divided by what it was actually written, not by that plus a pseudo-count.
+        inside = M[c]
+        lift = inside / np.maximum(corpus - inside, 1.0)
         # ties broken on the word itself, so two builds of the same corpus are byte-identical
         # and the daily commit does not churn on words that score the same
         rank = np.lexsort((vocab_arr, -lift))
@@ -596,7 +599,7 @@ def selftest():
             d += 1
     X = csr_matrix((vals, (rows, cols)), shape=(d, V))
     week_of = np.array(week_of)
-    W, C, A, cost = fit(X, week_of, T, k=3, log=lambda *_: None)
+    W, C, A, M, cost = fit(X, week_of, T, k=3, log=lambda *_: None)
 
     assert np.allclose(W.sum(axis=1), 1.0), "the centres are not distributions"
     assert cost > 0, "the cost must be a positive divergence"
@@ -607,6 +610,11 @@ def selftest():
     ), "the counts do not reconstruct the week"
     assert np.allclose(A.sum(axis=1), np.bincount(week_of, minlength=T) * 50), (
         "the appearance counts do not reconstruct the week"
+    )
+    # the components partition the corpus word for word, which is what lets the ranking be a
+    # ratio of counts: what is written here and what is written everywhere else sum to the whole
+    assert np.allclose(M.sum(axis=0), np.asarray(X.sum(axis=0)).ravel()), (
+        "the per-component word counts do not reconstruct the corpus"
     )
 
     # the planted way of writing must be found rising even though the model cannot represent
