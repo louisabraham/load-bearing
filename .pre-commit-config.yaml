@@ -1,0 +1,21 @@
+# `pip install pre-commit && pre-commit install` once, then commits format themselves.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      # `js-beautify` is the formatter behind VS Code's built-in HTML support. The settings in
+      # `.jsbeautifyrc` are the ones that reproduce it byte for byte on this page: two-space
+      # indent, wrapping at 120, and `<script>` left alone — VS Code hands embedded JavaScript
+      # to its own JavaScript formatter rather than to this one, so this hook must not touch it.
+      - id: html-beautify
+        name: html-beautify
+        language: node
+        additional_dependencies: ["js-beautify@1.15.4"]
+        entry: html-beautify --replace
+        files: \.html$

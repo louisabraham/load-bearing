@@ -33,16 +33,16 @@ from datetime import date, timedelta
 import numpy as np
 from scipy.sparse import csr_matrix
 
-K = 8                               # ways of writing; see the README, it is not neutral
-TRIALS = 3                          # k-means++ candidates per centre; see `kmeanspp`
-SEED = 0                            # the first starting point; see `fit_arriving`
-N_INIT = 8                          # restarts per attempt, the cheapest of which is published
-RETRIES = 4                         # fresh batches of restarts, if that one did not arrive
-SMOOTH = 0.01                       # pseudo-count, so no centre gives a word zero probability
-MAX_PASSES = 200                    # a runaway guard, not a setting; the fixed point comes at 30
-WORDS_LISTED = 40                   # per component; the cut is arbitrary and `tail` says so
-WORDS_LEAD = 1000                   # for each component that arrives; see `pack`
-TREND_WEEKS = 12                    # weeks the reported trend is fitted over
+K = 8  # ways of writing; see the README, it is not neutral
+TRIALS = 3  # k-means++ candidates per centre; see `kmeanspp`
+SEED = 0  # the first starting point; see `fit_arriving`
+N_INIT = 8  # restarts per attempt, the cheapest of which is published
+RETRIES = 4  # fresh batches of restarts, if that one did not arrive
+SMOOTH = 0.01  # pseudo-count, so no centre gives a word zero probability
+MAX_PASSES = 200  # a runaway guard, not a setting; the fixed point comes at 30
+WORDS_LISTED = 40  # per component; the cut is arbitrary and `tail` says so
+WORDS_LEAD = 1000  # for each component that arrives; see `pack`
+TREND_WEEKS = 12  # weeks the reported trend is fitted over
 # WHICH COMPONENT THE PAGE IS ABOUT: the largest one of the last LEAD_WINDOW weeks. Nothing is
 # selected on how much it grew. A month rather than a week, because a week is 700 descriptions
 # and the subject of the whole page should not turn on which of two close components led across
@@ -52,15 +52,15 @@ LEAD_WINDOW = 4
 # about whether it arrived, and the page's headline claim is that it arrived, so that claim is
 # tested against the component actually chosen. Two absolute shares rather than a growth ratio,
 # because end/start explodes when the start is near zero.
-LEAD_START = 0.02                   # started under this much of the first eight weeks
-LEAD_END = 0.20                     # and ended at or above this much of the last eight
+LEAD_START = 0.02  # started under this much of the first eight weeks
+LEAD_END = 0.20  # and ended at or above this much of the last eight
 
 
 # ------------------------------------------------------------------------- corpus
 
-ANCHOR = date(2024, 12, 30)        # the Monday that starts the first week of 2025. Weeks
-                                   # beginning mid-week would straddle two partial weekends
-                                   # and mix the author mix
+ANCHOR = date(2024, 12, 30)  # the Monday that starts the first week of 2025. Weeks
+# beginning mid-week would straddle two partial weekends
+# and mix the author mix
 DAY_GLOB = "data/days/*.jsonl"
 
 # A word is a run of letters, digits, hyphens and underscores containing at least one
@@ -69,35 +69,36 @@ DAY_GLOB = "data/days/*.jsonl"
 # http(s) links are pulled out first and kept as single tokens, before that split can
 # shred them. No stemming, no n-grams, no stopword list.
 URL_RE = re.compile(r"https?://[^\s<>\"'`)\]}]+")
-TAG_RE = re.compile(r"<[a-z/!][^<>]*>")   # html markup, not prose: `a > b` is not a tag
-EM_DASH = "\u2014"                       # a word by fiat; see `tokens`
+TAG_RE = re.compile(r"<[a-z/!][^<>]*>")  # html markup, not prose: `a > b` is not a tag
+EM_DASH = "\u2014"  # a word by fiat; see `tokens`
 WORD_RE = re.compile(r"[a-z0-9_/-]*[a-z][a-z0-9_/-]*")
 # One vulnerability identifier per advisory, the same shape of problem as one link per item:
 # `snyk-js-axios-6144788` and 1,400 siblings. Collapsed to one token, which says the useful
 # thing -- that the description cites a Snyk advisory at all. The trailing run of digits is
 # what distinguishes an identifier from `snyk-top-banner`.
 SNYK_ID_RE = re.compile(r"^snyk-.+-\d{4,}$")
-MIN_WORDS = 5                      # a body needs this many distinct words to be prose
-MIN_TF = 45                        # a word needs this many total appearances.
-                                   #
-                                   # DISCLOSURE: this number was originally picked by looking
-                                   # at the answer. `load-bearing` had 51 appearances on the
-                                   # corpus of the day, so 45 let it through and 60 would not
-                                   # have. That is the same species of choice as K below and
-                                   # deserves the same label, even though the corpus has since
-                                   # grown and the word now has 101, clearing the floor by
-                                   # more than twice over -- so the floor no longer decides
-                                   # whether the title word appears.
-                                   #
-                                   # It does still decide others: `throwaway`, third in the
-                                   # published list, has 55. A floor at 60 would drop it. So
-                                   # this constant shapes the list even where it no longer
-                                   # shapes the headline.
-MIN_AUTHORS = 20                   # and this many distinct accounts; see `documents`
-MIN_DF = 25                        # and this many distinct documents. Total appearances alone
-                                   # is not breadth: `multi-draw` appears 101 times inside ONE
-                                   # document and lift cannot tell that from a widespread word.
-MAX_PER_AUTHOR = 3                 # per author per week; see `documents`
+MIN_WORDS = 5  # a body needs this many distinct words to be prose
+MIN_TF = 45  # a word needs this many total appearances.
+#
+# DISCLOSURE: this number was originally picked by looking
+# at the answer. `load-bearing` had 51 appearances on the
+# corpus of the day, so 45 let it through and 60 would not
+# have. That is the same species of choice as K below and
+# deserves the same label, even though the corpus has since
+# grown and the word now has 101, clearing the floor by
+# more than twice over -- so the floor no longer decides
+# whether the title word appears.
+#
+# It does still decide others: `throwaway`, third in the
+# published list, has 55. A floor at 60 would drop it. So
+# this constant shapes the list even where it no longer
+# shapes the headline.
+MIN_AUTHORS = 20  # and this many distinct accounts; see `documents`
+MIN_DF = 25  # and this many distinct documents. Total appearances alone
+# is not breadth: `multi-draw` appears 101 times inside ONE
+# document and lift cannot tell that from a widespread word.
+MAX_PER_AUTHOR = 3  # per author per week; see `documents`
+
 
 def domain_token(url):
     """A link becomes one token naming its domain: `[cursor-url]`, `[snyk-url]`.
@@ -209,13 +210,17 @@ def week_files(log=print):
     if lo > hi:
         raise SystemExit("no complete week of days yet")
     for which, w, ndays in dropped:
-        log(f"  dropped the {which} week, {(ANCHOR + timedelta(days=7 * w)).isoformat()}: "
-            f"{ndays} of 7 days")
+        log(
+            f"  dropped the {which} week, {(ANCHOR + timedelta(days=7 * w)).isoformat()}: "
+            f"{ndays} of 7 days"
+        )
     weeks = [(ANCHOR + timedelta(days=7 * w)).isoformat() for w in range(lo, hi + 1)]
     groups = [by_week.get(w, []) for w in range(lo, hi + 1)]
     empty = sum(1 for g in groups if not g)
-    log(f"{sum(len(g) for g in groups)} days over {len(weeks)} complete weeks, "
-        f"{weeks[0]} to {weeks[-1]}" + (f", {empty} with no data" if empty else ""))
+    log(
+        f"{sum(len(g) for g in groups)} days over {len(weeks)} complete weeks, "
+        f"{weeks[0]} to {weeks[-1]}" + (f", {empty} with no data" if empty else "")
+    )
     return weeks, groups
 
 
@@ -277,7 +282,7 @@ def documents(log=print):
             seen, by_author, cur_week = set(), Counter(), week_raw[d]
         if n_distinct[d] < MIN_WORDS:
             continue
-        key = X0.indices[X0.indptr[d]:X0.indptr[d + 1]].tobytes()
+        key = X0.indices[X0.indptr[d] : X0.indptr[d + 1]].tobytes()
         if key in seen:
             continue
         a = authors[d]
@@ -303,15 +308,19 @@ def documents(log=print):
     # descriptions from 16 accounts is one document written 190 times.
     aid = {}
     aids = np.array([aid.setdefault(authors[d], len(aid)) for d in kd], np.int64)
-    by_word = csr_matrix((np.ones(Xk.indices.size),
-                          (np.repeat(aids, np.diff(Xk.indptr)), Xk.indices)),
-                         shape=(len(aid), V), dtype=np.float64)
+    by_word = csr_matrix(
+        (np.ones(Xk.indices.size), (np.repeat(aids, np.diff(Xk.indptr)), Xk.indices)),
+        shape=(len(aid), V),
+        dtype=np.float64,
+    )
     n_auth = np.bincount(by_word.indices, minlength=V)
 
     cand = (tf >= MIN_TF) & (df >= MIN_DF)
     ok = cand & (n_auth >= MIN_AUTHORS)
-    log(f"  {int(cand.sum() - ok.sum()):,} of {int(cand.sum()):,} words dropped for coming "
-        f"from under {MIN_AUTHORS} distinct accounts")
+    log(
+        f"  {int(cand.sum() - ok.sum()):,} of {int(cand.sum()):,} words dropped for coming "
+        f"from under {MIN_AUTHORS} distinct accounts"
+    )
 
     live = np.flatnonzero(ok)
     live = live[np.argsort([vocab_all[i] for i in live], kind="stable")]
@@ -324,6 +333,7 @@ def documents(log=print):
 
 
 # -------------------------------------------------------------------------- model
+
 
 def kmeanspp(X, k, rng, S):
     """Greedy k-means++ under KL. Returns k centres, each a distribution over the vocabulary.
@@ -386,8 +396,9 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
     X = X.tocsr()
     rows, ones = np.arange(D), np.ones(D)
     n_d = np.asarray(X.sum(axis=1)).ravel()
-    ent = np.bincount(np.repeat(rows, np.diff(X.indptr)),
-                      weights=X.data * np.log(X.data), minlength=D) - n_d * np.log(n_d)
+    ent = np.bincount(
+        np.repeat(rows, np.diff(X.indptr)), weights=X.data * np.log(X.data), minlength=D
+    ) - n_d * np.log(n_d)
 
     W, lab = kmeanspp(X, k, rng, ent), None
     for it in range(MAX_PASSES):
@@ -411,15 +422,16 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
 
 # --------------------------------------------------------------------------- out
 
+
 def pack(X, week_of, weeks, vocab, W, C, A, cost, n_days=0, seed=SEED, fits=1):
-    share = C.sum(axis=0) / max(C.sum(), 1e-12)            # each component's share of the corpus
+    share = C.sum(axis=0) / max(C.sum(), 1e-12)  # each component's share of the corpus
     # Each component's share of all word appearances, used to build the baseline below.
     mass_c = A.sum(axis=0)
     mass_c = mass_c / max(mass_c.sum(), 1e-12)
     docs_per_week = np.bincount(week_of, minlength=len(weeks))
     words_per_week = np.zeros(len(weeks))
     np.add.at(words_per_week, week_of, np.asarray(X.sum(axis=1)).ravel())
-    per_word = np.zeros((X.shape[1], len(weeks)))          # appearances, word by week
+    per_word = np.zeros((X.shape[1], len(weeks)))  # appearances, word by week
     for t in range(len(weeks)):
         sel = week_of == t
         if sel.any():
@@ -458,21 +470,24 @@ def pack(X, week_of, weeks, vocab, W, C, A, cost, n_days=0, seed=SEED, fits=1):
         # the arriving component gets a long list, because it is the one anybody will read
         # past the first handful of, and the cut has to fall somewhere
         n = WORDS_LEAD if c == lead else WORDS_LISTED
-        comps.append({
-            "lead": bool(c == lead),
-            "share": round(float(share[c]), 5),
-            "start_share": round(float(start[c]), 5),
-            "end_share": round(float(end[c]), 5),
-            "count": [int(v) for v in C[:, c]],
-            "appearances": [int(round(v)) for v in A[:, c]],
-            "word_list": [vocab[j] for j in rank[:n]],
-            "word_lift": [round(float(lift[j]), 2) for j in rank[:n]],
-            # each listed word's own weekly appearances, so the page can show a word's
-            # history on hover. Only for the lead: at 85 weeks a thousand words is 85,000
-            # integers, worth carrying once and not eight times.
-            "series": ([[int(v) for v in per_word[j]] for j in rank[:n]]
-                       if c == lead else None),
-        })
+        comps.append(
+            {
+                "lead": bool(c == lead),
+                "share": round(float(share[c]), 5),
+                "start_share": round(float(start[c]), 5),
+                "end_share": round(float(end[c]), 5),
+                "count": [int(v) for v in C[:, c]],
+                "appearances": [int(round(v)) for v in A[:, c]],
+                "word_list": [vocab[j] for j in rank[:n]],
+                "word_lift": [round(float(lift[j]), 2) for j in rank[:n]],
+                # each listed word's own weekly appearances, so the page can show a word's
+                # history on hover. Only for the lead: at 85 weeks a thousand words is 85,000
+                # integers, worth carrying once and not eight times.
+                "series": (
+                    [[int(v) for v in per_word[j]] for j in rank[:n]] if c == lead else None
+                ),
+            }
+        )
     # Points per week that the lead component has moved over the last TREND_WEEKS, by least
     # squares on its observed weekly share. The page reads this rather than being told the
     # component is still rising: a claim that can go stale should not be typed into the markup.
@@ -480,19 +495,39 @@ def pack(X, week_of, weeks, vocab, W, C, A, cost, n_days=0, seed=SEED, fits=1):
     tw = min(TREND_WEEKS, len(weeks))
     slope = float(np.polyfit(np.arange(tw), lead_share[-tw:], 1)[0]) if tw >= 3 else 0.0
 
-    return {"generated": date.today().isoformat(), "weeks": weeks, "days": int(n_days),
-            "arrived": bool(arrived), "lead_window": LEAD_WINDOW,
-            "seed": int(seed), "fits": int(fits),
-            "trend": round(slope, 6), "trend_weeks": tw,
-            "documents": int(X.shape[0]), "appearances": int(X.sum()),
-            "docs_per_week": [int(v) for v in docs_per_week],
-            "words_per_week": [int(v) for v in words_per_week],
-            "vocab": len(vocab), "k": len(comps),
-            "cost": round(cost, 1), "components": comps}
+    return {
+        "generated": date.today().isoformat(),
+        "weeks": weeks,
+        "days": int(n_days),
+        "arrived": bool(arrived),
+        "lead_window": LEAD_WINDOW,
+        "seed": int(seed),
+        "fits": int(fits),
+        "trend": round(slope, 6),
+        "trend_weeks": tw,
+        "documents": int(X.shape[0]),
+        "appearances": int(X.sum()),
+        "docs_per_week": [int(v) for v in docs_per_week],
+        "words_per_week": [int(v) for v in words_per_week],
+        "vocab": len(vocab),
+        "k": len(comps),
+        "cost": round(cost, 1),
+        "components": comps,
+    }
 
 
-def fit_arriving(X, week_of, weeks, vocab, n_days, k=K, seed=SEED, n_init=N_INIT,
-                 retries=RETRIES, log=print):
+def fit_arriving(
+    X,
+    week_of,
+    weeks,
+    vocab,
+    n_days,
+    k=K,
+    seed=SEED,
+    n_init=N_INIT,
+    retries=RETRIES,
+    log=print,
+):
     """Fit `n_init` times, publish the cheapest. Returns the packed result.
 
     The restarts are there for the daily job rather than for the answer. Cost is the only
@@ -514,22 +549,31 @@ def fit_arriving(X, week_of, weeks, vocab, n_days, k=K, seed=SEED, n_init=N_INIT
     for attempt in range(retries):
         best = None
         for i in range(n_init):
-            out = fit(X, week_of, len(weeks), k=k, seed=seed + attempt * n_init + i,
-                      log=lambda *_: None)
+            out = fit(
+                X,
+                week_of,
+                len(weeks),
+                k=k,
+                seed=seed + attempt * n_init + i,
+                log=lambda *_: None,
+            )
             fits += 1
             log(f"  seed {seed + attempt * n_init + i}  cost {out[-1]:,.0f}")
             if best is None or out[-1] < best[-1]:
                 best, best_seed = out, seed + attempt * n_init + i
         packed = pack(X, week_of, weeks, vocab, *best, n_days, best_seed, fits)
         lead = next(c for c in packed["components"] if c["lead"])
-        log(f"  kept seed {best_seed}, {lead['start_share']:.2%} -> {lead['end_share']:.2%}"
-            f"{'' if packed['arrived'] else ', not an arrival -- running the batch again'}")
+        log(
+            f"  kept seed {best_seed}, {lead['start_share']:.2%} -> {lead['end_share']:.2%}"
+            f"{'' if packed['arrived'] else ', not an arrival -- running the batch again'}"
+        )
         if packed["arrived"]:
             return packed
     raise AssertionError(
         f"{fits} fits in {retries} batches and the cheapest of each did not arrive: the largest "
         f"component of the last {LEAD_WINDOW} weeks has to start under {LEAD_START:.0%} of the "
-        f"first eight weeks and end at or above {LEAD_END:.0%} of the last eight")
+        f"first eight weeks and end at or above {LEAD_END:.0%} of the last eight"
+    )
 
 
 def selftest():
@@ -545,8 +589,11 @@ def selftest():
             k = live[rng.integers(len(live))]
             x = rng.multinomial(50, Wt[k])
             for j in np.flatnonzero(x):
-                rows.append(d); cols.append(int(j)); vals.append(float(x[j]))
-            week_of.append(t); d += 1
+                rows.append(d)
+                cols.append(int(j))
+                vals.append(float(x[j]))
+            week_of.append(t)
+            d += 1
     X = csr_matrix((vals, (rows, cols)), shape=(d, V))
     week_of = np.array(week_of)
     W, C, A, cost = fit(X, week_of, T, k=3, log=lambda *_: None)
@@ -555,22 +602,26 @@ def selftest():
     assert cost > 0, "the cost must be a positive divergence"
     # every description belongs to exactly one component, so the counts are whole and they
     # reconstruct each week
-    assert np.allclose(C, np.round(C)) and \
-        (C.sum(axis=1) == np.bincount(week_of, minlength=T)).all(), \
-        "the counts do not reconstruct the week"
-    assert np.allclose(A.sum(axis=1), np.bincount(week_of, minlength=T) * 50), \
+    assert (
+        np.allclose(C, np.round(C)) and (C.sum(axis=1) == np.bincount(week_of, minlength=T)).all()
+    ), "the counts do not reconstruct the week"
+    assert np.allclose(A.sum(axis=1), np.bincount(week_of, minlength=T) * 50), (
         "the appearance counts do not reconstruct the week"
+    )
 
     # the planted way of writing must be found rising even though the model cannot represent
     # time: this is the whole claim of the thing, tested where the answer is known
     obs = C / C.sum(axis=1, keepdims=True)
     late = int(np.argmax([Wt[2] @ np.log(W[c]) for c in range(3)]))
     before, after = obs[:arrives, late].mean(), obs[arrives:, late].mean()
-    assert before < 0.5 * after, f"the planted component did not rise ({before:.3f} " \
-                                 f"then {after:.3f})"
+    assert before < 0.5 * after, (
+        f"the planted component did not rise ({before:.3f} then {after:.3f})"
+    )
 
-    print(f"selftest: ok  (centres are distributions, counts are whole and reconstruct each "
-          f"week, planted component {before:.3f} -> {after:.3f} at week {arrives})")
+    print(
+        f"selftest: ok  (centres are distributions, counts are whole and reconstruct each "
+        f"week, planted component {before:.3f} -> {after:.3f} at week {arrives})"
+    )
 
 
 def main():
@@ -586,18 +637,31 @@ def main():
         return selftest()
 
     X, week_of, weeks, vocab, n_days = documents()
-    out = fit_arriving(X, week_of, weeks, vocab, n_days, k=args.k, seed=args.seed,
-                       n_init=args.n_init, retries=args.retries)
+    out = fit_arriving(
+        X,
+        week_of,
+        weeks,
+        vocab,
+        n_days,
+        k=args.k,
+        seed=args.seed,
+        n_init=args.n_init,
+        retries=args.retries,
+    )
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write("window.ANALYSIS = ")
         json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
         fh.write(";\n")
-    print(f"\nseed {out['seed']} published, {out['fits']} fit(s) run, "
-          f"cost {out['cost']:,.0f}, wrote {args.out} "
-          f"({os.path.getsize(args.out)/1e3:.0f} kB)\n")
+    print(
+        f"\nseed {out['seed']} published, {out['fits']} fit(s) run, "
+        f"cost {out['cost']:,.0f}, wrote {args.out} "
+        f"({os.path.getsize(args.out) / 1e3:.0f} kB)\n"
+    )
     for c in out["components"]:
-        print(f"  {'lead' if c['lead'] else '    '}  share {c['share']:6.1%}  "
-              f"{c['start_share']:6.2%} -> {c['end_share']:6.2%}")
+        print(
+            f"  {'lead' if c['lead'] else '    '}  share {c['share']:6.1%}  "
+            f"{c['start_share']:6.2%} -> {c['end_share']:6.2%}"
+        )
         print("        " + ", ".join(w[:20] for w in c["word_list"][:9]))
 
 

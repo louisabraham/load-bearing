@@ -1,0 +1,8 @@
+# The rules ruff has always had on by default. Pinned rather than left implicit so that the hook
+# lints the same way as the `ruff` on the path and the same way next year: 0.16 widened the
+# default set, and a formatter that starts failing on a version bump is a formatter people
+# uninstall.
+line-length = 100
+
+[lint]
+select = ["E4", "E7", "E9", "F"]

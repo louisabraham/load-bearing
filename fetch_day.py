@@ -34,8 +34,8 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
 OUT = "data/days"
-WINDOW_S = 300                      # seconds; ~100 pull requests in 2026, one page
-SLOTS = 24 * 60 * 60 // WINDOW_S    # five-minute slots in a day
+WINDOW_S = 300  # seconds; ~100 pull requests in 2026, one page
+SLOTS = 24 * 60 * 60 // WINDOW_S  # five-minute slots in a day
 PER_PAGE = 100
 UA = "load-bearing/1.0 (research; longitudinal language change)"
 
@@ -70,14 +70,25 @@ def path(day):
 def search(start, token):
     """One search request. Backs off on the secondary rate limit; returns None on failure."""
     hi = start + timedelta(seconds=WINDOW_S)
-    q = (f"created:{start:%Y-%m-%dT%H:%M:%SZ}..{hi:%Y-%m-%dT%H:%M:%SZ} is:pr"
-         + "".join(f" -author:app/{a}" for a in EXCLUDE_APPS)
-         + " (" + " OR ".join(f"{t} in:body" for t in PROSE_TERMS) + ")")
-    url = ("https://api.github.com/search/issues?advanced_search=true&sort=created"
-           f"&order=asc&per_page={PER_PAGE}&q={urllib.parse.quote(q)}")
-    req = urllib.request.Request(url, headers={
-        "User-Agent": UA, "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}"})
+    q = (
+        f"created:{start:%Y-%m-%dT%H:%M:%SZ}..{hi:%Y-%m-%dT%H:%M:%SZ} is:pr"
+        + "".join(f" -author:app/{a}" for a in EXCLUDE_APPS)
+        + " ("
+        + " OR ".join(f"{t} in:body" for t in PROSE_TERMS)
+        + ")"
+    )
+    url = (
+        "https://api.github.com/search/issues?advanced_search=true&sort=created"
+        f"&order=asc&per_page={PER_PAGE}&q={urllib.parse.quote(q)}"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": UA,
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+        },
+    )
     for attempt in range(4):
         try:
             with urllib.request.urlopen(req, timeout=90) as r:
@@ -106,29 +117,38 @@ def fetch(day, token):
     data = search(window(day), token)
     if data is None:
         return -1
-    rows = [{
-        "ts": it.get("created_at") or "",
-        # the search result names the repo only by API url; the last two segments are
-        # owner and name
-        "repo": "/".join((it.get("repository_url") or "").split("/")[-2:]),
-        "author": ((it.get("user") or {}).get("login") or "").lower(),
-        "body": (it.get("body") or "")[:8000],
-    } for it in data.get("items", [])]
+    rows = [
+        {
+            "ts": it.get("created_at") or "",
+            # the search result names the repo only by API url; the last two segments are
+            # owner and name
+            "repo": "/".join((it.get("repository_url") or "").split("/")[-2:]),
+            "author": ((it.get("user") or {}).get("login") or "").lower(),
+            "body": (it.get("body") or "")[:8000],
+        }
+        for it in data.get("items", [])
+    ]
 
     os.makedirs(OUT, exist_ok=True)
     tmp = path(day) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
-        for row in sorted(rows, key=lambda r: r["ts"]):
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-    os.replace(tmp, path(day))       # never leave a half-written day behind
+        fh.writelines(
+            json.dumps(row, ensure_ascii=False) + "\n"
+            for row in sorted(rows, key=lambda r: r["ts"])
+        )
+    os.replace(tmp, path(day))  # never leave a half-written day behind
     return len(rows)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("day", nargs="?", help="YYYY-MM-DD; default yesterday, UTC")
-    ap.add_argument("--backfill", type=int, default=0,
-                    help="also fetch this many earlier days that are missing")
+    ap.add_argument(
+        "--backfill",
+        type=int,
+        default=0,
+        help="also fetch this many earlier days that are missing",
+    )
     ap.add_argument("--token", default="")
     args = ap.parse_args()
 
@@ -138,8 +158,11 @@ def main():
 
     # yesterday by default: today is still in progress, and a window drawn from the part of it
     # that has not happened yet would come back empty
-    last = date.fromisoformat(args.day) if args.day \
+    last = (
+        date.fromisoformat(args.day)
+        if args.day
         else datetime.now(timezone.utc).date() - timedelta(days=1)
+    )
     days = [last - timedelta(days=i) for i in range(args.backfill + 1)]
 
     total = skipped = failed = 0
@@ -154,7 +177,7 @@ def main():
             total += n
             print(f"{day}  {n} descriptions", flush=True)
         if n is not None and len(days) > 1:
-            time.sleep(2.5)          # 30 search requests a minute, authenticated
+            time.sleep(2.5)  # 30 search requests a minute, authenticated
     print(f"wrote {total:,} descriptions; {skipped} already present, {failed} failed")
     return 1 if failed and not total else 0
 
