@@ -268,6 +268,29 @@ def test_nothing_scrolls_sideways(browser, site, width):
     page.close()
 
 
+def test_the_chart_is_drawn_at_the_size_of_its_box(page):
+    """It was drawn fourteen pixels taller than its box on first paint: the chart is measured
+    before it is drawn, and the week's readout arrived afterwards and took its line out of the
+    chart's own height. Any resize redrew it correctly, so zooming in and back out changed the
+    layout and never changed it back."""
+
+    def geometry():
+        return page.evaluate("""() => {
+          const s = document.querySelector('#stack'), b = s.getBBox();
+          return {box: Math.round(s.clientHeight), drawn: Math.round(b.height)};
+        }""")
+
+    first = geometry()
+    assert abs(first["box"] - first["drawn"]) <= 1, (
+        f"drawn at the wrong size on first paint: {first}"
+    )
+    page.set_viewport_size({"width": 933, "height": 600})
+    page.wait_for_timeout(300)
+    page.set_viewport_size(BOARD)
+    page.wait_for_timeout(300)
+    assert geometry() == first, "a zoom out and back changed the chart"
+
+
 def test_the_week_under_the_pointer_reads_out_on_the_chart(page):
     """The week belongs to the diagram: it is printed at the head of the diagram's own cell, and
     with no pointer on the chart it holds the last week rather than going blank."""

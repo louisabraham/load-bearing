@@ -89,8 +89,8 @@ MIN_TF = 45  # a word needs this many total appearances.
 # more than twice over -- so the floor no longer decides
 # whether the title word appears.
 #
-# It does still decide others: `throwaway`, third in the
-# published list, has 55. A floor at 60 would drop it. So
+# It does still decide others: `throwaway`, 41st in the
+# published list, has 52. A floor at 60 would drop it. So
 # this constant shapes the list even where it no longer
 # shapes the headline.
 MIN_AUTHORS = 20  # and this many distinct accounts; see `documents`
@@ -98,6 +98,15 @@ MIN_DF = 25  # and this many distinct documents. Total appearances alone
 # is not breadth: `multi-draw` appears 101 times inside ONE
 # document and lift cannot tell that from a widespread word.
 MAX_PER_AUTHOR = 3  # per author per week; see `documents`
+# Accounts that are not people. The query can only exclude
+# Apps one slug at a time, and the ones it names are four of
+# thousands: 1,042 accounts in the collected corpus end in
+# `[bot]` or `-bot`, and `copilot` is an agent posting under
+# an ordinary login. Dropped by the shape of the name, which
+# is 13% of the collected rows -- and the arrival survives it,
+# which is the point of dropping them.
+BOT_SUFFIX = ("[bot]", "-bot")
+BOT_LOGIN = ("copilot",)
 
 
 def domain_token(url):
@@ -250,11 +259,16 @@ def documents(log=print):
     n_days = sum(len(g) for g in groups)
 
     ids, rows, cols, authors, week_raw = {}, [], [], [], []
+    bots = 0
     for t, group in enumerate(groups):
         for f in group:
             with open(f, encoding="utf-8") as fh:
                 for line in fh:
                     row = json.loads(line)
+                    a = (row.get("author") or "").lower()
+                    if a.endswith(BOT_SUFFIX) or a in BOT_LOGIN:
+                        bots += 1
+                        continue
                     d = len(authors)
                     for w in tokens(row["body"]):
                         j = ids.get(w)
@@ -265,6 +279,7 @@ def documents(log=print):
                         cols.append(j)
                     authors.append(row.get("author") or "")
                     week_raw.append(t)
+    log(f"{bots:,} rows from accounts that are not people")
     vocab_all = list(ids)
     n, V = len(authors), len(vocab_all)
     week_raw = np.asarray(week_raw, np.int64)

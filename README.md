@@ -2,7 +2,7 @@
 
 GitHub pull request descriptions, grouped by the words they are written with rather than by
 anything they were told to look for: eight ways of writing, and every description belongs to
-one of them. One of the eight was 1.1% of the corpus at the start of 2025 and is 47% of it by
+one of them. One of the eight was 1.0% of the corpus at the start of 2025 and is 45% of it by
 the middle of 2026.
 
 **[louisabraham.github.io/load-bearing](https://louisabraham.github.io/load-bearing/)**
@@ -34,8 +34,8 @@ uv pip install pytest-playwright     # the page's own tests, in a real browser
 pytest tests -q
 ```
 
-Current state: **600 collected days, 595 of them in 85 whole weeks** (2025-01-06 to 2026-08-17),
-51,964 descriptions, 5,705,560 word appearances, 7,180 words above the floors.
+Current state: **602 collected days, 595 of them in 85 whole weeks** (2025-01-06 to 2026-08-17),
+47,464 descriptions, 5,024,747 word appearances, 6,846 words above the floors.
 
 ---
 
@@ -107,16 +107,21 @@ same reason — 1,401 distinct ones occupied seven components between them.
 
 **The em dash is the one deliberate exception** to requiring a letter, taken before the split and
 counted as a word of its own. It earns that: 0.2 appearances per 10,000 words over the first four
-weeks of the corpus against 129.4 over the last four.
+weeks of the corpus against 132.4 over the last four.
 
 ### What gets thrown away
 
-Identical word sets collapse within each week — one ordinary human account posted 147 copies of
-one sentence in a fortnight — and **no author may contribute more than three descriptions to a
-week**. That finds mass-produced text without a blocklist, because it concentrates by *author*
-rather than by repository: `copilot` wrote 197 of the 198 descriptions carrying GitHub's
-coding-agent survey link, across 192 repositories. It applies to humans on the same terms, which
-is why it is a cap and not an exclusion.
+**Accounts that are not people are dropped by the shape of their name**: anything ending `[bot]`
+or `-bot`, and `copilot`, which is an agent posting under an ordinary login. The query can only
+exclude Apps one slug at a time and the four it names are four of thousands — 1,042 such accounts
+are in the collected corpus, and dropping them costs 7,901 rows, 13% of what was collected. The
+arrival survives it, which is the point of dropping them: with every bot- and agent-named account
+gone, a cluster still goes from under 1% to about 45%, and `load-bearing` is still first in it.
+
+Beyond that, identical word sets collapse within each week — one ordinary human account posted 147
+copies of one sentence in a fortnight — and **no author may contribute more than three
+descriptions to a week**. That catches mass-produced text written from accounts that look human,
+and it applies to humans on the same terms, which is why it is a cap and not an exclusion.
 
 ### Three floors on a word, and the third is about people
 
@@ -126,14 +131,16 @@ separates them at a glance:
 
 | word | descriptions | distinct accounts |
 |---|---|---|
-| `proprosed` | 190 | **16** — three bots supply 144 |
-| `pipelineruns` | 252 | **18** — the same three |
-| `load-bearing` | 92 | **91** |
-| `seam` | 136 | **132** |
+| `pullrequest` | 201 | **17** |
+| `mq` | 194 | **10** |
+| `600s` | 103 | **16** |
+| `load-bearing` | 93 | **92** |
+| `seam` | 137 | **134** |
 
-A word 91 people reached for is a word; a word in 190 descriptions from 16 accounts is one
-document written 190 times. The floor costs 109 of 7,168 words and removes both — including a
-misspelling of "proposed" that had been sitting at rank two of the published list.
+A word 92 people reached for is a word; a word in 201 descriptions from 17 accounts is one document
+written 201 times. The floor costs 42 of 6,888 words — it used to cost 109 of 7,168, and the
+difference is the bot rule above doing the same job earlier: the two words this table used to
+open with, a misspelling of "proposed" and `pipelineruns`, no longer reach the floors at all.
 
 There is deliberately **no probability floor**: that would throw away exactly the
 rare-but-concentrated words the ranking exists to find.
@@ -193,7 +200,7 @@ than partly to several, so a weekly curve is a count of descriptions and can be 
 Greedy k-means++ under KL to place the centres, then Lloyd's algorithm to a fixed point. Assign,
 recentre, and **stop when no description changes hands** — an exact fixed point, so there is no
 tolerance to choose and no pass count to guess, which are the two settings a k-means
-implementation usually has to invent. Thirty-six passes on this corpus, about half a minute end to
+implementation usually has to invent. Twenty-six passes on this corpus, about fifteen seconds end to
 end. A pseudo-count of 0.01 on every centre keeps any word from having probability zero, so no
 description is infinitely far from anywhere.
 
@@ -217,11 +224,11 @@ that the component arrived is not that the published fit passed — it is the ra
 | | across 32 single fits |
 |---|---|
 | the arrival check | passes in 21 |
-| where the component ends | 29.8% to 62.9%, median 49.0% |
-| `load-bearing`'s rank in its words | first in 21, top five in 28, top forty in 31 |
-| total cost | spread of 0.93% |
-| agreement on the weekly *shape* | mean `r` = 0.985 between any two runs |
-| agreement on *which* descriptions | mean F1 = 0.744, and as low as 0.13 |
+| where the component ends | 36.3% to 63.8%, median 45.5% |
+| `load-bearing`'s rank in its words | first in 15, top five in 29, top forty in 32 |
+| total cost | spread of 1.15% |
+| agreement on the weekly *shape* | mean `r` = 0.991 between any two runs |
+| agreement on *which* descriptions | mean F1 = 0.770, and as low as 0.46 |
 
 So the thing the page is about is not in doubt: every one of those runs finds a way of writing that
 ends between 30% and 63% of the recent weeks, almost every one puts the title word at or near the
@@ -249,8 +256,8 @@ explodes when the start is near zero, and would be least stable exactly where it
 
 **"Still growing" is read off the data rather than typed into the markup.** `analyze.py` fits a
 least-squares line to the component's observed weekly share over the last 12 weeks and the page
-phrases itself from the sign — currently **+1.2 points a week**, over a stretch running 37.2% to
-52.1%. A claim that can go stale should not be a string constant.
+phrases itself from the sign — currently **+0.8 points a week**, over a stretch running 37.9% to
+47.1%. A claim that can go stale should not be a string constant.
 
 **The stack is normalised per week**, so the bands fill the height and it reads as composition;
 the arrival sits at the bottom, where a rising floor is easier to follow than a shape squeezed
@@ -270,8 +277,8 @@ plus a pseudo-count.
 
 **The comparison is against everything that is not this component**, rather than against the whole
 corpus. The component is close to half of the recent weeks, so a corpus-wide baseline would be
-made mostly of its own writing and would compare it against itself. `load-bearing` is written 101
-times inside it and twice outside, which is 50.5×. Size follows the *logarithm* of the ratio,
+made mostly of its own writing and would compare it against itself. `load-bearing` is written 98
+times inside it and three times outside, which is 32.67×. Size follows the *logarithm* of the ratio,
 which runs from there down to about even across the thousand words shown.
 
 Choosing a word replaces the chart beside it with that word's own weekly appearances. **Those
@@ -289,7 +296,8 @@ answer**, and both are marked.
 | `MIN_TF` | 45 | **chosen on the outcome** — see below |
 | `SEED` | 0 | **consequential** — the seed moves the headline; see §5 |
 | `WINDOW_S` | 300 s | **consequential** — see below |
-| `MIN_AUTHORS` | 20 | measured, but a thin margin: bots at 16 and 18, real words at 91 and 132 |
+| `MIN_AUTHORS` | 20 | measured, but a thin margin: templates at 10 and 17, real words at 92 and 134 |
+| `BOT_SUFFIX`, `BOT_LOGIN` | `[bot]`, `-bot`, `copilot` | judgement — the accounts a login says are not people; 13% of the collected rows |
 | `EXCLUDE_APPS` | 4 apps | measured — 90% of App-authored bodies |
 | `N_INIT` | 8 | measured — a single fit publishes 2 times in 3, the cheapest of eight 99 in 100 |
 | `LEAD_WINDOW` | 4 weeks | judgement — "a month", to stop one week deciding the subject |
@@ -300,8 +308,8 @@ answer**, and both are marked.
 **`MIN_TF = 45` was picked by looking at the answer.** `load-bearing` had 51 appearances on the
 corpus of the day, so 45 let it through and 60 would not have. That is the same species of choice
 as `K` and deserves the same label. It is not binding on the title word today — the corpus has
-grown and it now has 103 appearances, clearing the floor by more than twice over — but it still
-shapes the list: `throwaway`, 32nd of the thousand published, has 53 appearances, and a floor at
+grown and it now has 101 appearances, clearing the floor by more than twice over — but it still
+shapes the list: `throwaway`, 41st of the thousand published, has 52 appearances, and a floor at
 60 would drop it.
 
 **`WINDOW_S = 300` is more consequential than it looks.** Five minutes was chosen so a window would

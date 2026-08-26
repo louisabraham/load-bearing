@@ -289,6 +289,10 @@
    away again. With no pointer on the chart it holds the last week. */
   .readout {
     margin: 0 0 10px;
+    /* one line of room whether or not the week has been written into it yet: the chart is
+       measured before it is drawn, and a readout that arrives afterwards would take its line
+       out of the chart's own height and leave the drawing taller than the box holding it */
+    min-height: 1.3em;
     color: var(--ink);
   }
 
@@ -367,6 +371,11 @@
     margin-top: 7px;
   }
 
+  /* the panel's own readout sits tighter to its chart than the stack's does to the board */
+  .probe .readout {
+    margin: 4px 0 4px;
+  }
+
   .probe svg {
     flex: 1;
     min-height: 74px;
@@ -381,13 +390,18 @@
      position in a thousand words is not the point — the word under the middle is. */
   .wall {
     /* one tick of a wheel, one word. The rows are snap points and none may be skipped, so a
-       scroll that would otherwise jump five words at a time stops at the first one it meets;
-       a finger dragging the column still moves it freely and settles on a word at the end.
-       The padding puts the snap line where the chosen line is, rather than at the box's top. */
-    scroll-snap-type: y mandatory;
+       whatever moves the column, it comes to rest with a word's top on the chosen line. The
+       padding puts the snap line where that line is, rather than at the box's top.
+
+       `proximity` and not `mandatory`, and no `scroll-snap-stop`: both of those catch a flick
+       and land it on the next word, which is a picker with no weight to it. A finger throws the
+       column now and it carries, snapping only when it stops near a word anyway. Nothing rests
+       on the snapping -- the chosen word is read off the scroll position, whatever it is. */
+    scroll-snap-type: y proximity;
     scroll-padding-top: calc(50% - 14px);
     position: relative;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     scrollbar-width: none;
     min-height: 0;
@@ -459,7 +473,6 @@
   .wall span {
     display: block;
     scroll-snap-align: start;
-    scroll-snap-stop: always;
     font-family: var(--mono);
     white-space: nowrap;
     line-height: 1.3;
@@ -624,7 +637,32 @@
       `<text x="6" y="${(top + 12).toFixed(1)}" fill="var(--ink)" opacity="0.62"
       font-size="10" font-family="var(--mono)">${fmt(hi)} in a week</text>` +
       `<line x1="0" x2="${w}" y1="${h - 0.5}" y2="${h - 0.5}" stroke="var(--ink)"
-      stroke-width="1"/>`;
+      stroke-width="1"/>` +
+      `<line class="cross" x1="0" x2="0" y1="0" y2="${h}" stroke="var(--ink)"
+      stroke-width="1" opacity="0"/>`;
+
+    // a finger or a pointer on this chart reads out its week, the same gesture and the same
+    // line as the stack above it. Idle, it holds the last week rather than going blank.
+    const out = app.querySelector(".probe .readout");
+    const at = i => `${A.weeks[i]} · <b>${fmt(vals[i])}</b>`
+      + ` appearance${vals[i] === 1 ? "" : "s"}`;
+    const say = html => { if (out) out.innerHTML = "week " + html; };
+    const scrub = ev => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(N - 1,
+        Math.round(((ev.clientX - r.left) / r.width) * (N - 1))));
+      const cr = svg.querySelector(".cross");
+      cr.setAttribute("x1", ((i / (N - 1)) * r.width).toFixed(1));
+      cr.setAttribute("x2", ((i / (N - 1)) * r.width).toFixed(1));
+      cr.setAttribute("opacity", "0.6");
+      say(at(i));
+    };
+    svg.onpointermove = svg.onpointerdown = scrub;
+    svg.onpointerleave = svg.onpointercancel = () => {
+      svg.querySelector(".cross").setAttribute("opacity", "0");
+      say(at(N - 1));
+    };
+    say(at(N - 1));
   }
 
   /* The stack, as a share of each week. Every band is one cluster of vocabulary and they fill the
@@ -684,7 +722,7 @@
   /* The week reads out at the head of the chart's own cell. Off the chart it holds the last week
      rather than going blank, so the line is never an empty row of the board. */
   function week(html) {
-    const out = app.querySelector(".readout");
+    const out = app.querySelector(".cell.chart .readout");
     if (!out) return;
     const svg = app.querySelector("#stack");
     out.innerHTML = "week " + (html || (svg && svg.dataset.last) || "");
@@ -698,7 +736,7 @@
     const s = c.series[S.j], total = s.reduce((a, b) => a + b, 0);
     p.querySelector(".word").innerHTML = `<b>${esc(c.word_list[S.j])}</b>`;
     p.querySelector(".meta").innerHTML =
-      `<b>${c.word_lift[S.j]}×</b> more frequent in this component · `
+      `<b>${c.word_lift[S.j]}×</b> more frequent in this component<br>`
       + `${fmt(total)} in total`;
     area(p.querySelector("svg"), s, Math.max(...s));
     app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
@@ -794,7 +832,7 @@
       divided: `We clustered GitHub PRs since 2025 into <b>${A.k}</b> clusters of vocabulary using `
         + '<a href="https://jmlr.csail.mit.edu/papers/volume6/banerjee05b/banerjee05b.pdf"'
         + ' target="_blank" rel="noopener">KL-divergence k-means</a>.',
-      share: `One of the clusters appeared in 2026 and represented <b>${monthShare}</b> of all pull requests last month.`,
+      share: `One of the clusters appeared in 2026 and represented <b>${monthShare}</b> of all human-attributed pull requests last month.`,
       familiar: "Its most representative words should look familiar to anyone who uses "
         + "coding agents.",
       // the cloud: size and opacity by lift, on the log scale
@@ -831,7 +869,8 @@
     </div>
     <div class="cell panel empty">
       <div class="probe"><div class="who"><span class="word"></span>
-        <span class="label meta"></span></div><svg></svg>
+        <span class="label meta"></span></div>
+        <p class="readout"></p><svg></svg>
         <div class="axis">${axis()}</div></div>
     </div>
     <div class="cell words">
