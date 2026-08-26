@@ -473,15 +473,26 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
 
     comps = []
     for c in order:
-        # How many times the word is written here against how many times it is written
-        # anywhere else, counted rather than modelled: the assignment is hard, so each
-        # appearance belongs to exactly one component and the two numbers are a partition of
-        # the word's occurrences. The floor of one is for the words that are never written
-        # outside this component at all, which is most of the top of the list: without it their
-        # ratio is a division by zero rather than their own count. A word written outside is
+        # How OFTEN the word is written here against how often it is written anywhere else:
+        # each side's count over that side's own total, so the number is a ratio of two
+        # empirical frequencies. Counted rather than modelled -- the assignment is hard, so
+        # each appearance belongs to exactly one component and the two sides partition the
+        # word's occurrences and the corpus they are measured against.
+        #
+        # A ratio of raw counts, which is what this was, carries the component's size inside
+        # it. This component holds a fifth of the appearances, so dividing its count by the
+        # four fifths outside understates every one of its words by that same factor, and a
+        # component holding a fortieth understates its own by forty. The numbers were then
+        # neither comparable between components nor readable as the "more frequent" the page
+        # calls them. Dividing each side by its own total is what makes them both.
+        #
+        # The floor of one appearance outside is for the words that are never written outside
+        # this component at all, which is most of the top of the list: without it their rate is
+        # a division by zero rather than their own count. A word that IS written outside is
         # divided by what it was actually written, not by that plus a pseudo-count.
         inside = M[c]
-        lift = inside / np.maximum(corpus - inside, 1.0)
+        here, elsewhere = max(inside.sum(), 1.0), max(corpus.sum() - inside.sum(), 1.0)
+        lift = (inside / here) / (np.maximum(corpus - inside, 1.0) / elsewhere)
         # ties broken on the word itself, so two builds of the same corpus are byte-identical
         # and the daily commit does not churn on words that score the same
         rank = np.lexsort((vocab_arr, -lift))
@@ -499,8 +510,10 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
                 "word_list": [vocab[j] for j in rank[:n]],
                 "word_lift": [round(float(lift[j]), 2) for j in rank[:n]],
                 # each listed word's own weekly appearances, so the page can show a word's
-                # history on hover. Only for the lead: at 85 weeks a thousand words is 85,000
-                # integers, worth carrying once and not eight times.
+                # history on hover -- raw counts, which the page divides by `words_per_week` to
+                # draw a rate, since a week here runs from 37,000 words to 129,000 and the
+                # count alone would draw that too. Only for the lead: at 85 weeks a thousand
+                # words is 85,000 integers, worth carrying once and not eight times.
                 "series": (
                     [[int(v) for v in per_word[j]] for j in rank[:n]] if c == lead else None
                 ),
@@ -627,7 +640,8 @@ def selftest():
         "the appearance counts do not reconstruct the week"
     )
     # the components partition the corpus word for word, which is what lets the ranking be a
-    # ratio of counts: what is written here and what is written everywhere else sum to the whole
+    # ratio of frequencies: what is written here and what is written everywhere else sum to the
+    # whole, and so do the two totals each side is divided by
     assert np.allclose(M.sum(axis=0), np.asarray(X.sum(axis=0)).ravel()), (
         "the per-component word counts do not reconstruct the corpus"
     )

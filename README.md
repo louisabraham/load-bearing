@@ -264,26 +264,44 @@ the arrival sits at the bottom, where a rising floor is easier to follow than a 
 between others.
 
 **The words are ranked by counting, not by the fit.** The assignment is hard, so every appearance
-of a word belongs to exactly one component, and the two numbers below partition its occurrences:
+of a word belongs to exactly one component, and the counts below partition its occurrences — as do
+the two totals they are measured against:
 
 ```math
-\mathrm{ratio}(v) = \frac{x^{\,\text{in}}_v}{\max(x^{\,\text{out}}_v,\ 1)}
+\mathrm{ratio}(v) = \frac{x^{\,\text{in}}_v \big/ N^{\,\text{in}}}
+                        {\max(x^{\,\text{out}}_v,\ 1) \big/ N^{\,\text{out}}}
 ```
 
+where $N^{\text{in}}$ is every appearance of every word inside the component and $N^{\text{out}}$
+is every appearance outside it. **Each side is divided by its own size**, which is what makes this
+a ratio of two frequencies rather than of two counts.
+
+A ratio of raw counts — which is what this was — carries the component's size inside it. The
+component holds 1,054,188 of the corpus's 5,024,747 appearances, a fifth, so dividing its count of
+a word by the four fifths written outside scaled every one of its words down by the same 3.77; the
+component holding a fortieth of the corpus had its own scaled down by 40. Those numbers were
+comparable neither between components nor with the "× more frequent" the page prints them as. The
+ranking *within* a component does not move, because the correction is one factor per component and
+the same for every word in it. What moves is what the number means.
+
 The floor of one is for the words that are never written outside this component at all, which is
-most of the top of the list: without it their ratio is a division by zero rather than their own
-count. A word that *is* written outside is divided by what it was actually written, not by that
-plus a pseudo-count.
+most of the top of the list: without it their frequency outside is zero and the ratio a division by
+zero rather than their own count. A word that *is* written outside is divided by what it was
+actually written, not by that plus a pseudo-count.
 
 **The comparison is against everything that is not this component**, rather than against the whole
-corpus. The component is close to half of the recent weeks, so a corpus-wide baseline would be
-made mostly of its own writing and would compare it against itself. `load-bearing` is written 98
-times inside it and three times outside, which is 32.67×. Size follows the *logarithm* of the ratio,
-which runs from there down to about even across the thousand words shown.
+corpus. The component is close to half of the descriptions of the recent weeks, so a corpus-wide
+baseline would be made mostly of its own writing and would compare it against itself.
+`load-bearing` is written 98 times inside it and three times outside — 93 per million words inside
+against 0.76 per million outside, which is 123×. Size follows the *logarithm* of the ratio, which
+runs from there down to 3.25× across the thousand words shown.
 
-Choosing a word replaces the chart beside it with that word's own weekly appearances. **Those
-curves are not the model's**: each is the raw weekly count of a word, so only the *choice* of which
-words to show is the model's doing.
+Choosing a word replaces the chart beside it with that word's own history, **as a rate**:
+appearances per million words written that week. The corpus is not the same size from one week to
+the next — 37,036 words in the thinnest week and 128,589 in the fattest — so a curve of raw counts
+draws the corpus growing wherever it draws the word arriving, and nothing in the picture separates
+the two. **Those curves are still not the model's**: each is a count of one word divided by the
+week that held it, so only the *choice* of which words to show is the model's doing.
 
 ## 7. The arbitrary choices
 

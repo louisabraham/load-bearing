@@ -619,7 +619,9 @@
 
   /* ------------------------------------------------------------------ the charts */
 
-  /* One area chart from one series, scaled to `hi`. */
+  /* One area chart from one word's weekly rate, scaled to `hi`. The unit is written into
+     the labels rather than passed in: this draws the word panel's chart and nothing else,
+     and the stack above it is its own function. */
   function area(svg, vals, hi) {
     const w = svg.clientWidth || 800, h = svg.clientHeight || 74, N = vals.length;
     const x = i => (i / (N - 1)) * w, y = v => h - (v / (hi || 1)) * (h - 2);
@@ -635,7 +637,7 @@
       `<line x1="0" x2="${w}" y1="${top.toFixed(1)}" y2="${top.toFixed(1)}"
       stroke="var(--ink)" stroke-width="1" stroke-dasharray="${TH.dash}" opacity="0.34"/>` +
       `<text x="6" y="${(top + 12).toFixed(1)}" fill="var(--ink)" opacity="0.62"
-      font-size="10" font-family="var(--mono)">${fmt(hi)} in a week</text>` +
+      font-size="10" font-family="var(--mono)">${fmt(hi)} per million, at the peak</text>` +
       `<line x1="0" x2="${w}" y1="${h - 0.5}" y2="${h - 0.5}" stroke="var(--ink)"
       stroke-width="1"/>` +
       `<line class="cross" x1="0" x2="0" y1="0" y2="${h}" stroke="var(--ink)"
@@ -644,8 +646,7 @@
     // a finger or a pointer on this chart reads out its week, the same gesture and the same
     // line as the stack above it. Idle, it holds the last week rather than going blank.
     const out = app.querySelector(".probe .readout");
-    const at = i => `${A.weeks[i]} · <b>${fmt(vals[i])}</b>`
-      + ` appearance${vals[i] === 1 ? "" : "s"}`;
+    const at = i => `${A.weeks[i]} · <b>${fmt(vals[i])}</b> per million words`;
     const say = html => { if (out) out.innerHTML = "week " + html; };
     const scrub = ev => {
       const r = svg.getBoundingClientRect();
@@ -733,12 +734,18 @@
   function paint() {
     const c = T.lead, p = app.querySelector(".probe");
     if (!p) return;
-    const s = c.series[S.j], total = s.reduce((a, b) => a + b, 0);
+    /* A RATE, not a count: appearances per million words written that week. The corpus runs
+       from 37,000 words in a week to 129,000, so a curve of raw counts draws the corpus
+       growing wherever it draws the word arriving, and the two cannot be told apart by
+       looking. Dividing each week by the words in it leaves the word's own shape. */
+    const s = c.series[S.j];
+    const freq = s.map((v, t) => 1e6 * v / (A.words_per_week[t] || 1));
+    const overall = 1e6 * s.reduce((a, b) => a + b, 0) / Math.max(A.appearances, 1);
     p.querySelector(".word").innerHTML = `<b>${esc(c.word_list[S.j])}</b>`;
     p.querySelector(".meta").innerHTML =
       `<b>${c.word_lift[S.j]}×</b> more frequent in this component<br>`
-      + `${fmt(total)} in total`;
-    area(p.querySelector("svg"), s, Math.max(...s));
+      + `${fmt(overall)} per million words across the corpus`;
+    area(p.querySelector("svg"), freq, Math.max(...freq));
     app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
     app.querySelectorAll(`[data-j="${S.j}"]`).forEach(n => n.classList.add("on"));
   }
