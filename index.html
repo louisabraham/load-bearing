@@ -522,11 +522,11 @@
       margin-bottom: 14px;
     }
 
-    /* three figures cannot hold seven digits across a phone, so they stack two-and-one and the
-     colour bar keeps saying which is which */
+    /* one figure to a line on a phone: two across leaves the third sitting alone under them,
+       which reads as a fourth column that failed rather than as three of a kind */
     .stats {
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px 14px;
+      grid-template-columns: 1fr;
+      gap: 14px;
     }
 
     .stat b {

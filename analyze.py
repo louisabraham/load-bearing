@@ -33,7 +33,7 @@ from datetime import date, timedelta
 import numpy as np
 from scipy.sparse import csr_matrix
 
-K = 8  # ways of writing; see the README, it is not neutral
+K = 8  # ways of writing; chosen on the outcome, and marked as such in the README
 TRIALS = 3  # k-means++ candidates per centre; see `kmeanspp`
 SEED = 0  # the first starting point; see `fit_arriving`
 N_INIT = 8  # restarts per attempt, the cheapest of which is published

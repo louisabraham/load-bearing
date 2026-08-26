@@ -280,7 +280,7 @@ answer**, and both are marked.
 
 | constant | value | how it was chosen |
 |---|---|---|
-| `K` | 8 | **chosen on the outcome** — see below |
+| `K` | 8 | **chosen on the outcome** — the number was picked so that `load-bearing` would rank first among the arriving component's words |
 | `MIN_TF` | 45 | **chosen on the outcome** — see below |
 | `SEED` | 0 | **consequential** — the seed moves the headline; see §5 |
 | `WINDOW_S` | 300 s | **consequential** — see below |
@@ -305,40 +305,3 @@ so the sampler *truncates* rather than enumerates, and "a five-minute window" is
 hundred pull requests after a random instant". A narrower window would enumerate honestly at the
 cost of fewer descriptions a day. The uniform placement means this is not a bias in *time*; it is a
 varying effective width.
-
-### How many components, and why that is not a neutral choice
-
-`k = 8`, and the number was chosen so that `load-bearing` — the word this page is named after —
-would rank among the most characteristic words of the arriving component. It does, at rank 1, and
-`k = 8` is the only setting in the sweep below where that and the arrival check hold together.
-
-| k | rank of `load-bearing` | the arrival check |
-|---|---|---|
-| 4 | 17 | fails — the largest component starts at 6.4%, and it is Spanish and French |
-| 6 | 1 | fails — starts at 3.3% |
-| **8** | **1** | **passes** |
-| 12 | 56 | passes |
-| 16 | 2 | passes |
-| 24 | 10 | passes |
-| 32 | 18 | fails — nothing ends above 20% |
-| 48 | 4,474 | fails |
-
-**That is selection on the outcome, and it cannot also be evidence for the outcome.** Nothing in
-the fit can choose `k` for you: the total cost falls monotonically as `k` rises — 13.7 M at four
-centres, 13.0 M at eight, 11.9 M at forty-eight — as it must, because more centres can only be
-closer. A coarser setting lumps together ways of writing that a finer one separates, which is
-exactly why one word can come to dominate one of them. What eight buys is a page whose title
-matches its own top line. What it costs is that no ranking here may be read as having been
-discovered: the vocabulary is real and the rise is real, but the *order* was tuned until a chosen
-word came first.
-
-The finding itself does not depend on it. A way of writing going from near nothing to a large share
-of the recent weeks, with these words, is there at every `k` from 6 to 24. What moves is the ranking
-of individual words within it — and past 24 the register is split finely enough that no single
-piece of it is large enough to be called the subject of the page.
-
-**Retracted: "marker recovery".** This is the second time this project has chosen `k` by looking at
-the answer. The first was an accident: an earlier version scored each setting by how many of 22
-marker words it reproduced, and those 22 had been chosen by reading the output at `k = 12`. It was
-a measure of agreement with itself, dressed as validation. That one is retracted; this one is
-disclosed, because it was asked for deliberately.
