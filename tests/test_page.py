@@ -508,3 +508,20 @@ def test_only_light_is_the_half_that_does_the_work(chromium, site, browser):
         assert board_shot(dark, site, css=":root { color-scheme: only light; }") == daylight
     finally:
         dark.close()
+
+
+def test_the_phone_face_is_named_rather_than_left_to_a_keyword():
+    """Chrome and Firefox disagreed about how to reach the phone's own sans.
+
+    None of the named faces ahead of it exists on Android, so Chrome took `ui-sans-serif` and
+    Firefox, which does not implement that keyword, fell past it to `system-ui`. They landed on
+    different faces and Firefox's had no weight above regular, so the title, the three figures
+    and every sentence set in 500 or 700 came back at 400 -- grey text where the board wants
+    black. Naming the family settles it before either keyword is reached.
+    """
+    css = (ROOT / "index.html").read_text(encoding="utf-8")
+    stack = css.split("--grotesk:")[1].split(";")[0]
+    for keyword in ("ui-sans-serif", "system-ui"):
+        assert stack.index("Roboto") < stack.index(keyword), (
+            f"Roboto must come before {keyword}, or the two browsers choose separately"
+        )

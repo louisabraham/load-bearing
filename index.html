@@ -40,8 +40,23 @@
        board renders pixel for pixel as it does on a phone in daylight. */
     color-scheme: only light;
     /* Grotesk for the page, mono for anything that is a measurement. No web fonts: the page is
-     one file that reads one file. */
-    --grotesk: "Helvetica Neue", Helvetica, Inter, ui-sans-serif, system-ui, Arial, sans-serif;
+       one file that reads one file.
+
+       `Roboto` is named rather than left to the two UI keywords after it, because on a phone
+       that is the only thing either keyword can mean and the two browsers did not agree on how
+       to get there. None of Helvetica Neue, Helvetica or Inter exists on Android, so Chrome
+       took `ui-sans-serif` -- a keyword Firefox does not implement -- and Firefox fell past it
+       to `system-ui`. They landed on different faces, and the one Firefox landed on had no
+       weight above regular to give: the title, the three figures and every sentence set in 500
+       or 700 came back at 400, which on a white ground reads as grey text rather than as black.
+       Named, both browsers match the same family, and it is the same family Chrome was already
+       choosing -- so this changes what Firefox draws and not what Chrome does.
+
+       The keywords stay behind it for the desktops, where they mean San Francisco and Segoe. */
+    --grotesk: "Helvetica Neue", Helvetica, Inter, Roboto, ui-sans-serif, system-ui, Arial,
+      sans-serif;
+    /* every named face here is absent from a phone, so both browsers fall to the same
+       `monospace` -- which is why the labels were the one thing that already matched */
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --ground: #ffffff;
     --ink: #0d0d0d;
