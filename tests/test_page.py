@@ -114,17 +114,38 @@ def test_clicking_a_word_chooses_that_word(page, j):
     page.click(f'.wall [data-j="{j}"]')
     page.wait_for_timeout(150)
     assert chosen(page) == (wanted, str(j))
-    assert on_the_line(page) < 14, "the word chosen should be the word on the line"
+    assert on_the_line(page) < 2, "the word chosen should be the word on the line"
 
 
 def on_the_line(page):
-    """How far the chosen row's middle is from the middle of the box it is chosen by. If these
-    two ever disagree the column moves to a word and then reads back a different one."""
+    """How far the top of the chosen row is from the line it is chosen by. If these two ever
+    disagree the column moves to a word and then reads back a different one."""
     return page.evaluate("""() => {
       const wall = document.querySelector('.wall'), row = document.querySelector('.wall .on');
       const box = wall.getBoundingClientRect(), r = row.getBoundingClientRect();
-      return Math.abs((r.top + r.height / 2) - (box.top + wall.clientHeight / 2));
+      return Math.abs(r.top - (box.top + wall.clientHeight / 2 - 14));
     }""")
+
+
+def test_the_chosen_box_starts_at_the_same_height_whatever_the_word(page):
+    """The words are set in the size of their lift, from the commonest at the top of the column
+    to the rarest at the bottom, so a box centred on the line rides up and down with the size of
+    the word inside it. Its top edge does not."""
+    tops, heights = [], []
+    for j in (0, 300, 999):
+        page.click(f'.wall [data-j="{j}"]')
+        page.wait_for_timeout(150)
+        top, height = page.evaluate("""() => {
+          const wall = document.querySelector('.wall'), row = document.querySelector('.wall .on');
+          const r = row.getBoundingClientRect();
+          return [r.top - wall.getBoundingClientRect().top, r.height];
+        }""")
+        tops.append(top)
+        heights.append(height)
+    assert max(heights) - min(heights) > 4, (
+        f"the rows must differ in size for this to mean anything: {heights}"
+    )
+    assert max(tops) - min(tops) < 1.5, f"the top of the box moved: {tops}"
 
 
 def test_clicking_a_word_does_not_scroll_the_page(browser, site):
@@ -166,7 +187,7 @@ def test_arrow_keys_step_the_choice_and_bring_it_to_the_line(page):
     page.keyboard.press("ArrowUp")
     page.wait_for_timeout(120)
     assert chosen(page) == (word_at(page, 1), "1")
-    assert on_the_line(page) < 14, "the chosen word should sit on the line it is chosen by"
+    assert on_the_line(page) < 2, "the chosen word should sit on the line it is chosen by"
 
 
 # ------------------------------------------------------------------------------ what it looks

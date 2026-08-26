@@ -407,9 +407,14 @@
     display: block;
   }
 
-  .wall::before,
-  .wall::after {
+  .wall::before {
     height: calc(50% - 14px);
+  }
+
+  /* the run below is the taller one: the last word is the smallest on the wall, and a short box
+     needs more room beneath it to bring its top up to the line */
+  .wall::after {
+    height: 50%;
   }
 
   /* two marks on the frame rather than a scrollbar: what they say is that this column moves,
@@ -552,6 +557,7 @@
 <script>
   const DATA = "analysis.js";
   let A = null, T = null;
+  const HALFROW = 14;                        // half a row: how far the line sits above centre
   const S = { j: 0 };                        // the chosen word: the first one, until it is not                     // the chosen word, or null for nothing chosen
   const app = document.getElementById("app");
   const fmt = n => Math.round(n).toLocaleString("en-US");
@@ -691,33 +697,31 @@
      change when the layout does, so they are cached and dropped in `render`. */
   let rowTop = null;
   function rows(wall) {
-    if (!rowTop) {
-      rowTop = [...wall.querySelectorAll("[data-j]")]
-        .map(el => el.offsetTop + el.offsetHeight / 2);
-    }
+    if (!rowTop) rowTop = [...wall.querySelectorAll("[data-j]")].map(el => el.offsetTop);
     return rowTop;
   }
 
-  /* Where the chosen line is: the middle of the box, in both layouts. Reading and scrolling
-     both go through this, so clicking a word and scrolling to it cannot disagree about which
-     word ends up chosen. It is measured off the box and not off the empty run above the words:
-     `getComputedStyle` on a pseudo-element is not something every browser answers with a used
-     height, and a wrong answer here would put the word somewhere other than where it is read
-     back from. */
+  /* Where the chosen line is, and what sits on it is the TOP of a word's box rather than its
+     middle: the words are set in the size of their lift, so a box centred on a line jumps up and
+     down by however tall the word inside it happens to be. Its top does not.
+
+     It is measured off the box and not off the empty run above the words: `getComputedStyle` on
+     a pseudo-element is not something every browser answers with a used height, and a wrong
+     answer here would put the word somewhere other than where it is read back from. */
   function line(wall) {
-    return wall.clientHeight / 2;
+    return wall.clientHeight / 2 - HALFROW;
   }
 
-  /* The word on the line is the one whose middle is nearest to it, not the last one whose top
-     edge is above it. Edges are exactly where the rounding lands: `offsetTop` is a whole number,
+  /* The word on the line is the one whose top is NEAREST to it, rather than the last one whose
+     top is above it. Rounding lands exactly on that comparison: `offsetTop` is a whole number,
      the run above the words is fractional, and a browser snaps `scrollTop` to physical pixels --
      so a word scrolled to the line could measure a hair short of its own edge and hand the
-     choice to the word above it. A miss of half a pixel cannot reach the next middle. */
+     choice to the word above it. A miss of half a pixel cannot reach the next word's top. */
   function middle(wall) {
-    const mid = rows(wall), y = wall.scrollTop + line(wall);
-    let lo = 0, hi = mid.length - 1;
-    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (mid[m] <= y) lo = m; else hi = m - 1; }
-    return lo < mid.length - 1 && mid[lo + 1] - y < y - mid[lo] ? lo + 1 : lo;
+    const top = rows(wall), y = wall.scrollTop + line(wall);
+    let lo = 0, hi = top.length - 1;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (top[m] <= y) lo = m; else hi = m - 1; }
+    return lo < top.length - 1 && top[lo + 1] - y < y - top[lo] ? lo + 1 : lo;
   }
 
   /* Bring a word to the line by scrolling the column and nothing else. `scrollIntoView` would
