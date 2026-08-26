@@ -1,8 +1,9 @@
 # The load-bearing vocabulary of Claude
 
-Groups of words whose frequency in GitHub pull request descriptions changed at the same time,
-found without being told what to look for. One of them was 1.1% of the corpus at the start of
-2025 and is 47% of it by the middle of 2026.
+GitHub pull request descriptions, grouped by the words they are written with rather than by
+anything they were told to look for: eight ways of writing, and every description belongs to
+one of them. One of the eight was 1.1% of the corpus at the start of 2025 and is 47% of it by
+the middle of 2026.
 
 **[louisabraham.github.io/load-bearing](https://louisabraham.github.io/load-bearing/)**
 
