@@ -40,8 +40,16 @@
     box-sizing: border-box;
   }
 
+  /* The page sets its own text sizes and the board is measured against them, so no browser may
+     inflate them on its behalf. Only the `-webkit-` spelling was here, which Firefox does not
+     read: on Firefox for Android, where the opt-out is spelled unprefixed (and `-moz-` on the
+     older builds), the labels and the words in the column came back scaled up, wrapped lines
+     the board had budgeted one line for and pushed the measurements out of their cells. All
+     three spellings, so every phone leaves the text at the size it is written at. */
   html {
     -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -277,6 +285,18 @@
   }
 
   /* ---------------------------------------------------------------- the charts */
+
+  /* A finger dragged across a chart scrubs it, and the browser must be told so before the
+     gesture starts. Left to itself Chrome on a phone reads the first sideways millimetre as a
+     pan, takes the gesture and sends `pointercancel`: the line jumped once to where the finger
+     landed and then vanished, and the readout fell back to the last week -- the chart answered
+     a tap but could not be dragged. `pan-y` gives the sideways axis to the page's own handler
+     and keeps the up-and-down one for scrolling, so the chart is scrubbed across and the page
+     still scrolls past it. */
+  .cell.chart svg,
+  .probe svg {
+    touch-action: pan-y;
+  }
 
   .cell.chart svg {
     flex: 1;
@@ -619,6 +639,42 @@
 
   /* ------------------------------------------------------------------ the charts */
 
+  /* Both charts are scrubbed the same way, so the wiring is written once: the line follows the
+     pointer across the box, and off it the chart goes back to resting on the last week.
+
+     The pointer is captured on the way down for anything that is not a mouse. A finger dragged
+     sideways does not travel in a straight line -- it drifts up or down out of a chart 200px
+     tall -- and without the capture those events go to whatever is underneath, the line stops
+     dead half way across and the readout freezes. Captured, the chart keeps the gesture until
+     the finger lifts. A mouse is left alone: it has a real leave event and hovering off the
+     chart is how it says it is done.
+
+     `pointerup` rests the chart only for a finger. With a mouse the pointer is still over the
+     chart after a click, so blanking the line there would take it away from a cursor that is
+     still pointing at it. */
+  function scrubbing(svg, N, say, rest) {
+    const idle = () => { svg.querySelector(".cross").setAttribute("opacity", "0"); rest(); };
+    const move = ev => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(N - 1,
+        Math.round(((ev.clientX - r.left) / r.width) * (N - 1))));
+      const cr = svg.querySelector(".cross");
+      cr.setAttribute("x1", ((i / (N - 1)) * r.width).toFixed(1));
+      cr.setAttribute("x2", ((i / (N - 1)) * r.width).toFixed(1));
+      cr.setAttribute("opacity", "0.6");
+      say(i);
+    };
+    svg.onpointerdown = ev => {
+      if (ev.pointerType !== "mouse" && svg.setPointerCapture) {
+        try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* not capturable: leave it */ }
+      }
+      move(ev);
+    };
+    svg.onpointermove = move;
+    svg.onpointerup = ev => { if (ev.pointerType !== "mouse") idle(); };
+    svg.onpointerleave = svg.onpointercancel = idle;
+  }
+
   /* One area chart from one word's weekly rate, scaled to `hi`. The unit is written into
      the labels rather than passed in: this draws the word panel's chart and nothing else,
      and the stack above it is its own function. */
@@ -648,21 +704,7 @@
     const out = app.querySelector(".probe .readout");
     const at = i => `${A.weeks[i]} · <b>${fmt(vals[i])}</b> per million words`;
     const say = html => { if (out) out.innerHTML = "week " + html; };
-    const scrub = ev => {
-      const r = svg.getBoundingClientRect();
-      const i = Math.max(0, Math.min(N - 1,
-        Math.round(((ev.clientX - r.left) / r.width) * (N - 1))));
-      const cr = svg.querySelector(".cross");
-      cr.setAttribute("x1", ((i / (N - 1)) * r.width).toFixed(1));
-      cr.setAttribute("x2", ((i / (N - 1)) * r.width).toFixed(1));
-      cr.setAttribute("opacity", "0.6");
-      say(at(i));
-    };
-    svg.onpointermove = svg.onpointerdown = scrub;
-    svg.onpointerleave = svg.onpointercancel = () => {
-      svg.querySelector(".cross").setAttribute("opacity", "0");
-      say(at(N - 1));
-    };
+    scrubbing(svg, N, i => say(at(i)), () => say(at(N - 1)));
     say(at(N - 1));
   }
 
@@ -700,22 +742,7 @@
     const at = i => `${A.weeks[i]} · <b>${pc(lead.count[i] / tot[i])}</b> of the week`;
     // pointer events rather than mouse events, so a finger dragged across the chart scrubs it and
     // a tap on it reads out one week
-    const scrub = ev => {
-      const r = svg.getBoundingClientRect();
-      const i = Math.max(0, Math.min(N - 1,
-        Math.round(((ev.clientX - r.left) / r.width) * (N - 1))));
-      const cr = svg.querySelector(".cross");
-      cr.setAttribute("x1", ((i / (N - 1)) * r.width).toFixed(1));
-      cr.setAttribute("x2", ((i / (N - 1)) * r.width).toFixed(1));
-      cr.setAttribute("opacity", "0.6");
-      week(at(i));
-    };
-    svg.onpointermove = scrub;
-    svg.onpointerdown = scrub;
-    svg.onpointerleave = svg.onpointercancel = () => {
-      svg.querySelector(".cross").setAttribute("opacity", "0");
-      week(null);
-    };
+    scrubbing(svg, N, i => week(at(i)), () => week(null));
     svg.dataset.last = at(N - 1);
     week(null);
   }

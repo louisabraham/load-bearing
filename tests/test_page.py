@@ -304,3 +304,134 @@ def test_the_week_under_the_pointer_reads_out_on_the_chart(page):
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] - 40)
     page.wait_for_timeout(120)
     assert page.inner_text(".readout") == resting
+
+
+# ------------------------------------------------------------------ scrubbing with a finger
+
+
+def touch_page(browser, site):
+    """A phone with a real touchscreen, so the browser makes its own gesture decisions."""
+    page = browser.new_page(
+        viewport=PHONE, device_scale_factor=RETINA, is_mobile=True, has_touch=True
+    )
+    page.goto(site)
+    page.wait_for_selector('.wall [data-j="999"]')
+    return page
+
+
+# each chart writes its week into the readout at the head of its own cell
+READOUT = {"#stack": ".cell.chart .readout", ".probe svg": ".probe .readout"}
+
+
+def drag_across(page, selector, drift=0):
+    """One finger, straight across the chart, reporting where the bar stood at every step.
+
+    The events go through the browser's own input pipeline rather than through synthetic
+    `TouchEvent`s: the bug is the browser deciding mid-gesture that the drag belongs to it, and
+    a hand-built event never gives it that decision to make. `drift` moves the finger off the
+    chart part way through, which is what a thumb actually does.
+    """
+    cdp = page.context.new_cdp_session(page)
+    page.eval_on_selector(selector, "e => e.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(250)
+    box = page.locator(selector).bounding_box()
+    page.evaluate(
+        """sel => {
+        window.__cancels = 0;
+        document.querySelector(sel)
+          .addEventListener('pointercancel', () => window.__cancels++, true);
+      }""",
+        selector,
+    )
+    y = box["y"] + box["height"] / 2
+    xs = [box["x"] + 12 + i * (box["width"] - 24) / 12 for i in range(13)]
+    cdp.send(
+        "Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": xs[0], "y": y}]}
+    )
+    bar, readouts = [], []
+    for step, x in enumerate(xs[1:]):
+        point = {"x": x, "y": y + (drift if step > 6 else 0)}
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [point]})
+        page.wait_for_timeout(30)
+        bar.append(page.get_attribute(f"{selector} .cross", "x1"))
+        readouts.append(page.inner_text(READOUT[selector]))
+    cancels = page.evaluate("window.__cancels")
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.wait_for_timeout(80)
+    return bar, readouts, cancels
+
+
+@pytest.mark.parametrize("selector", ["#stack", ".probe svg"])
+def test_a_finger_dragged_across_a_chart_scrubs_it(browser, site, selector):
+    """The bar moved once and died.
+
+    Left at `touch-action: auto` the browser read the first sideways millimetre of the drag as a
+    pan, took the gesture and sent `pointercancel`: the bar jumped to wherever the finger had
+    landed, vanished, and the readout fell back to the last week. The chart answered a tap and
+    could not be dragged at all.
+    """
+    page = touch_page(browser, site)
+    bar, readouts, cancels = drag_across(page, selector)
+    assert cancels == 0, "the browser took the gesture away from the chart"
+    assert len(set(bar)) >= 10, f"the bar stood in {len(set(bar))} places across the whole chart"
+    assert bar == sorted(bar, key=float), "the bar did not follow the finger across"
+    assert len(set(readouts)) >= 10, "the week under the finger did not keep up with the bar"
+    page.close()
+
+
+def test_the_bar_keeps_a_finger_that_drifts_off_the_chart(browser, site):
+    """A thumb dragged sideways does not travel in a straight line, and the chart is 200px tall
+    on a phone. Uncaptured, the events went to whatever was underneath and the bar stopped dead
+    half way across."""
+    page = touch_page(browser, site)
+    bar, _, cancels = drag_across(page, "#stack", drift=140)
+    assert cancels == 0
+    assert len(set(bar)) >= 10, f"the bar stopped when the finger left the box: {bar}"
+    page.close()
+
+
+def test_the_page_still_scrolls_over_a_chart(browser, site):
+    """The sideways axis is the chart's; the up-and-down one stays the page's. Taking both would
+    make the chart a hole in a page that is scrolled past far more often than it is scrubbed."""
+    page = touch_page(browser, site)
+    cdp = page.context.new_cdp_session(page)
+    page.eval_on_selector("#stack", "e => e.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(250)
+    box = page.locator("#stack").bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    before = page.evaluate("scrollY")
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+    for i in range(1, 10):
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchMove", "touchPoints": [{"x": x, "y": y - i * 14}]},
+        )
+        page.wait_for_timeout(20)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.wait_for_timeout(400)
+    assert page.evaluate("scrollY") > before + 50, "a finger dragged up the chart did not scroll"
+    page.close()
+
+
+def test_the_bar_rests_when_the_finger_lifts(browser, site):
+    """A mouse leaves the chart and the bar goes; a finger has no way to leave, so lifting it is
+    what says the gesture is over."""
+    page = touch_page(browser, site)
+    drag_across(page, "#stack")
+    assert page.get_attribute("#stack .cross", "opacity") == "0"
+    page.close()
+
+
+# ------------------------------------------------------------------------ the size of the text
+
+
+def test_the_phone_is_told_not_to_resize_the_text():
+    """Only the `-webkit-` spelling was here, which Firefox does not read.
+
+    This one is asserted against the source rather than through the browser, because that is
+    where it is visible: a browser reports the one spelling it understands and silently drops
+    the two it does not, so Chromium cannot tell us whether Firefox was catered for.
+    """
+    css = (ROOT / "index.html").read_text(encoding="utf-8")
+    for spelling in ("-webkit-text-size-adjust", "-moz-text-size-adjust", "text-size-adjust"):
+        assert f"{spelling}: 100%;" in css, f"{spelling} is not declared"
