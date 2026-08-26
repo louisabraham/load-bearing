@@ -50,7 +50,13 @@ def site():
 
 
 @pytest.fixture(scope="session")
-def browser():
+def chromium():
+    """Playwright, the options that launched a Chromium, and the browser they launched.
+
+    The options are handed out with it because one test needs a second browser started with
+    different flags -- a phone forcing dark mode is a property of the browser, not of a page --
+    and it must be the same Chromium this one found.
+    """
     with sync_playwright() as play:
         candidates = [os.environ.get("CHROMIUM")] if os.environ.get("CHROMIUM") else []
         for launch in [{}] + [{"executable_path": p} for p in candidates + CHROMIUM_FALLBACKS]:
@@ -60,10 +66,15 @@ def browser():
                 found = play.chromium.launch(**launch)
             except Error:
                 continue
-            yield found
+            yield play, launch, found
             found.close()
             return
         pytest.skip("no Chromium to drive")
+
+
+@pytest.fixture(scope="session")
+def browser(chromium):
+    return chromium[2]
 
 
 @pytest.fixture
@@ -435,3 +446,65 @@ def test_the_phone_is_told_not_to_resize_the_text():
     css = (ROOT / "index.html").read_text(encoding="utf-8")
     for spelling in ("-webkit-text-size-adjust", "-moz-text-size-adjust", "text-size-adjust"):
         assert f"{spelling}: 100%;" in css, f"{spelling} is not declared"
+
+
+# --------------------------------------------------------------------- the colours it keeps
+
+
+# What a phone in dark mode does to a page that never said which schemes it supports. Chrome
+# spells it this way; Firefox for Android arrives at the same place through its own setting.
+FORCE_DARK = ["--enable-features=WebContentsForceDark", "--force-dark-mode"]
+
+
+def board_shot(browser, site, css=None):
+    """The top of the board on a phone, as pixels. Byte for byte reproducible across launches,
+    so two renderings can simply be compared."""
+    page = browser.new_page(
+        viewport=PHONE,
+        device_scale_factor=RETINA,
+        is_mobile=True,
+        has_touch=True,
+        color_scheme="dark",
+    )
+    page.goto(site)
+    if css:
+        page.add_style_tag(content=css)
+    page.wait_for_selector('.wall [data-j="999"]')
+    page.wait_for_timeout(600)
+    shot = page.screenshot(clip={"x": 0, "y": 0, "width": PHONE["width"], "height": 600})
+    page.close()
+    return shot
+
+
+def test_a_phone_in_dark_mode_does_not_repaint_the_board(chromium, site, browser):
+    """Declining `prefers-color-scheme` stops the page turning dark. It does not stop the
+    browser turning it dark on the page's behalf.
+
+    With no `color-scheme` declared, a phone in dark mode repainted the board: the prose came
+    back white on #121212 while the accent, the three primaries and every fill inside the two
+    charts stayed as printed, so the labels over the stack were dark ink at 62% on bands that
+    had not moved -- grey on grey. Not the board in other colours; the board in two colour
+    schemes at once.
+    """
+    play, launch, _ = chromium
+    dark = play.chromium.launch(**launch, args=FORCE_DARK)
+    try:
+        assert board_shot(dark, site) == board_shot(browser, site), (
+            "a phone forcing dark mode repainted the board"
+        )
+    finally:
+        dark.close()
+
+
+def test_only_light_is_the_half_that_does_the_work(chromium, site, browser):
+    """`color-scheme: light` says which schemes the page supports and a browser forcing dark
+    overrides it anyway. `only` is the word that withholds the permission, so this asserts the
+    weaker spelling really is weaker rather than leaving the choice to taste."""
+    play, launch, _ = chromium
+    dark = play.chromium.launch(**launch, args=FORCE_DARK)
+    try:
+        daylight = board_shot(browser, site)
+        assert board_shot(dark, site, css=":root { color-scheme: light; }") != daylight
+        assert board_shot(dark, site, css=":root { color-scheme: only light; }") == daylight
+    finally:
+        dark.close()

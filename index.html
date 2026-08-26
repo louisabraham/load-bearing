@@ -13,7 +13,9 @@
  *
  * Bauhaus in two senses: the primaries against black on paper, and geometry doing the work
  * decoration would otherwise do. Light only -- Bauhaus printing was ink on paper and a dark
- * ground would invert the premise -- so `prefers-color-scheme` is deliberately not honoured.
+ * ground would invert the premise -- so `prefers-color-scheme` is deliberately not honoured,
+ * and `color-scheme: only light` says so to the browser as well, which would otherwise repaint
+ * the board itself on a phone that is in dark mode.
  *
  * Colour carries meaning rather than identity: the accent is reserved for the one cluster that
  * arrives and for the current selection, and the other seven bands are one grey ramp. The
@@ -21,6 +23,22 @@
  */
 
   :root {
+    /* Light only, said to the browser and not only in the note above.
+
+       The board declines to honour `prefers-color-scheme`, which stops the PAGE turning dark
+       and does nothing to stop the BROWSER turning it dark on the page's behalf. A phone in
+       dark mode, finding no `color-scheme` on a page, repaints one: Firefox for Android does
+       it, Chrome for Android does it, and the result is not the board in other colours but the
+       board in two colour schemes at once. The prose inverted to white on #121212 while the
+       accent, the three primaries and every fill inside the two charts stayed exactly as
+       printed -- so the labels over the stack, dark ink at 62% on bands that had not moved,
+       came out as grey on grey and could barely be read.
+
+       `only light` and not `light`: `light` says which schemes the page supports, and a
+       browser forcing dark overrides it anyway -- measured, it changed 68% of the board's
+       pixels either way. `only` is the half that withholds the permission, and with it the
+       board renders pixel for pixel as it does on a phone in daylight. */
+    color-scheme: only light;
     /* Grotesk for the page, mono for anything that is a measurement. No web fonts: the page is
      one file that reads one file. */
     --grotesk: "Helvetica Neue", Helvetica, Inter, ui-sans-serif, system-ui, Arial, sans-serif;
