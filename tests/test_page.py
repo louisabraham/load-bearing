@@ -351,9 +351,17 @@ def test_an_untouched_chart_asks_to_be_touched(page, readout):
     asserting, and the newest week is not what either chart is about. Worse, it hid the only
     thing a reader who has not touched the chart yet needs to know -- that it answers. The line
     now carries the invitation until there is a real reading to put there.
+
+    What is asserted is that the line INVITES -- it names a gesture, and it names what the
+    gesture answers -- and not any one wording of it. This held the exact phrase "for any week",
+    which has since been reworded to "to see a week", so a test about nothing having gone wrong
+    failed for two commits.
     """
-    line = page.inner_text(readout).strip()
-    assert "for any week" in line.lower(), f"no invitation on an untouched chart: {line!r}"
+    line = page.inner_text(readout).strip().lower()
+    assert any(verb in line for verb in ("hover", "touch")), (
+        f"no gesture named on an untouched chart: {line!r}"
+    )
+    assert "week" in line, f"the invitation does not say what it answers: {line!r}"
     assert not re.search(r"\d{4}-\d{2}-\d{2}", line), f"a week is still standing there: {line!r}"
     # and it is set apart from a reading rather than looking like one
     assert "nudge" in (page.get_attribute(readout, "class") or "")
