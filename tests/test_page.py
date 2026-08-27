@@ -252,6 +252,25 @@ def test_the_column_stays_inside_its_box_after_a_resize(page):
     assert fits == {"inside": True, "above": True}
 
 
+@pytest.mark.parametrize("width", [320, 390, 1080, 1400, 1920])
+def test_the_words_stop_before_the_marks_on_the_frame(browser, site, width):
+    """A row is a block, so the outline drawn on the chosen one runs the whole width of the
+    column whatever the word is. It reached into the strip the arrows stand in at every width
+    the board takes, and once there was a rail between them it crossed that too -- an outline
+    clipping the tip of an arrow is a blemish, an outline cut by a hairline the length of the
+    box is a fault. The column's right pad is the room those marks need."""
+    page = browser.new_page(viewport={"width": width, "height": 900}, device_scale_factor=RETINA)
+    page.goto(site)
+    page.wait_for_selector('.wall [data-j="999"]')
+    gap = page.evaluate("""() => {
+      const row = document.querySelector('.wall .on').getBoundingClientRect();
+      const marks = document.querySelector('.steps').getBoundingClientRect();
+      return marks.left - row.right;
+    }""")
+    page.close()
+    assert gap >= 4, f"the chosen row comes within {gap:.1f}px of the marks on the frame"
+
+
 def test_choosing_a_word_does_not_move_the_page_on_a_phone(browser, site):
     """The panel is a fixed height there, so the column does not shift under the finger that is
     choosing from it -- whatever the word, and whether its numbers take one line or two."""

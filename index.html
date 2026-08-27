@@ -469,7 +469,18 @@
     min-height: 0;
     flex: 1;
     border: 1px solid var(--hairline);
-    padding: 10px 12px;
+    /* The right pad is the strip the frame's own marks stand in, and it is wider than the left
+       for exactly that reason. A row is a block, so its box -- and the outline drawn on it when
+       it is the chosen one -- runs the full width of the column whatever the word is; without
+       the room it ran under the arrows and, once there was one, straight through the rail. It
+       had always done it, at every width the board takes: the marks are a few pixels wide and
+       an outline crossing them at their tips reads as a rendering fault, while an outline
+       crossing a hairline the length of the box reads as one.
+
+       The number is the marks' own geometry, taken at the worst case: they sit 35px in from the
+       cell's edge, and the cell's padding is at its narrowest -- 15px, on a phone -- so 24 here
+       clears them by five, and by eight on the board. */
+    padding: 10px 24px 10px 12px;
   }
 
   .wall::-webkit-scrollbar {
