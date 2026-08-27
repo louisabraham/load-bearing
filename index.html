@@ -514,21 +514,83 @@
   }
 
   /* two marks on the frame rather than a scrollbar: what they say is that this column moves,
-     and that up and down are the keys for it */
-  .step {
+     and that up and down are the keys for it. They keep the places they held when each was
+     positioned on its own -- the box is ten wide around a six-wide glyph, so neither mark has
+     moved and what is new is only the run between them. */
+  .steps {
     position: absolute;
-    right: 27px;
-    color: var(--muted);
-    font: 500 10px/1 var(--mono);
+    right: 25px;
+    top: 25px;
+    bottom: 25px;
+    width: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* the marks hold the ends of the run by `space-between` rather than by the rail's flex, so
+       they stay where they are on the devices where the rail is not drawn at all */
+    justify-content: space-between;
+    /* the marks are marks: only the rail between them takes the pointer */
     pointer-events: none;
   }
 
-  .step.up {
-    top: 25px;
+  .step {
+    color: var(--muted);
+    font: 500 10px/1 var(--mono);
   }
 
-  .step.down {
-    bottom: 25px;
+  /* Where a scrollbar would be, doing the half of a scrollbar's job that is worth doing here.
+     A thousand words is far too many for a thumb whose LENGTH means anything -- it would be a
+     couple of pixels -- so the mark is a point: it says where in the thousand the chosen word
+     is, and it can be taken and dragged there.
+
+     Drawn only where there is a pointer fine enough to catch eight pixels of it. A finger has
+     the whole column to throw, which is the same gesture with a target the size of the box. */
+  .rail {
+    display: none;
+    flex: 1;
+    width: 100%;
+    position: relative;
+    margin: 7px 0;
+    cursor: pointer;
+    pointer-events: auto;
+    /* the drag belongs to the rail and not to the page, on a screen that could serve either */
+    touch-action: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .rail {
+      display: block;
+    }
+  }
+
+  /* the track is the lightest line on the page: a position is only legible against the run it
+     is a position in, and the run must not read as a third mark on the frame */
+  .rail::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 1px;
+    background: #d8d8d8;
+  }
+
+  .rail:hover::before {
+    background: #b0b0b0;
+  }
+
+  /* the accent, which on this board means the current selection and nothing else -- the same
+     thing the outline around the word means, said as a position instead of as a word.
+
+     Its travel is the run less its own height, so it reaches both ends of the rail without
+     hanging past either, and `--p` is the chosen word's place in the thousand. */
+  .rail i {
+    position: absolute;
+    top: calc((100% - 8px) * var(--p, 0));
+    left: 1px;
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
   }
 
   /* a column, one word a line, tight enough that scrolling it is reading rather than paging */
@@ -655,6 +717,7 @@
   const DATA = "analysis.js";
   let A = null, T = null;
   const HALFROW = 14;                        // half a row: how far the line sits above centre
+  const THUMB = 8;                           // the mark on the rail, square; `.rail i` agrees
   const S = { j: 0 };                        // the chosen word: the first one, until it is not                     // the chosen word, or null for nothing chosen
   const app = document.getElementById("app");
   const fmt = n => Math.round(n).toLocaleString("en-US");
@@ -834,6 +897,11 @@
     area(p.querySelector("svg"), freq, Math.max(...freq));
     app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
     app.querySelectorAll(`[data-j="${S.j}"]`).forEach(n => n.classList.add("on"));
+    /* the mark on the rail is this same choice as a position. It is set as a fraction and
+       placed by the layout rather than measured here: the rail's height is whatever the box
+       gives it, and a number read back per frame would only be that height again. */
+    const rail = app.querySelector(".rail");
+    if (rail) rail.style.setProperty("--p", (S.j / (T.words.length - 1)).toFixed(4));
   }
 
   /* One entry point for choosing a word, whether it was clicked, scrolled to or stepped to. */
@@ -968,8 +1036,9 @@
     </div>
     <div class="cell words">
       ${T.wall()}
-      <span class="step up" aria-hidden="true">▲</span>
-      <span class="step down" aria-hidden="true">▼</span>
+      <div class="steps" aria-hidden="true"><span class="step">▲</span>
+        <div class="rail"><i></i></div>
+        <span class="step">▼</span></div>
     </div>
     <div class="cell foot"><span class="label">generated ${A.generated}</span>
       <span class="label">Made with ❤️ by <a href="https://louisabraham.github.io/"
@@ -997,6 +1066,25 @@
       const to = S.j + Math.sign(ev.deltaY);
       if (to >= 0 && to < T.words.length) pick(to, true);
     }, { passive: false });
+    // The rail is a handle as well as a reading: the mark can be taken and dragged along it,
+    // and a press anywhere on it goes to that place at once. The mark centres on the pointer
+    // either way, so pressing and dragging are one gesture rather than two behaviours.
+    const rail = app.querySelector(".rail");
+    const along = ev => {
+      const box = rail.getBoundingClientRect(), run = box.height - THUMB;
+      const t = run > 0 ? (ev.clientY - box.top - THUMB / 2) / run : 0;
+      pick(Math.round(Math.min(1, Math.max(0, t)) * (T.words.length - 1)), true);
+    };
+    rail.addEventListener("pointerdown", ev => {
+      // capture is what lets the drag leave the ten pixels the rail is wide and carry on, which
+      // is how every other slider behaves and the only way a drag down a long column is usable
+      rail.setPointerCapture(ev.pointerId);
+      ev.preventDefault();                 // a drag on the frame is not a selection of the words
+      along(ev);
+    });
+    rail.addEventListener("pointermove", ev => {
+      if (rail.hasPointerCapture(ev.pointerId)) along(ev);
+    });
     // up and down step the choice, and centring it scrolls the column to match, so the two
     // ways of moving cannot disagree about which word is chosen
     addEventListener("keydown", ev => {
