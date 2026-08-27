@@ -131,11 +131,17 @@ def test_clicking_a_word_chooses_that_word(page, j):
 
 def on_the_line(page):
     """How far the top of the chosen row is from the line it is chosen by. If these two ever
-    disagree the column moves to a word and then reads back a different one."""
+    disagree the column moves to a word and then reads back a different one.
+
+    Where the line sits is `--line` on the box, read from the page rather than repeated here: it
+    is a third of the way down and it has been half, and a test that carries its own copy of that
+    number passes for a while after the page stops agreeing with it.
+    """
     return page.evaluate("""() => {
       const wall = document.querySelector('.wall'), row = document.querySelector('.wall .on');
+      const f = parseFloat(getComputedStyle(wall).getPropertyValue('--line')) / 100;
       const box = wall.getBoundingClientRect(), r = row.getBoundingClientRect();
-      return Math.abs(r.top - (box.top + wall.clientHeight / 2 - 14));
+      return Math.abs(r.top - (box.top + Math.max(0, wall.clientHeight * f - 14)));
     }""")
 
 
@@ -599,3 +605,285 @@ def test_the_phone_face_is_named_rather_than_left_to_a_keyword():
         assert stack.index("Roboto") < stack.index(keyword), (
             f"Roboto must come before {keyword}, or the two browsers choose separately"
         )
+
+
+# ----------------------------------------------------------------------- filtering the column
+
+
+def shown(page):
+    """The words the column is showing, in the order it is showing them."""
+    return page.evaluate(
+        "() => [...document.querySelectorAll('.wall [data-j]')]"
+        ".filter(el => !el.hidden).map(el => el.textContent)"
+    )
+
+
+def nth_shown(page, n):
+    """The `data-j` of the nth word the column is showing, which under a filter is not n."""
+    return page.evaluate(
+        "n => [...document.querySelectorAll('.wall [data-j]')]"
+        ".filter(el => !el.hidden)[n].dataset.j",
+        n,
+    )
+
+
+def type_query(page, text):
+    page.fill(".find input", text)
+    page.wait_for_timeout(200)
+
+
+def test_the_field_keeps_the_words_that_begin_with_it_and_no_others(page):
+    type_query(page, "th")
+    words = shown(page)
+    assert words, "nothing at all was left"
+    assert all(w.startswith("th") for w in words), words
+    # a prefix and not a substring, which is the whole of what the field promises: a word that
+    # merely contains the query is gone
+    assert page.evaluate(
+        "() => [...document.querySelectorAll('.wall [data-j]')]"
+        ".some(el => el.hidden && el.textContent.includes('th'))"
+    ), "a substring match was left in the column"
+    assert page.inner_text(".find .n").replace(",", "") == f"{len(words)} OF 1000"
+
+
+def test_every_way_of_choosing_stays_inside_the_matches(page):
+    """The bug the whole filter is built around, and it is the same bug five times.
+
+    A row's place in the column WAS its place in the thousand -- the offsets were read off every
+    row, the wheel and the arrows added one to `S.j`, and the rail divided by a thousand. Every
+    one of those is that assumption written down, and a filter breaks all of them at once: the
+    column shows sixty words and the next one down is not the next `j`.
+    """
+    type_query(page, "re")
+    words = shown(page)
+    assert len(words) > 5, f"too few matches for this to mean anything: {words}"
+
+    # the arrows, while the field still has the focus
+    assert chosen(page)[0] == words[0]
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(150)
+    assert chosen(page)[0] == words[1]
+
+    # the wheel, over the column
+    box = page.locator(".wall").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, 120)
+    page.wait_for_timeout(150)
+    assert chosen(page)[0] == words[2]
+    assert on_the_line(page) < 2
+
+    # the rail, pressed at its foot
+    rail = page.locator(".rail").bounding_box()
+    page.mouse.click(rail["x"] + rail["width"] / 2, rail["y"] + rail["height"] - 1)
+    page.wait_for_timeout(150)
+    assert chosen(page)[0] == words[-1]
+
+    # and the column thrown to its end
+    scroll_column(page, 0)
+    assert chosen(page)[0] == words[0]
+    scroll_column(page, page.evaluate("document.querySelector('.wall').scrollHeight"))
+    assert chosen(page)[0] == words[-1]
+
+
+def test_the_mark_on_the_rail_travels_the_matches_and_not_the_thousand(page):
+    """It is the run of the column beside it. Divided by a thousand, sixty matches moved it four
+    pixels and it read as broken rather than as a position."""
+    type_query(page, "re")
+    page.click(f'.wall [data-j="{nth_shown(page, len(shown(page)) - 1)}"]')
+    page.wait_for_timeout(150)
+    place = page.eval_on_selector(".rail", "e => getComputedStyle(e).getPropertyValue('--p')")
+    assert float(place) == 1, f"the mark stood at {place} of the run, and the last match is 1"
+
+
+def test_a_keystroke_keeps_a_word_that_still_matches(page):
+    """Narrowing the column is not choosing from it. A panel that jumped on every letter would
+    be useless for the thing the field is mostly for -- looking a word up beside its chart."""
+    type_query(page, "re")
+    page.click(f'.wall [data-j="{nth_shown(page, 4)}"]')
+    page.wait_for_timeout(150)
+    was = chosen(page)
+    type_query(page, was[0][:3])
+    assert chosen(page) == was, "the chart moved to another word on a keystroke"
+    assert on_the_line(page) < 2, "the word it kept is not on the line it is chosen by"
+
+
+def test_a_word_filtered_away_hands_the_choice_to_the_top_match(page):
+    type_query(page, "re")
+    page.click(f'.wall [data-j="{nth_shown(page, 4)}"]')
+    page.wait_for_timeout(150)
+    type_query(page, "th")
+    assert chosen(page)[0] == shown(page)[0]
+    assert on_the_line(page) < 2
+
+
+def test_nothing_matches_and_the_panel_keeps_its_word(page):
+    """Narrowing the column to nothing is not the choice of a different word, so the chart stays
+    -- blanking it would throw away the reading the field was opened beside."""
+    type_query(page, "seam")
+    was = chosen(page)
+    type_query(page, "seamzz")
+    assert shown(page) == []
+    assert chosen(page) == was
+    # the run says the query back rather than "no matches": what a reader has usually done is
+    # expect the middle of a word to count, and their own letters are what explains the box
+    run = page.eval_on_selector(".wall", "e => getComputedStyle(e, '::before').content")
+    assert "seamzz" in run.lower(), run
+    # and the marks that say the column moves go, the way a scrollbar goes
+    assert not page.locator(".steps").is_visible()
+
+
+def test_clearing_the_field_gives_the_thousand_back_and_keeps_the_word(page):
+    type_query(page, "re")
+    page.click(f'.wall [data-j="{nth_shown(page, 3)}"]')
+    page.wait_for_timeout(150)
+    was = chosen(page)
+    page.click(".find .clear")
+    page.wait_for_timeout(200)
+    assert len(shown(page)) == 1000
+    assert chosen(page) == was
+    assert on_the_line(page) < 2
+    assert page.inner_text(".find .n").strip() == "", "a field with no filter printed a reading"
+
+
+def test_escape_empties_the_field_and_the_slash_reaches_it(page):
+    page.click("h1")
+    page.keyboard.press("/")
+    page.wait_for_timeout(100)
+    assert page.evaluate("() => document.activeElement.tagName") == "INPUT"
+    assert page.input_value(".find input") == "", "the slash was typed into the field it opened"
+    page.keyboard.type("re")
+    page.wait_for_timeout(200)
+    assert len(shown(page)) < 1000
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    assert page.input_value(".find input") == ""
+    assert len(shown(page)) == 1000
+
+
+def test_the_cross_stands_in_the_column_the_arrows_stand_in(page):
+    """Three marks down the right edge of one object, so they share a vertical rather than
+    nearly sharing one: the cross is laid out inside the field's border and the marks are
+    positioned outside the column's, which is a pixel between them if it is not corrected."""
+    type_query(page, "re")
+    centres = page.evaluate("""() => {
+      const mid = s => { const r = document.querySelector(s).getBoundingClientRect();
+                         return r.left + r.width / 2; };
+      return [mid('.find .clear'), mid('.steps .step'), mid('.rail')];
+    }""")
+    assert max(centres) - min(centres) < 1, f"the three marks do not line up: {centres}"
+
+
+def test_the_field_does_not_take_a_row_of_words_from_the_column(browser, site):
+    """Stacked, the column and the chart it feeds are one pair at one size. The field is added to
+    the cell rather than taken out of the column, or the shorter half of the pair pays for it."""
+    page = browser.new_page(viewport=PHONE, device_scale_factor=RETINA)
+    page.goto(site)
+    page.wait_for_selector('.wall [data-j="999"]')
+    page.wait_for_timeout(200)
+    box = page.evaluate("""() => {
+      const h = s => document.querySelector(s).getBoundingClientRect().height;
+      return {words: h('.cell.words'), find: h('.find'), panel: h('.cell.panel')};
+    }""")
+    page.close()
+    assert abs((box["words"] - box["find"]) - box["panel"]) < 1.5, box
+
+
+# ---------------------------------------------------------------- who the arrow keys belong to
+
+
+def test_an_arrow_key_moves_the_choice_by_one_word_where_the_page_scrolls(browser, site):
+    """Two words a press in Safari, three in Firefox, and one here.
+
+    The guard used to stand aside wherever the PAGE scrolls, on the grounds that the arrows were
+    the page's there. They were not. A click inside a scroller is what makes it the browser's
+    keyboard scroll target, so the arrows went to the COLUMN and scrolled it by a LINE -- which
+    is two or three of these rows -- while the page they were supposedly given to never moved.
+
+    Chromium was the one engine that looked right, and only because it snaps a keyboard scroll to
+    the nearest snap point: the bug was invisible in the browser these tests run in. So what is
+    asserted is not only the step but that the key was HANDLED, which is the half no engine can
+    then add a scroll of its own to.
+    """
+    page = browser.new_page(viewport=PHONE, device_scale_factor=RETINA)
+    page.goto(site)
+    page.wait_for_selector('.wall [data-j="999"]')
+    assert page.evaluate("() => document.documentElement.scrollHeight > innerHeight + 1"), (
+        "this has to be a layout the page itself scrolls, or the guard is not under test"
+    )
+    # registered after the page's own, on the same target and phase, so it runs after it
+    page.evaluate("""() => {
+      window.__handled = null;
+      addEventListener('keydown', ev => { window.__handled = ev.defaultPrevented; });
+    }""")
+    page.eval_on_selector(".wall", "e => e.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(200)
+    for start in (3, 300, 800):
+        page.click(f'.wall [data-j="{start}"]')
+        page.wait_for_timeout(200)
+        # the click focuses the column, which is what makes "whose key is it" answerable at all
+        assert page.evaluate("() => document.activeElement === document.querySelector('.wall')"), (
+            "the column is not a tab stop, so a click on a word focused nothing"
+        )
+        for n in range(1, 4):
+            page.keyboard.press("ArrowDown")
+            page.wait_for_timeout(160)
+            assert page.evaluate("window.__handled") is True, "the key was left to the browser"
+            assert chosen(page)[1] == str(start + n), f"from {start}, press {n}"
+            assert on_the_line(page) < 2
+    page.close()
+
+
+def test_the_arrows_stay_the_pages_until_the_column_is_touched(browser, site):
+    """The half of the old guard that was right, and it is kept: on a window narrow enough to
+    scroll, a reader who has not been near the column is scrolling the window."""
+    page = browser.new_page(viewport=PHONE, device_scale_factor=RETINA)
+    page.goto(site)
+    page.wait_for_selector('.wall [data-j="999"]')
+    was = chosen(page)
+    before = page.evaluate("scrollY")
+    for _ in range(3):
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(150)
+    assert page.evaluate("scrollY") > before, "the arrows did not scroll the page"
+    assert chosen(page) == was, "the arrows moved the choice as well as the page"
+    page.close()
+
+
+# ------------------------------------------------------------------ what the field says it does
+
+
+def test_the_slash_is_named_only_where_there_is_a_keyboard_for_it(browser, site):
+    """A shortcut printed on a phone is a line of furniture nobody can press. It is drawn behind
+    the same test as the rail: a fine pointer is the nearest thing a page can ask about a
+    keyboard."""
+    for mobile, wanted in ((False, True), (True, False)):
+        page = browser.new_page(
+            viewport=PHONE if mobile else BOARD,
+            device_scale_factor=RETINA,
+            is_mobile=mobile,
+            has_touch=mobile,
+        )
+        page.goto(site)
+        page.wait_for_selector('.wall [data-j="999"]')
+        drawn = page.eval_on_selector(".find .key", "e => getComputedStyle(e).display") != "none"
+        assert drawn is wanted, f"is_mobile={mobile} drew the key: {drawn}"
+        if wanted:
+            # and it is spent the moment it is taken, or on a query wanting the room
+            page.fill(".find input", "re")
+            page.wait_for_timeout(200)
+            assert page.eval_on_selector(".find .key", "e => getComputedStyle(e).display") == "none"
+        page.close()
+
+
+def test_both_ends_of_the_column_still_reach_the_line(page):
+    """The line sits a third of the way down the box rather than half, so the empty run above the
+    words is a third of a box and the one below is two thirds. Cut wrong, the word the page is
+    named after cannot be brought to the line it is chosen by."""
+    scroll_column(page, 0)
+    assert chosen(page)[1] == "0"
+    assert on_the_line(page) < 2
+    scroll_column(page, page.evaluate("document.querySelector('.wall').scrollHeight"))
+    assert chosen(page)[1] == "999"
+    # and it lands on it, which it did not quite do when the run below was half the box: the
+    # last word is the smallest on the wall and used to stop three pixels short of the line
+    assert on_the_line(page) < 2
