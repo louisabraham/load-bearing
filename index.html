@@ -583,13 +583,20 @@
   }
 
   /* the track is the lightest line on the page: a position is only legible against the run it
-     is a position in, and the run must not read as a third mark on the frame */
+     is a position in, and the run must not read as a third mark on the frame.
+
+     The half pixel is the only way the line and the thumb share a centre. The rail is ten wide
+     and the thumb eight, so the thumb sits on whole numbers and centres on 5; a one-wide line
+     centred on that same 5 begins at 4.5. Begun at 4 it ran half a pixel to the left of the
+     thumb it is the run for, and a thumb eight wide is wide enough to be read against the line
+     and show it. If one of the two must be off the grid it is the line: spread to two lighter
+     columns where a pixel cannot be halved, a line this light loses nothing. */
   .rail::before {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 4px;
+    left: 4.5px;
     width: 1px;
     background: #d8d8d8;
   }
