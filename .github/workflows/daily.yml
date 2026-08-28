@@ -17,7 +17,7 @@ on:
     inputs:
       backfill:
         description: "also fetch this many earlier missing days"
-        default: "0"
+        default: "3"
       refetch:
         # A sweep of the whole corpus is longer than a job may run, and it does not need to
         # finish in one: a day already at ten windows is skipped by reading its file, so a second
@@ -62,8 +62,13 @@ jobs:
         if: github.event_name != 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Three days back rather than one, and it costs nothing: a day already collected is
+        # skipped by the file being there, so the extra days are ten requests only when one is
+        # missing. They are missing more often than a cron suggests -- a scheduled run can be
+        # delayed by hours or dropped entirely under load, and with only yesterday fetched a
+        # dropped run loses that day for good.
         run: |
-          python fetch_day.py --backfill ${{ inputs.backfill || 0 }} \
+          python fetch_day.py --backfill ${{ inputs.backfill || 3 }} \
             ${{ inputs.refetch && '--refetch' || '' }}
 
       # Forty seconds and three gigabytes on twelve cores: eight k-means++ runs over 50 million
