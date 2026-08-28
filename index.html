@@ -1513,7 +1513,9 @@
   function pager(k) {
     const box = app.querySelector(".pager");
     if (!box) return;
-    box.querySelector(".at").innerHTML = `<b>${k + 1}</b> / ${A.components.length}`;
+    const total = A.components.length;
+    const at = String(k + 1).padStart(String(total).length, "0");
+    box.querySelector(".at").innerHTML = `<b>${at}</b> / ${total}`;
     // an arrow with nowhere to go says so, rather than being pressed twice and blamed
     const arrows = box.querySelectorAll(".arrow");
     arrows[0].disabled = k === 0;
