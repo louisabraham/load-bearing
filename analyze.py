@@ -29,22 +29,25 @@ import os
 import re
 from collections import Counter
 from datetime import date, timedelta
+from multiprocessing import Pool
 
+import numba
 import numpy as np
+from numba import njit, prange
 from scipy.sparse import csr_matrix
 
-K = 8  # ways of writing; chosen on the outcome, and marked as such in the README
+K = 10  # ways of writing; chosen on the outcome, and marked as such in the README
 TRIALS = 3  # k-means++ candidates per centre; see `kmeanspp`
 SEED = 0  # the first starting point; see `fit_arriving`
 N_INIT = 8  # restarts per attempt, the cheapest of which is published
 RETRIES = 4  # fresh batches of restarts, if that one did not arrive
 SMOOTH = 0.01  # pseudo-count, so no centre gives a word zero probability
 MAX_PASSES = 200  # a runaway guard, not a setting; the fixed point comes at 30
-WORDS_LISTED = 40  # per component; the cut is arbitrary and `tail` says so
-WORDS_LEAD = 1000  # for each component that arrives; see `pack`
+WORDS_LISTED = 150  # per component; the cut is arbitrary and `tail` says so
+WORDS_LEAD = 1000  # for the component the page opens on; see `pack`
 TREND_WEEKS = 12  # weeks the reported trend is fitted over
 # WHICH COMPONENT THE PAGE IS ABOUT: the largest one of the last LEAD_WINDOW weeks. Nothing is
-# selected on how much it grew. A month rather than a week, because a week is 700 descriptions
+# selected on how much it grew. A month rather than a week, because a week is 5,300 descriptions
 # and the subject of the whole page should not turn on which of two close components led across
 # one of them.
 LEAD_WINDOW = 4
@@ -78,33 +81,40 @@ WORD_RE = re.compile(r"[a-z0-9_/-]*[a-z][a-z0-9_/-]*")
 # what distinguishes an identifier from `snyk-top-banner`.
 SNYK_ID_RE = re.compile(r"^snyk-.+-\d{4,}$")
 MIN_WORDS = 5  # a body needs this many distinct words to be prose
-MIN_TF = 45  # a word needs this many total appearances.
+# ONE FLOOR ON A WORD, AND IT COUNTS PEOPLE. A word is in the
+# vocabulary when this many distinct accounts have written it.
 #
-# DISCLOSURE: this number was originally picked by looking
-# at the answer. `load-bearing` had 51 appearances on the
-# corpus of the day, so 45 let it through and 60 would not
-# have. That is the same species of choice as K below and
-# deserves the same label, even though the corpus has since
-# grown and the word now has 101, clearing the floor by
-# more than twice over -- so the floor no longer decides
-# whether the title word appears.
+# There were three of these -- 45 appearances, 25 documents,
+# 20 accounts -- and two of them were doing nothing that this
+# one does not do better. Counting appearances cannot tell a
+# shared word from one document written two hundred times,
+# which is why the account floor existed at all; and 20
+# accounts already implies 20 documents and 20 appearances,
+# so the other two floors were very nearly subsumed. The
+# appearance floor also carried a disclosure, having been
+# picked so that the word this page is named after would
+# clear it. One floor that counts people needs no such note.
 #
-# It does still decide others: `throwaway`, 41st in the
-# published list, has 52. A floor at 60 would drop it. So
-# this constant shapes the list even where it no longer
-# shapes the headline.
-MIN_AUTHORS = 20  # and this many distinct accounts; see `documents`
-MIN_DF = 25  # and this many distinct documents. Total appearances alone
-# is not breadth: `multi-draw` appears 101 times inside ONE
-# document and lift cannot tell that from a widespread word.
+# THE NUMBER IS CHOSEN ON A PROPERTY OF THE METHOD, not on
+# the answer: it is the least restrictive floor at which two
+# independent fits agree on at least half of the top twenty
+# words. Measured over 32 unconditioned fits of this corpus,
+# at k = 12, agreement rises monotonically with the floor --
+# 0.29 at 20 accounts, 0.51 at 50, 0.69 at 200, 0.79 at 400 --
+# so there is no optimum to find, only a rate of return, and
+# the rule picks a point on it for a stated reason. At 20 the
+# component the page is about came out mixed with another in 6
+# of the 32; at 50, in none of them.
+MIN_AUTHORS = 50
 MAX_PER_AUTHOR = 3  # per author per week; see `documents`
 # Accounts that are not people. The query can only exclude
 # Apps one slug at a time, and the ones it names are four of
-# thousands: 1,042 accounts in the collected corpus end in
+# thousands: 3,784 accounts in the collected corpus end in
 # `[bot]` or `-bot`, and `copilot` is an agent posting under
 # an ordinary login. Dropped by the shape of the name, which
-# is 13% of the collected rows -- and the arrival survives it,
-# which is the point of dropping them.
+# is 13.2% of the collected rows -- the same share as at a
+# tenth of this depth -- and the arrival survives it, which
+# is the point of dropping them.
 BOT_SUFFIX = ("[bot]", "-bot")
 BOT_LOGIN = ("copilot",)
 
@@ -233,6 +243,39 @@ def week_files(log=print):
     return weeks, groups
 
 
+# Eight, because twelve was slower: the work is one core reading and tokenising one day, and
+# past eight the processes are waiting on memory rather than on each other. A runner with four
+# cores uses four.
+WORKERS = 8
+
+
+def scan(f):
+    """One day file, read and tokenised: its own word list, and one array of ids per description.
+
+    The word ids are local to the file, which is what lets this run in a pool at all -- a global
+    id has to be handed out in corpus order, and that order is not known until every file is
+    read. `documents` maps each file's list onto the global one as the results come back, in
+    order, so the vocabulary is numbered exactly as a single process would have numbered it.
+    """
+    ids, cols, authors, bots = {}, [], [], 0
+    with open(f, encoding="utf-8") as fh:
+        for line in fh:
+            row = json.loads(line)
+            a = (row.get("author") or "").lower()
+            if a.endswith(BOT_SUFFIX) or a in BOT_LOGIN:
+                bots += 1
+                continue
+            # one small array a description rather than one Python int an appearance: the row
+            # indices are implied by the lengths, and 28 million boxed integers in two lists
+            # were three quarters of this program's memory
+            words = tokens(row["body"])
+            cols.append(
+                np.fromiter((ids.setdefault(w, len(ids)) for w in words), np.int32, len(words))
+            )
+            authors.append(row.get("author") or "")
+    return list(ids), cols, authors, bots
+
+
 def documents(log=print):
     """One row per description, with the week it belongs to.
 
@@ -243,7 +286,7 @@ def documents(log=print):
     There is deliberately no cap on the size of a week. An earlier version thinned every week
     to a common count, because weeks then came from a handful of bulk windows and their sizes
     swung by a factor of two -- a word could rise in the ranking purely because the weeks
-    around it had grown. Collection is now one window a day, every day, and every window comes
+    around it had grown. Collection is now ten windows a day, every day, and every window comes
     back a full page, so weeks are already the same size by construction and the cap only threw
     away half the corpus. What variation is left is real: the filters below bite differently
     from week to week, and that is a property of the writing, not of the sampling.
@@ -258,34 +301,33 @@ def documents(log=print):
     weeks, groups = week_files(log)
     n_days = sum(len(g) for g in groups)
 
-    ids, rows, cols, authors, week_raw = {}, [], [], [], []
+    # Reading and tokenising is most of this function and all of it is per-file, so it is done
+    # in a pool: five times faster on this laptop, and the same corpus down to the word ids,
+    # because `imap` hands the files back in the order they were given.
+    flat = [(t, f) for t, group in enumerate(groups) for f in group]
+    ids, cols, authors, week_raw = {}, [], [], []
     bots = 0
-    for t, group in enumerate(groups):
-        for f in group:
-            with open(f, encoding="utf-8") as fh:
-                for line in fh:
-                    row = json.loads(line)
-                    a = (row.get("author") or "").lower()
-                    if a.endswith(BOT_SUFFIX) or a in BOT_LOGIN:
-                        bots += 1
-                        continue
-                    d = len(authors)
-                    for w in tokens(row["body"]):
-                        j = ids.get(w)
-                        if j is None:
-                            j = len(ids)
-                            ids[w] = j
-                        rows.append(d)
-                        cols.append(j)
-                    authors.append(row.get("author") or "")
-                    week_raw.append(t)
+    with Pool(min(WORKERS, os.cpu_count() or 1)) as pool:
+        for (t, _), (local, c, a, n_bots) in zip(
+            flat, pool.imap(scan, [f for _, f in flat], chunksize=4)
+        ):
+            remap = np.fromiter((ids.setdefault(w, len(ids)) for w in local), np.int32, len(local))
+            cols += [remap[x] for x in c]
+            authors += a
+            week_raw += [t] * len(a)
+            bots += n_bots
     log(f"{bots:,} rows from accounts that are not people")
     vocab_all = list(ids)
     n, V = len(authors), len(vocab_all)
     week_raw = np.asarray(week_raw, np.int64)
-    X0 = csr_matrix((np.ones(len(rows)), (rows, cols)), shape=(n, V), dtype=np.float64)
-    X0.sort_indices()
-    del rows, cols
+    indptr = np.zeros(n + 1, np.int64)
+    np.cumsum([len(c) for c in cols], out=indptr[1:])
+    indices = np.concatenate(cols) if cols else np.zeros(0, np.int32)
+    del cols
+    X0 = csr_matrix((np.ones(indices.size), indices, indptr), shape=(n, V), dtype=np.float64)
+    # the filters below want each row deduplicated and sorted, which the COO constructor used to
+    # do on the way in; from indptr and indices it is this call instead
+    X0.sum_duplicates()
 
     # the three per-description filters: too few distinct words, a word set already seen this
     # week, or an author already at the cap for the week
@@ -310,17 +352,20 @@ def documents(log=print):
     kd = np.flatnonzero(keep)
     Xk = X0[kd]
     tf = np.asarray(Xk.sum(axis=0)).ravel()
-    df = np.bincount(Xk.indices, minlength=V)
 
-    # A third floor, on how many DIFFERENT PEOPLE use a word. The other two count documents,
-    # and a bot's template clears them easily: `proprosed` -- a misspelling of "proposed"
-    # inside one Red Hat Konflux template -- reaches 190 documents, and `pipelineruns` 252,
-    # because the per-week author cap bounds an account to three descriptions a week and a
-    # template that runs for sixteen months is under it every single week. Counting authors
-    # instead separates them at a glance: those two come from 16 and 18 accounts, three bots
-    # supplying most of it, while `load-bearing` comes from 91 accounts in 92 documents and
-    # `seam` from 132 in 136. A word 91 people reached for is a word; a word in 190
-    # descriptions from 16 accounts is one document written 190 times.
+    # THE ONE FLOOR: how many DIFFERENT PEOPLE write the word. Counting appearances or documents
+    # instead cannot tell a shared word from one document written two hundred times, because the
+    # per-week author cap bounds an account to three descriptions a week and a template that runs
+    # for sixteen months is under the cap every single week. Counting accounts separates them at a
+    # glance: `nixpkgs-update` reaches 242 documents from 2 accounts and `store-path` 242 from 2,
+    # while `load-bearing` comes from 848 accounts in 905 documents and `seam` from 1,135 in
+    # 1,247. A word 848 people reached for is a word; a word in 242 descriptions from 2 accounts
+    # is one document written 242 times.
+    #
+    # The templates this comment used to name -- `proprosed`, a misspelling of "proposed" inside
+    # one Red Hat Konflux template, and `pipelineruns` -- are down to 28 appearances and to 40
+    # documents from 5 accounts. Ten windows a day did that: the cap is three a week whatever the
+    # depth, so a template that filled a thin week fills a tenth of a deep one.
     aid = {}
     aids = np.array([aid.setdefault(authors[d], len(aid)) for d in kd], np.int64)
     by_word = csr_matrix(
@@ -330,11 +375,10 @@ def documents(log=print):
     )
     n_auth = np.bincount(by_word.indices, minlength=V)
 
-    cand = (tf >= MIN_TF) & (df >= MIN_DF)
-    ok = cand & (n_auth >= MIN_AUTHORS)
+    ok = n_auth >= MIN_AUTHORS
     log(
-        f"  {int(cand.sum() - ok.sum()):,} of {int(cand.sum()):,} words dropped for coming "
-        f"from under {MIN_AUTHORS} distinct accounts"
+        f"  {int(ok.sum()):,} of {int((tf > 0).sum()):,} words written by {MIN_AUTHORS} or more "
+        f"distinct accounts"
     )
 
     live = np.flatnonzero(ok)
@@ -348,6 +392,59 @@ def documents(log=print):
 
 
 # -------------------------------------------------------------------------- model
+
+# The two halves of a Lloyd pass, and between them nearly all of the arithmetic this file does:
+# every pass reads the whole matrix twice, once to assign and once to add up what was assigned.
+# Both are one pass over 28 million appearances, and both are written out here rather than left
+# to scipy for the same reason -- scipy's sparse products are single-threaded, and these are
+# perfectly parallel over descriptions. Together they took a pass from 340 ms to 24 ms on twelve
+# cores, and the fit from eight and a half minutes to about a minute.
+#
+# `nearest` is not bit-for-bit what `X @ log(W).T` gives: the compiler contracts the multiply and
+# add into one instruction and rounds once instead of twice. It picks the same centres --
+# a difference of one part in 10^16 against gaps of one part in 10^2 -- but the cost printed by a
+# pass can differ in its last digits. `summed` has no such caveat: the values are small integer
+# counts and their sums are exact in float64.
+
+
+@njit(cache=True, parallel=True)
+def nearest(data, indices, indptr, logW):
+    """For every description, the centre maximising `x_d . log W_c`, and that score.
+
+    That argmax is the nearest centre under KL -- see `fit` for why the entropy term drops out.
+    `logW` is (V, k) so that a word's k values are one cache line rather than k strides apart.
+    """
+    D, k = indptr.size - 1, logW.shape[1]
+    lab, top = np.empty(D, np.int64), np.empty(D)
+    for d in prange(D):
+        acc = np.zeros(k)
+        for p in range(indptr[d], indptr[d + 1]):
+            v, j = data[p], indices[p]
+            for c in range(k):
+                acc[c] += v * logW[j, c]
+        best = 0
+        for c in range(1, k):
+            if acc[c] > acc[best]:
+                best = c
+        lab[d], top[d] = best, acc[best]
+    return lab, top
+
+
+@njit(cache=True, parallel=True)
+def summed(data, indices, indptr, lab, k, V, blocks):
+    """What each cluster holds, word by word: the sum of the descriptions assigned to it.
+
+    Blocked rather than scattered. Adding straight into one (k, V) accumulator would have every
+    thread writing the same words, so each block of descriptions gets its own and they are added
+    at the end -- no locks, and the same answer whatever the block count.
+    """
+    acc, D = np.zeros((blocks, k, V)), indptr.size - 1
+    for b in prange(blocks):
+        for d in range(D * b // blocks, D * (b + 1) // blocks):
+            c = lab[d]
+            for p in range(indptr[d], indptr[d + 1]):
+                acc[b, c, indices[p]] += data[p]
+    return acc.sum(axis=0)
 
 
 def kmeanspp(X, k, rng, S):
@@ -372,7 +469,9 @@ def kmeanspp(X, k, rng, S):
         return w / w.sum()
 
     def cost_to(W):
-        return np.maximum(S - X @ np.log(W), 0.0)
+        # `nearest` with a single centre is the sparse product this needs, threaded
+        _, dot = nearest(X.data, X.indices, X.indptr, np.ascontiguousarray(np.log(W))[:, None])
+        return np.maximum(S - dot, 0.0)
 
     W = [centre(rng.integers(D))]
     cost = cost_to(W[0])
@@ -407,25 +506,27 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
     n_d weight is the only trace of counting left in it: a long description pulls harder.
     """
     rng = np.random.default_rng(seed)
-    D = X.shape[0]
+    D, V = X.shape
     X = X.tocsr()
-    rows, ones = np.arange(D), np.ones(D)
+    blocks = numba.get_num_threads()
     n_d = np.asarray(X.sum(axis=1)).ravel()
     ent = np.bincount(
-        np.repeat(rows, np.diff(X.indptr)), weights=X.data * np.log(X.data), minlength=D
+        np.repeat(np.arange(D), np.diff(X.indptr)),
+        weights=X.data * np.log(X.data),
+        minlength=D,
     ) - n_d * np.log(n_d)
 
     W, lab = kmeanspp(X, k, rng, ent), None
     for it in range(MAX_PASSES):
-        z = X @ np.log(W).T
-        new = z.argmax(axis=1)
+        # `top` is the score under the centres as they stand, so the cost below -- and the one
+        # returned after the loop breaks -- belongs to the last centres, not the previous ones
+        new, top = nearest(X.data, X.indices, X.indptr, np.ascontiguousarray(np.log(W).T))
         if lab is not None and (new == lab).all():
             break
         lab = new
-        R = csr_matrix((ones, (rows, lab)), shape=(D, k))
-        W = np.asarray((R.T @ X).todense()) + SMOOTH
+        W = summed(X.data, X.indices, X.indptr, lab, k, V, blocks) + SMOOTH
         W /= W.sum(axis=1, keepdims=True)
-        log(f"  pass {it + 1:2d}  cost {ent.sum() - z[rows, lab].sum():,.0f}")
+        log(f"  pass {it + 1:2d}  cost {ent.sum() - top.sum():,.0f}")
     else:
         log(f"  warning: {MAX_PASSES} passes without a fixed point")
 
@@ -435,8 +536,8 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
     # what each component holds, word by word: appearances, not probabilities. The assignment
     # is hard, so this is a partition of the corpus and the ranking can be a count of things
     # rather than a quantity the fit chose.
-    M = np.asarray((csr_matrix((ones, (rows, lab)), shape=(D, k)).T @ X).todense())
-    return W, C, A, M, float(ent.sum() - z[rows, lab].sum())
+    M = summed(X.data, X.indices, X.indptr, lab, k, V, blocks)
+    return W, C, A, M, float(ent.sum() - top.sum())
 
 
 # --------------------------------------------------------------------------- out
@@ -486,18 +587,35 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
         # neither comparable between components nor readable as the "more frequent" the page
         # calls them. Dividing each side by its own total is what makes them both.
         #
-        # The floor of one appearance outside is for the words that are never written outside
-        # this component at all, which is most of the top of the list: without it their rate is
-        # a division by zero rather than their own count. A word that IS written outside is
-        # divided by what it was actually written, not by that plus a pseudo-count.
+        # The denominator carries a pseudo-count, and it is the difference between a ranking
+        # and a lottery. Floored at one appearance instead -- which is what this did -- the top
+        # of the list was words written two to seven times in 43 million outside the component,
+        # where two against six is a factor of three in the score and nothing at all in the
+        # world: `mutation-checked` (3 outside) beat `load-bearing` (158) by sixty-five places
+        # on a difference no larger than the noise. Those words are also too rare to have been
+        # noticed -- two appearances per million against twenty.
+        #
+        # Half of MIN_AUTHORS is the size of it, and derived rather than picked: a word in the
+        # vocabulary has been written by MIN_AUTHORS accounts and so appears at least that many
+        # times, which makes MIN_AUTHORS the fewest appearances a word here can have and half of
+        # it the honest prior for "written outside less often than can be measured". Both are
+        # absolute counts, so the two stay in step as the corpus grows.
+        #
+        # What it does to the list: a word never written outside now scores in proportion to
+        # what it was written INSIDE -- the pseudo-count is the whole denominator -- so the top
+        # is ordered by frequency among the component's exclusive words instead of by the
+        # accident of a tiny divisor. Ratios for those words are shrunk, deliberately: the page
+        # would rather understate a word it cannot measure than rank it first.
         inside = M[c]
         here, elsewhere = max(inside.sum(), 1.0), max(corpus.sum() - inside.sum(), 1.0)
-        lift = (inside / here) / (np.maximum(corpus - inside, 1.0) / elsewhere)
+        lift = (inside / here) / ((corpus - inside + MIN_AUTHORS / 2) / elsewhere)
         # ties broken on the word itself, so two builds of the same corpus are byte-identical
         # and the daily commit does not churn on words that score the same
         rank = np.lexsort((vocab_arr, -lift))
         # the arriving component gets a long list, because it is the one anybody will read
-        # past the first handful of, and the cut has to fall somewhere
+        # past the first handful of, and the cut has to fall somewhere. The others get a list
+        # a reader can still fall down for a while, because the board now steps between them
+        # and a cluster you can exhaust in one screen is not one you can explore.
         n = WORDS_LEAD if c == lead else WORDS_LISTED
         comps.append(
             {
@@ -512,11 +630,15 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
                 # each listed word's own weekly appearances, so the page can show a word's
                 # history on hover -- raw counts, which the page divides by `words_per_week` to
                 # draw a rate, since a week here runs from 37,000 words to 129,000 and the
-                # count alone would draw that too. Only for the lead: at 85 weeks a thousand
-                # words is 85,000 integers, worth carrying once and not eight times.
-                "series": (
-                    [[int(v) for v in per_word[j]] for j in rank[:n]] if c == lead else None
-                ),
+                # count alone would draw that too.
+                #
+                # For EVERY component, not just the lead. It was the lead's alone while the
+                # board was about one component; the board now steps between all twelve, and a
+                # cluster whose words have no history is a panel that answers for one of them
+                # and goes blank for the other eleven. The cost is why the lists differ in
+                # length: a thousand words over 85 weeks is 85,000 integers and worth carrying
+                # once, WORDS_LISTED of them is worth carrying twelve times.
+                "series": [[int(v) for v in per_word[j]] for j in rank[:n]],
             }
         )
     # Points per week that the lead component has moved over the last TREND_WEEKS, by least
@@ -564,8 +686,10 @@ def fit_arriving(
     The restarts are there for the daily job rather than for the answer. Cost is the only
     quality measure this model has, and it correlates +0.03 with the share the page reports, so
     the cheapest of eight is not a better answer than the first of one -- it is a more reliably
-    *publishable* one: a single fit passes the arrival check about two times in three, and the
-    cheapest of eight passes it ninety-nine times in a hundred.
+    *publishable* one -- and at K = 12 not even that, since all 32 unconditioned fits of this
+    corpus arrive and the cheapest of eight therefore arrives because every one of the eight does.
+    At K = 8 a single fit passed 27 times in 32, and the cheapest of eight ninety-nine times in a
+    hundred, weakly because arriving fits cost a little less. The restarts are insurance now.
 
     When even that one does not arrive, the whole batch is run again from the next `n_init`
     seeds, and after `retries` batches the assertion fires and nothing is published, which is
@@ -573,7 +697,7 @@ def fit_arriving(
 
     A retry conditions the published fit on the check it is supposed to face, so the check is a
     selector on the rare day one happens. What remains as evidence of arrival is the rate at
-    which unconditioned runs arrive at all -- 21 of 32 on this corpus -- and that belongs in the
+    which unconditioned runs arrive at all -- 32 of 32 on this corpus -- and that belongs in the
     README rather than in this fit.
     """
     fits = 0

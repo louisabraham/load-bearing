@@ -1,10 +1,13 @@
-# One request a day, appended to the repository, then the analysis rebuilt.
+# Ten requests a day, appended to the repository as one file, then the analysis rebuilt.
 #
 # The corpus is the artifact here: each run adds one immutable file under data/days and never
 # touches an earlier one, so the history of the repository is the history of the sample. The
 # analysis.js is derived and rewritten every run.
 #
-# Pages is configured to build from the default branch, so committing is the deploy.
+# The site is published separately, to `gh-pages`, which carries the three files a browser
+# needs and nothing else. A published Pages site may be no larger than 1 GB and the corpus grows
+# 1.4 MB a day, so a site built from this branch would eventually have walked into that ceiling
+# and taken the page down with it. Now the corpus and the site grow independently.
 name: daily
 
 on:
@@ -15,6 +18,23 @@ on:
       backfill:
         description: "also fetch this many earlier missing days"
         default: "0"
+      refetch:
+        # A sweep of the whole corpus is longer than a job may run, and it does not need to
+        # finish in one: a day already at ten windows is skipped by reading its file, so a second
+        # dispatch carries on where the first was cut off.
+        description: "also rewrite days collected at one window, not ten"
+        type: boolean
+        default: false
+  # A change to the page on the default branch is still a deploy, as it was when Pages built from
+  # this branch: such a run publishes and does nothing else. The daily commit does not trigger it
+  # -- a push made with `GITHUB_TOKEN` starts no workflow run -- so the page is published once a
+  # day and once per change to it.
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - analysis.js
+      - .nojekyll
 
 permissions:
   contents: write
@@ -30,24 +50,35 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
+        if: github.event_name != 'push'
         with:
           python-version: "3.13"
 
       - name: Install
-        run: pip install --quiet numpy scipy
+        if: github.event_name != 'push'
+        run: pip install --quiet numpy scipy numba
 
       - name: Fetch yesterday
+        if: github.event_name != 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python fetch_day.py --backfill ${{ inputs.backfill || 0 }}
+        run: |
+          python fetch_day.py --backfill ${{ inputs.backfill || 0 }} \
+            ${{ inputs.refetch && '--refetch' || '' }}
 
-      # About half a minute: eight k-means++ runs, each two sparse products a pass.
+      # Forty seconds and three gigabytes on twelve cores: eight k-means++ runs over 50 million
+      # appearances, two threaded passes over the matrix an iteration. A runner has four cores,
+      # where a fit measures twice as slow, so expect two or three minutes here -- against the
+      # nine minutes this took on twelve cores before the kernels in `analyze.py`, and the
+      # half-hour it would have taken on four.
       - name: Analyse
+        if: github.event_name != 'push'
         run: |
           python analyze.py --selftest
           python analyze.py --out analysis.js
 
       - name: Commit
+        if: github.event_name != 'push'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -58,3 +89,21 @@ jobs:
           # a human may have pushed while this ran; rebase rather than clobber
           git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      # The build's result and nothing it was built from. Force-pushed as a single commit every
+      # run for the same reason the branch exists at all: a history of daily site builds would be
+      # a second copy of the corpus's growth curve, in a branch whose only job is to be small.
+      # The corpus's own history stays on the default branch, where it is the point.
+      - name: Publish the site
+        run: |
+          site=$(mktemp -d)
+          cp index.html analysis.js .nojekyll "$site"/
+          git -C "$site" init -q -b gh-pages
+          git -C "$site" config user.name  "github-actions[bot]"
+          git -C "$site" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$site" add -A
+          git -C "$site" commit -q -m "Site from $(git rev-parse --short HEAD)"
+          git -C "$site" push -q --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

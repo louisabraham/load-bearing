@@ -173,6 +173,16 @@ def test_clicking_a_word_does_not_scroll_the_page(browser, site):
     page.goto(site)
     page.wait_for_selector('.wall [data-j="999"]')
     page.evaluate("scrollTo(0, document.querySelector('.cell.words').offsetTop)")
+    # The word must be WHOLLY inside the column before it is clicked, and whether any given one
+    # is depends on the day's data: the words are set at the size of their lift, so which of
+    # them straddles the column's bottom edge at rest changes as the corpus does. A straddling
+    # word is scrolled into view by the DRIVER before it can be clicked, and that scroll -- the
+    # driver's, not the page's -- moves the page for a reason this test is not about. Left
+    # implicit it made the test a coin toss on the corpus.
+    page.evaluate(
+        """() => { const w = document.querySelector('.wall');
+             w.scrollTop = w.querySelector('[data-j="6"]').offsetTop - 40; }"""
+    )
     page.wait_for_timeout(100)
     before = page.evaluate("scrollY")
     page.click('.wall [data-j="6"]')
@@ -199,7 +209,13 @@ def test_scrolling_the_column_chooses(page):
 
 def test_one_tick_of_a_mouse_wheel_is_one_word(page):
     """A wheel with detents asks for one word. The browser would give it the hundred pixels it
-    asked for in the event, which is five of them."""
+    asked for in the event, which is five of them.
+
+    Beware the numbers here: the driver DOUBLES a wheel delta on the way to the page, so the 120
+    below arrives as 240. That is still inside the band `NOTCH` calls a notch -- at the very top
+    of it -- so this passes for the right reason, but a ceiling lowered even slightly would break
+    it, and the delta to change would be this one rather than the ceiling.
+    """
     box = page.locator(".wall").bounding_box()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     seen = [int(chosen(page)[1])]
@@ -226,6 +242,73 @@ def test_a_trackpad_still_moves_the_column_itself(page):
     page.wait_for_timeout(250)
     moved = int(chosen(page)[1]) - before
     assert 0 < moved < 10, f"ten small deltas moved {moved} words"
+
+
+def wheeled(page, mode, delta, n, start=0):
+    """One stream of wheel events at a chosen unit, and what the PAGE chose to do with it.
+
+    Dispatched rather than driven, because a browser cannot be asked for a device it has not
+    got: `deltaMode` is the reporting unit of whatever is under the reader's hand, and the whole
+    of this bug lives in units the machine running the tests will never send. Synthetic events
+    reach the handler and do not scroll, so the words counted here are the page's own doing and
+    nothing else's -- which is exactly what is under test.
+    """
+    return page.evaluate(
+        """([mode, delta, n, start]) => {
+             const w = document.querySelector('.wall');
+             pick(start, true);
+             let taken = 0;
+             for (let i = 0; i < n; i++) {
+               const e = new WheelEvent('wheel',
+                 {deltaMode: mode, deltaY: delta, bubbles: true, cancelable: true});
+               w.dispatchEvent(e);
+               if (e.defaultPrevented) taken++;
+             }
+             return [taken, S.j - start];
+           }""",
+        [mode, delta, n, start],
+    )
+
+
+def test_a_wheel_reporting_fractions_of_a_line_is_not_a_word_each(page):
+    """`deltaMode` was read as if it named the device -- pixels meaning something continuous,
+    anything else a detent -- and it does not. Firefox reports a wheel in LINES, and a
+    high-resolution wheel reports fractions of a line; every one of those fractions failed the
+    `deltaMode === 0` clause, took the stepping branch and moved a whole word, because
+    `Math.sign` threw the magnitude away before anything could notice how small it was. Six
+    detents' worth of a wheel reporting tenths moved sixty words.
+
+    The guard tests a distance, so the delta is put into pixels before it is tested.
+    """
+    # a detent, in either unit, is still one word: three lines is a tick in Firefox and a
+    # hundred pixels is a tick in Chrome
+    assert wheeled(page, 1, 3.0, 6) == [6, 6]
+    assert wheeled(page, 0, 100.0, 6) == [6, 6]
+    # and one line is the narrowest a real detent gets, which forty pixels to the line clears
+    assert wheeled(page, 1, 1.0, 6) == [6, 6]
+    # the same spin reported finely is the browser's, as it always was in pixels
+    assert wheeled(page, 1, 0.25, 24) == [0, 0]
+    assert wheeled(page, 1, 0.10, 60) == [0, 0]
+    assert wheeled(page, 0, 8.0, 75) == [0, 0]
+
+
+def test_a_delta_too_big_to_be_a_notch_is_the_browsers(page):
+    """There was a floor under the stepping branch and no ceiling, so a delta of any size above
+    it moved exactly one word -- and a device that delivers its distance in few large events
+    therefore moved the column less the faster it was spun. One event carrying 720px moved one
+    word; the same 720px in events small enough to be handed to the browser moved the whole 720,
+    which is thirty-odd words of this column."""
+    # a notch, and two of them arriving as one event, are still notches
+    assert wheeled(page, 0, 120.0, 4) == [4, 4]
+    assert wheeled(page, 0, 240.0, 4) == [4, 4]
+    # past that it is a continuous device at speed, and the distance is the browser's to scroll
+    assert wheeled(page, 0, 300.0, 4) == [0, 0]
+    assert wheeled(page, 0, 720.0, 1) == [0, 0]
+    # in either direction: the band is on the size of the delta, not on its sign. Started far
+    # enough down the column that stepping up has somewhere to go -- at the top it has not, and
+    # the event is still taken, which is a fact about the end of the column and not about this.
+    assert wheeled(page, 0, -120.0, 4, start=10) == [4, -4]
+    assert wheeled(page, 0, -720.0, 1, start=10) == [0, 0]
 
 
 def test_arrow_keys_step_the_choice_and_bring_it_to_the_line(page):
@@ -862,8 +945,8 @@ def test_the_arrows_stay_the_pages_until_the_column_is_touched(browser, site):
 
 def test_the_slash_is_named_only_where_there_is_a_keyboard_for_it(browser, site):
     """A shortcut printed on a phone is a line of furniture nobody can press. It is drawn behind
-    the same test as the rail: a fine pointer is the nearest thing a page can ask about a
-    keyboard."""
+    the test the rail's HANDLE is drawn behind: a fine pointer is the nearest thing a page can
+    ask about a keyboard."""
     for mobile, wanted in ((False, True), (True, False)):
         page = browser.new_page(
             viewport=PHONE if mobile else BOARD,
@@ -895,3 +978,175 @@ def test_both_ends_of_the_column_still_reach_the_line(page):
     # and it lands on it, which it did not quite do when the run below was half the box: the
     # last word is the smallest on the wall and used to stop three pixels short of the line
     assert on_the_line(page) < 2
+
+
+# ------------------------------------------------------------------- stepping between clusters
+
+
+def cluster(page):
+    """The cluster the board is on, as the stepper prints it."""
+    return page.inner_text(".pager .at b").strip()
+
+
+def band_fills(page):
+    """What every band in the stack is painted, bottom upwards."""
+    return page.evaluate(
+        "() => [...document.querySelectorAll('#stack [data-c]')].map(p => p.getAttribute('fill'))"
+    )
+
+
+def step_cluster(page, key, n=1):
+    for _ in range(n):
+        page.keyboard.press(key)
+        # the fills carry a transition, and a fill read back mid-transition is neither colour
+        page.wait_for_timeout(260)
+
+
+def test_stepping_moves_the_whole_board_and_not_just_the_chart(page):
+    """The point of the stepper. A step that only recoloured a band would leave red meaning two
+    things at once -- the band being pointed at, and the cluster the column and the panel are
+    still of -- which is worse than not stepping at all."""
+    first = word_at(page, 0)
+    step_cluster(page, "ArrowRight")
+    assert cluster(page) == "2"
+    # the fill has moved one band up the stack, which is the order the clusters arrive in
+    assert band_fills(page).index("var(--accent)") == 1
+    assert word_at(page, 0) != first
+    assert chosen(page) == (word_at(page, 0), "0")
+
+
+def test_a_step_repaints_two_bands_and_leaves_the_other_ten(page):
+    """The greys are fixed to a band's place in the stack. Dealt out to whichever bands are not
+    chosen -- a ramp of eleven and a counter that skipped the lead, which is what this was --
+    every band above the selection took its neighbour's shade the moment the selection moved,
+    and one step recoloured the whole chart to say one thing."""
+    before = band_fills(page)
+    step_cluster(page, "ArrowRight")
+    after = band_fills(page)
+    moved = [i for i, (a, b) in enumerate(zip(before, after)) if a != b]
+    assert moved == [0, 1], f"a step repainted {len(moved)} bands: {moved}"
+
+
+def test_only_one_band_is_ever_red(page):
+    """The arrival was given a red edge of its own to keep while the fill was elsewhere. In a
+    chart whose whole grammar is that red is where you are, a second red mark reads as a pair
+    rather than as a subject and a footnote."""
+    n = page.evaluate("() => window.ANALYSIS.components.length")
+    for i in range(n):
+        if i:
+            step_cluster(page, "ArrowRight")
+        red = page.evaluate(
+            "() => [...document.querySelectorAll('#stack *')].filter(e =>"
+            " [e.getAttribute('stroke'), e.getAttribute('fill')].join(' ').includes('--accent')"
+            ").length"
+        )
+        assert red == 1, f"cluster {i + 1} drew {red} red marks"
+
+
+def test_the_ends_are_ends(page):
+    """The clusters are ordered by how much of the last month each one is, so the first and the
+    twelfth are the two extremes of that reading and stepping between them would be the one move
+    on this stepper that means nothing. An arrow with nowhere to go says so rather than being
+    pressed twice and blamed."""
+    disabled = lambda: page.evaluate(  # noqa: E731
+        "() => [...document.querySelectorAll('.pager .arrow')].map(b => b.disabled)"
+    )
+    assert disabled() == [True, False]
+    step_cluster(page, "ArrowLeft")
+    assert cluster(page) == "1", "the first cluster has no cluster before it"
+    n = page.evaluate("() => window.ANALYSIS.components.length")
+    step_cluster(page, "ArrowRight", n + 2)
+    assert cluster(page) == str(n)
+    assert disabled() == [False, True]
+
+
+def test_left_and_right_are_the_caret_while_the_field_has_the_focus(page):
+    """They are global -- unlike up and down they scroll nothing on this page, so there is
+    nothing to take them from -- and a text field is the one place that is not true."""
+    page.click(".find input")
+    page.fill(".find input", "re")
+    page.keyboard.press("ArrowLeft")
+    page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(200)
+    assert cluster(page) == "1"
+    assert page.input_value(".find input") == "re"
+
+
+def test_a_query_survives_a_step_and_is_asked_of_the_next_cluster(page):
+    """A query is a question about the vocabulary, and the natural next thing to do with one is
+    to ask it of the next cluster. Clearing it on a step would make stepping and searching two
+    modes rather than two hands on the same object."""
+    step_cluster(page, "ArrowRight")
+    word = word_at(page, 0)
+    step_cluster(page, "ArrowLeft")
+    type_query(page, word[:2])
+    # out of the field first: while it has the focus the arrows are its caret, which is the
+    # test above this one. Enter is what the field means by done.
+    page.keyboard.press("Enter")
+    step_cluster(page, "ArrowRight")
+    assert page.input_value(".find input") == word[:2]
+    assert word in shown(page)
+    assert all(w.startswith(word[:2]) for w in shown(page))
+
+
+def test_the_stepper_does_not_change_the_height_of_the_row_it_is_in(page):
+    """The chart is flex-sized under that row, so a row that grew when the readout was written
+    into would shrink the chart under the pointer that was reading it. The ten pixels under the
+    row belong to the ROW: left on the readout, its margin box and the arrows' box were two
+    different heights and the row was as tall as whichever was taller."""
+    box = "() => Math.round(document.querySelector('#stack').getBoundingClientRect().height)"
+    idle = page.evaluate(box)
+    page.hover("#stack")
+    page.mouse.move(
+        700,
+        page.evaluate("() => document.querySelector('#stack').getBoundingClientRect().top + 40"),
+    )
+    page.wait_for_timeout(150)
+    assert "week" in page.inner_text(".cell.chart .readout").lower()
+    assert page.evaluate(box) == idle
+
+
+def test_every_cluster_can_draw_a_word(page):
+    """`analyze.py` carried the weekly counts of a word for the lead component alone, which was
+    right while the board was about one component. Twelve of them and the panel answers for one
+    cluster and goes blank for the other eleven."""
+    n = page.evaluate("() => window.ANALYSIS.components.length")
+    for i in range(n):
+        if i:
+            step_cluster(page, "ArrowRight")
+        assert cluster(page) == str(i + 1)
+        drawn = page.evaluate(
+            "() => [...document.querySelectorAll('.probe svg path')].map(p => p.getAttribute('d'))"
+        )
+        assert drawn and all(len(d) > 20 for d in drawn), f"cluster {i + 1} drew {drawn}"
+        assert "more frequent" in page.inner_text(".probe .meta").lower()
+
+
+def test_the_rail_is_a_reading_everywhere_and_a_handle_only_where_it_can_be_taken(browser, site):
+    """It was drawn only where the pointer is fine, which confused two questions: whether the
+    mark can be TAKEN, and whether it can be READ. A finger cannot catch eight pixels -- it has
+    the whole column to throw, which is the same gesture with a target the size of the box --
+    but a reader on a phone needs to know where in a thousand words the column has got to just
+    as much, and was told nothing."""
+    for mobile in (False, True):
+        page = browser.new_page(
+            viewport=PHONE if mobile else BOARD,
+            device_scale_factor=RETINA,
+            is_mobile=mobile,
+            has_touch=mobile,
+        )
+        page.goto(site)
+        page.wait_for_selector('.wall [data-j="999"]')
+        drawn, takes = page.eval_on_selector(
+            ".rail", "e => { const s = getComputedStyle(e); return [s.display, s.pointerEvents]; }"
+        )
+        assert drawn != "none", f"is_mobile={mobile} drew no mark on the frame"
+        assert (takes == "auto") is not mobile, f"is_mobile={mobile} takes the pointer: {takes}"
+        if mobile:
+            # and the frame stays a frame: a finger landing on it is not a place in the column
+            before = chosen(page)
+            box = page.locator(".rail").bounding_box()
+            page.touchscreen.tap(box["x"] + box["width"] / 2, box["y"] + box["height"] - 2)
+            page.wait_for_timeout(250)
+            assert chosen(page) == before, "a finger on the frame moved the column"
+        page.close()
