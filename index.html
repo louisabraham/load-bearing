@@ -1575,62 +1575,42 @@
     arrows[1].disabled = k === A.components.length - 1;
   }
 
-  /* The strip the arrows stand in is also the surface the clusters are pulled across, which is
-     the gesture a phone already holds for "the next one of these" and the one the arrows are the
-     smallest possible target for.
+  /* The strip the arrows stand in is also the surface a finger swipes, which is the gesture a
+     phone already holds for "the next one of these" and the one the arrows are the smallest
+     possible target for.
 
-     A DRAG and not a flick. The cluster is read off how far the finger has travelled from where
-     it landed, so a short pull is one step, a pull across the strip is most of the ten, and a
-     finger dragged back the way it came puts the board back where it started instead of stepping
-     again -- which is what makes the gesture explorable rather than a bet on how hard to throw.
-     Reading a position and not counting events is also what keeps it cheap: one step per frame
-     at the very most, however fast the hand moves, and `hold` is a no-op wherever the answer has
-     not changed.
+     One swipe is one cluster, and the rest of the finger's travel is nothing. The strip is not a
+     thing to scroll: the ten clusters are ordered by size and a reader arrives at one to read it,
+     so the useful move is the step and not the sweep. A distance that carried several steps also
+     made the gesture a guess -- a flick landed two or three clusters from where it was aimed, and
+     the strip is too short to aim on.
 
      A mouse is left out of it. It has the arrows under it and two keys beside them, and a board
-     where dragging the corner of the figure swept through the clusters would be answering a
-     gesture nobody made. */
-  const REACH = 48;                       // how far a finger travels for one cluster
+     where dragging the corner of the figure changed the cluster would be answering a gesture
+     nobody made. */
+  const REACH = 32;                       // how far a finger travels before the swipe counts
   let swept = false;                      // did the gesture that is ending also step the board?
   function dragging(box) {
     let from = null;
     box.addEventListener("pointerdown", ev => {
       swept = false;
-      from = ev.pointerType === "mouse" ? null
-        : { x: ev.clientX, y: ev.clientY, c: S.c, id: ev.pointerId };
+      from = ev.pointerType === "mouse" ? null : { x: ev.clientX, y: ev.clientY, id: ev.pointerId };
     });
     box.addEventListener("pointermove", ev => {
       if (!from || ev.pointerId !== from.id) return;
       const dx = ev.clientX - from.x;
-      if (!swept) {
-        /* A drag that has not yet said which way it is going belongs to nobody: the browser is
-           still free to take it as a scroll of the page, and claiming it here first would step
-           the board under a finger that was only on its way down the board. So the gesture has
-           to have gone far enough to be a gesture, and to have gone more sideways than not.
-
-           Half a cluster's travel and not a whole one, because that is where the first cluster
-           lands: a flick is short, and a strip that did nothing at all for the first fifty
-           pixels of one would read as a strip that does not answer. */
-        if (Math.abs(dx) < REACH / 2 || Math.abs(dx) <= Math.abs(ev.clientY - from.y)) return;
-        swept = true;
-        /* The strip is one line tall and a sideways drag drifts out of it, after which the moves
-           go to whatever is underneath and the gesture dies half way across. Captured, it stays
-           the strip's until the finger lifts.
-
-           Taken here rather than on the way down, which is the difference between this and the
-           charts: a capture held from `pointerdown` retargets the release as well, and the
-           arrows inside the strip would stop being pressable at all. */
-        try { box.setPointerCapture(ev.pointerId); } catch (e) { /* not capturable: leave it */ }
-      }
-      /* How many clusters that much travel is worth, in the direction the finger went -- the
-         nearest one rather than the last one passed, so the first step lands at half a cluster's
-         travel and every step after it at the middle of its own.
-
-         Clamped rather than wrapped, and clamped at the ARRIVAL rather than in the travel: a
-         finger that has dragged past the last cluster and turned back finds the tenth still under
-         it until it is genuinely inside the ten again, instead of stepping the moment it turns. */
-      const far = Math.round(Math.abs(dx) / REACH) * (dx < 0 ? 1 : -1);
-      hold(Math.max(0, Math.min(A.components.length - 1, from.c + far)));
+      /* A drag that has not yet said which way it is going belongs to nobody: the browser is
+         still free to take it as a scroll of the page, and claiming it here first would step the
+         board under a finger that was only on its way down the board. So it has to have gone far
+         enough to be a gesture, and to have gone more sideways than not. */
+      if (Math.abs(dx) < REACH || Math.abs(dx) <= Math.abs(ev.clientY - from.y)) return;
+      // and the gesture is spent: what is left of the drag is not a second one, and the next
+      // cluster waits for the finger to lift and come back
+      from = null;
+      swept = true;
+      // no clamp here -- `hold` already declines a cluster that is not there, which is the same
+      // answer the arrow at that end of the strip gives
+      hold(S.c + (dx < 0 ? 1 : -1));
     });
     box.addEventListener("pointerup", () => { from = null; });
     box.addEventListener("pointercancel", () => { from = null; });

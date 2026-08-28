@@ -1209,27 +1209,29 @@ def test_the_strip_names_the_gesture_the_device_has(browser, site):
         page.close()
 
 
-def test_a_finger_dragged_across_the_strip_steps_the_clusters(browser, site):
+def test_a_swipe_across_the_strip_steps_one_cluster(browser, site):
     """The strip is the surface and not just the two marks on it: a phone has the whole of it to
-    pull sideways, which is the gesture it already holds for "the next one of these" and the one
-    the arrows are the smallest possible target for."""
+    swipe, which is the gesture it already holds for "the next one of these" and the one the arrows
+    are the smallest possible target for.
+
+    One swipe is one cluster. The strip is not a thing to scroll -- it is 350 pixels long and the
+    clusters it steps through are ten, so a distance that carried several steps made the gesture a
+    guess and a flick landed two or three clusters from where it was aimed.
+    """
     page = touch_page(browser, site)
-    # in moves of twelve pixels, so the first of them is under the travel a cluster costs and the
-    # drag has to have gone somewhere before the board does
+    # a long drag, and the drift is the second half of it: the strip is one line tall and a thumb
+    # dragged sideways leaves it, which must not make the one step it earned come out as none
     seen = drag_strip(page, -300, steps=24, drift=70)
     assert seen[0] == "1", f"the first millimetres of the drag already stepped: {seen}"
-    assert seen == sorted(seen, key=int), f"the board did not follow the finger: {seen}"
-    assert int(seen[-1]) >= 5, f"a drag across the strip reached cluster {seen[-1]}"
-    # the drift is the point of the second half: the strip is one line tall and a thumb dragged
-    # sideways leaves it, after which the moves go to whatever is underneath
-    assert int(seen[-1]) > int(seen[len(seen) // 2]), f"the drag died when the finger left: {seen}"
+    assert seen[-1] == "2", f"a swipe across the whole strip reached cluster {seen[-1]}"
+    assert set(seen) == {"1", "2"}, f"the board moved more than once: {seen}"
     page.close()
 
 
-def test_a_finger_dragged_back_puts_the_board_back(browser, site):
-    """A drag and not a flick. The cluster is read off how far the finger has travelled from where
-    it landed, so the gesture is explorable: pulled back the way it came it undoes itself rather
-    than stepping again, which is what lets a reader overshoot and recover inside one gesture."""
+def test_the_rest_of_the_drag_is_not_a_second_swipe(browser, site):
+    """The gesture is spent when it is answered. A finger that goes on travelling, changes its mind
+    and comes back is one swipe still, and the cluster it earned stays earned: a strip that undid
+    itself half way through would make the reader hold still to keep an answer they already had."""
     page = touch_page(browser, site)
     cdp = page.context.new_cdp_session(page)
     page.eval_on_selector(".pager", "e => e.scrollIntoView({block: 'center'})")
@@ -1237,26 +1239,30 @@ def test_a_finger_dragged_back_puts_the_board_back(browser, site):
     box = page.locator(".pager").bounding_box()
     x0, y = box["x"] + box["width"] - 20, box["y"] + box["height"] / 2
     cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x0, "y": y}]})
-    out, back = [], []
-    for way, xs in ((out, range(1, 11)), (back, range(9, -1, -1))):
-        for i in xs:
-            cdp.send(
-                "Input.dispatchTouchEvent",
-                {"type": "touchMove", "touchPoints": [{"x": x0 - i * 30, "y": y}]},
-            )
-            page.wait_for_timeout(35)
-            way.append(cluster(page))
+    seen = []
+    # out to the far end of the strip and all the way back past where it started
+    for i in list(range(1, 11)) + list(range(9, -3, -1)):
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchMove", "touchPoints": [{"x": x0 - i * 30, "y": y}]},
+        )
+        page.wait_for_timeout(30)
+        seen.append(cluster(page))
     cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
     page.wait_for_timeout(200)
-    assert int(out[-1]) > 4, f"the drag out only reached {out[-1]}"
-    assert back[-1] == "1", f"the finger came home and the board stayed at {back[-1]}"
-    assert back == sorted(back, key=int, reverse=True), f"the way back was not the way out: {back}"
+    # a run of the cluster it started on, then a run of the next one, and nothing else: the first
+    # move of the drag is under the travel a swipe costs, so the board has not stepped yet there
+    assert seen[-1] == "2", f"the drag lost the cluster it had earned: {seen}"
+    assert set(seen) <= {"1", "2"}, f"one drag was answered more than once: {seen}"
+    assert seen == sorted(seen, key=int), f"the drag stepped and then stepped back: {seen}"
+    # and lifting the finger arms it again: the second swipe is a second cluster
+    assert drag_strip(page, -80, steps=6)[-1] == "3", "a second swipe did not step"
     page.close()
 
 
 def test_a_swipe_that_ends_on_an_arrow_is_not_also_a_press_of_it(browser, site):
-    """The board would step once for the travel and once more for the release, and the one cluster
-    the reader could not stop on would be the one they had aimed at."""
+    """The board would step once for the travel and once more for the release, which is the one
+    thing that could still take a reader two clusters from a single gesture."""
     page = touch_page(browser, site)
     page.keyboard.press("ArrowRight")
     page.keyboard.press("ArrowRight")
@@ -1267,16 +1273,15 @@ def test_a_swipe_that_ends_on_an_arrow_is_not_also_a_press_of_it(browser, site):
     # begins inside the strip and lifts over the arrow that steps FORWARD, while the drag itself
     # is going back: a press of it as well would show up as a step in the wrong direction
     reach = arrow["x"] + arrow["width"] / 2 - box["x"] - 130
-    assert drag_strip(page, 130, steps=13, start=reach)[-1] == "1"
+    assert drag_strip(page, 130, steps=13, start=reach)[-1] == "2"
     page.close()
 
 
 def test_a_flick_is_enough_and_a_twitch_is_not(browser, site):
-    """A flick is short. Where the first cluster is priced at a whole cluster's travel the strip
-    does nothing for the first fifty pixels of one and reads as a strip that does not answer, so
-    the first step lands at half of that -- and every step after it at the middle of its own,
-    which is the same rule and not an exception carved out for the first."""
-    for dx, wanted in ((-16, "1"), (-40, "2"), (-100, "3"), (-170, "5")):
+    """A flick is short, so the travel a swipe costs is about a finger's width -- long enough that
+    the wander in a tap does not spend it, short enough that a flick does. Past that the distance
+    says nothing: every swipe is worth the same one cluster, however far it runs on."""
+    for dx, wanted in ((-14, "1"), (-40, "2"), (-100, "2"), (-170, "2")):
         page = touch_page(browser, site)
         # from the right-hand end, so a drag this long has strip left to travel across
         assert (
