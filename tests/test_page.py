@@ -984,8 +984,13 @@ def test_both_ends_of_the_column_still_reach_the_line(page):
 
 
 def cluster(page):
-    """The cluster the board is on, as the stepper prints it."""
-    return page.inner_text(".pager .at b").strip()
+    """The cluster the board is on, as a number.
+
+    The stepper pads it to the width of the count -- the arrows must not move when the reader
+    steps between the ninth cluster and the tenth -- and the pad is the strip's typography rather
+    than part of the reading, so it is dropped here and every test below says `3` and not `03`.
+    """
+    return str(int(page.inner_text(".pager .at b").strip()))
 
 
 def band_fills(page):
@@ -1150,3 +1155,244 @@ def test_the_rail_is_a_reading_everywhere_and_a_handle_only_where_it_can_be_take
             page.wait_for_timeout(250)
             assert chosen(page) == before, "a finger on the frame moved the column"
         page.close()
+
+
+# ------------------------------------------------------- the strip as a surface, not two marks
+
+
+def drag_strip(page, dx, steps=12, drift=0, start=None):
+    """A finger dragged `dx` across the stepper, and the cluster it stood on at each move.
+
+    Driven through CDP for the reason `drag_across` is: the whole question here is what the
+    BROWSER does with a sideways gesture on a strip it has also been asked to scroll past, and a
+    hand-built event never gives it that decision to make.
+    """
+    cdp = page.context.new_cdp_session(page)
+    page.eval_on_selector(".pager", "e => e.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(250)
+    box = page.locator(".pager").bounding_box()
+    x0 = box["x"] + (box["width"] / 2 if start is None else start)
+    y = box["y"] + box["height"] / 2
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x0, "y": y}]})
+    seen = []
+    for i in range(1, steps + 1):
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {
+                "type": "touchMove",
+                "touchPoints": [
+                    {"x": x0 + dx * i / steps, "y": y + (drift if i > steps / 2 else 0)}
+                ],
+            },
+        )
+        page.wait_for_timeout(35)
+        seen.append(cluster(page))
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.wait_for_timeout(200)
+    return seen
+
+
+def test_the_strip_names_the_gesture_the_device_has(browser, site):
+    """The two arrows are the two arrows on both devices, but the way to the next cluster is the
+    whole strip on a phone and the arrows alone on a mouse. A mouse told to swipe would be told to
+    do something it cannot; a finger not told to would never find out the strip answers at all."""
+    for mobile, wanted in ((False, "change cluster"), (True, "swipe to change cluster")):
+        page = touch_page(browser, site) if mobile else browser.new_page(viewport=BOARD)
+        if not mobile:
+            page.goto(site)
+            page.wait_for_selector('.wall [data-j="999"]')
+        assert page.inner_text(".pager .says").strip().lower() == wanted
+        # and it is still the truth after a step, which is when it is re-read
+        page.keyboard.press("ArrowRight")
+        page.wait_for_timeout(260)
+        assert page.inner_text(".pager .says").strip().lower() == wanted
+        page.close()
+
+
+def test_a_finger_dragged_across_the_strip_steps_the_clusters(browser, site):
+    """The strip is the surface and not just the two marks on it: a phone has the whole of it to
+    pull sideways, which is the gesture it already holds for "the next one of these" and the one
+    the arrows are the smallest possible target for."""
+    page = touch_page(browser, site)
+    # in moves of twelve pixels, so the first of them is under the travel a cluster costs and the
+    # drag has to have gone somewhere before the board does
+    seen = drag_strip(page, -300, steps=24, drift=70)
+    assert seen[0] == "1", f"the first millimetres of the drag already stepped: {seen}"
+    assert seen == sorted(seen, key=int), f"the board did not follow the finger: {seen}"
+    assert int(seen[-1]) >= 5, f"a drag across the strip reached cluster {seen[-1]}"
+    # the drift is the point of the second half: the strip is one line tall and a thumb dragged
+    # sideways leaves it, after which the moves go to whatever is underneath
+    assert int(seen[-1]) > int(seen[len(seen) // 2]), f"the drag died when the finger left: {seen}"
+    page.close()
+
+
+def test_a_finger_dragged_back_puts_the_board_back(browser, site):
+    """A drag and not a flick. The cluster is read off how far the finger has travelled from where
+    it landed, so the gesture is explorable: pulled back the way it came it undoes itself rather
+    than stepping again, which is what lets a reader overshoot and recover inside one gesture."""
+    page = touch_page(browser, site)
+    cdp = page.context.new_cdp_session(page)
+    page.eval_on_selector(".pager", "e => e.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(250)
+    box = page.locator(".pager").bounding_box()
+    x0, y = box["x"] + box["width"] - 20, box["y"] + box["height"] / 2
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x0, "y": y}]})
+    out, back = [], []
+    for way, xs in ((out, range(1, 11)), (back, range(9, -1, -1))):
+        for i in xs:
+            cdp.send(
+                "Input.dispatchTouchEvent",
+                {"type": "touchMove", "touchPoints": [{"x": x0 - i * 30, "y": y}]},
+            )
+            page.wait_for_timeout(35)
+            way.append(cluster(page))
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.wait_for_timeout(200)
+    assert int(out[-1]) > 4, f"the drag out only reached {out[-1]}"
+    assert back[-1] == "1", f"the finger came home and the board stayed at {back[-1]}"
+    assert back == sorted(back, key=int, reverse=True), f"the way back was not the way out: {back}"
+    page.close()
+
+
+def test_a_swipe_that_ends_on_an_arrow_is_not_also_a_press_of_it(browser, site):
+    """The board would step once for the travel and once more for the release, and the one cluster
+    the reader could not stop on would be the one they had aimed at."""
+    page = touch_page(browser, site)
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(300)
+    assert cluster(page) == "3"
+    arrow = page.locator(".pager .arrow").nth(1).bounding_box()
+    box = page.locator(".pager").bounding_box()
+    # begins inside the strip and lifts over the arrow that steps FORWARD, while the drag itself
+    # is going back: a press of it as well would show up as a step in the wrong direction
+    reach = arrow["x"] + arrow["width"] / 2 - box["x"] - 130
+    assert drag_strip(page, 130, steps=13, start=reach)[-1] == "1"
+    page.close()
+
+
+def test_a_flick_is_enough_and_a_twitch_is_not(browser, site):
+    """A flick is short. Where the first cluster is priced at a whole cluster's travel the strip
+    does nothing for the first fifty pixels of one and reads as a strip that does not answer, so
+    the first step lands at half of that -- and every step after it at the middle of its own,
+    which is the same rule and not an exception carved out for the first."""
+    for dx, wanted in ((-16, "1"), (-40, "2"), (-100, "3"), (-170, "5")):
+        page = touch_page(browser, site)
+        # from the right-hand end, so a drag this long has strip left to travel across
+        assert (
+            drag_strip(
+                page, dx, steps=4, start=0.75 * page.locator(".pager").bounding_box()["width"]
+            )[-1]
+            == wanted
+        ), f"{dx}px of travel was not worth cluster {wanted}"
+        page.close()
+
+
+@pytest.mark.parametrize("drift", [0, 30, 60])
+def test_the_page_still_scrolls_over_the_strip(browser, site, drift):
+    """The sideways axis is the strip's; the up-and-down one stays the page's. The strip sits in
+    the middle of a board that is scrolled past far more often than it is swiped.
+
+    The drift is the half that a threshold of half a cluster puts at risk: a thumb pulled down the
+    board does not travel in a straight line, and twenty-four pixels of wander is nothing. It is
+    `pan-y` that settles it rather than the arithmetic -- the browser claims the gesture the moment
+    it reads as a scroll, and what arrives here afterwards is a `pointercancel`.
+    """
+    page = touch_page(browser, site)
+    cdp = page.context.new_cdp_session(page)
+    page.eval_on_selector(".pager", "e => e.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(250)
+    box = page.locator(".pager").bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    before, was = page.evaluate("scrollY"), cluster(page)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+    for i in range(1, 13):
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchMove", "touchPoints": [{"x": x + drift * i / 12, "y": y - i * 15}]},
+        )
+        page.wait_for_timeout(20)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.wait_for_timeout(400)
+    assert page.evaluate("scrollY") > before + 50, "a finger dragged up the strip did not scroll"
+    assert cluster(page) == was, "a finger on its way down the board stepped the clusters"
+    page.close()
+
+
+def test_a_press_of_an_arrow_is_not_held_in_case_a_second_one_is_coming(browser, site):
+    """Why the stepper felt slow on a phone, and it was not the drawing.
+
+    Left at `touch-action: auto` iOS holds every tap for a third of a second in case it turns out
+    to be the first half of a double tap to zoom. Any narrower value says there is no such gesture
+    here and the press goes through when the finger lifts.
+
+    This one is asserted as a property rather than acted out, because the browser the tests run in
+    does not have the bug to act out: Chrome dropped the wait for any page whose viewport is
+    `width=device-width`, so a tap here is prompt either way and only the property says why.
+
+    `touch-action` does not inherit, so the arrows compute `auto` and it means nothing: what a
+    gesture is allowed to do is the intersection of the values down the chain it was hit through,
+    and the strip is on that chain. Which is what the second assertion is for -- the strip's value
+    covers the arrows only for as long as the arrows are inside it.
+    """
+    page = touch_page(browser, site)
+    assert page.eval_on_selector(".pager", "e => getComputedStyle(e).touchAction") != "auto"
+    assert page.eval_on_selector_all(".pager .arrow", "es => es.length") == 2, (
+        "the arrows are outside the strip whose gesture rules cover them"
+    )
+    page.close()
+
+
+def test_the_arrow_does_not_stay_lit_after_the_press_is_over(browser, site):
+    """A phone has no leave event to give. iOS holds `:hover` on whatever was last touched until
+    something else is, so the arrow that stepped the board stayed lit afterwards and read as the
+    state of the board rather than as a press that had already happened.
+
+    Both states are forced through CDP rather than acted out: the sticky half of `:hover` is a
+    phone's behaviour and not a headless browser's, so a tap here would look right either way.
+    """
+    for mobile, hover_lights in ((False, True), (True, False)):
+        page = touch_page(browser, site) if mobile else browser.new_page(viewport=BOARD)
+        if not mobile:
+            page.goto(site)
+            page.wait_for_selector('.wall [data-j="999"]')
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("DOM.enable")
+        cdp.send("CSS.enable")
+        root = cdp.send("DOM.getDocument")["root"]["nodeId"]
+        node = cdp.send(
+            "DOM.querySelector", {"nodeId": root, "selector": ".pager .arrow + .at + .arrow"}
+        )["nodeId"]
+        accent = page.evaluate(
+            "() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()"
+        )
+        lit = lambda: page.eval_on_selector(  # noqa: E731
+            ".pager .arrow:last-of-type", "e => getComputedStyle(e).color"
+        )
+        as_hex = page.evaluate(
+            """a => { const d = document.createElement('i'); d.style.color = a;
+                      document.body.append(d); const c = getComputedStyle(d).color;
+                      d.remove(); return c; }""",
+            accent,
+        )
+        for state, wanted in (("hover", hover_lights), ("active", True)):
+            cdp.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": [state]})
+            page.wait_for_timeout(60)
+            assert (lit() == as_hex) is wanted, f"is_mobile={mobile} :{state} drew {lit()}"
+            cdp.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": []})
+        page.close()
+
+
+def test_a_mouse_dragged_across_the_strip_does_not_step(page):
+    """A mouse has the arrows under it and two keys beside them. A board where dragging the corner
+    of the figure swept through the clusters would be answering a gesture nobody made."""
+    box = page.locator(".pager").bounding_box()
+    y = box["y"] + box["height"] / 2
+    page.mouse.move(box["x"] + box["width"] - 60, y)
+    page.mouse.down()
+    for i in range(1, 8):
+        page.mouse.move(box["x"] + box["width"] - 60 - i * 30, y)
+        page.wait_for_timeout(20)
+    page.mouse.up()
+    page.wait_for_timeout(250)
+    assert cluster(page) == "1"
