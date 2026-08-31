@@ -46,6 +46,15 @@ MAX_PASSES = 200  # a runaway guard, not a setting; the fixed point comes at 30
 WORDS_LISTED = 150  # per component; the cut is arbitrary and `tail` says so
 WORDS_LEAD = 1000  # for the component the page opens on; see `pack`
 TREND_WEEKS = 12  # weeks the reported trend is fitted over
+# What `detect/index.html` reads, and how it is written down. See `classifier`.
+TOP_WORDS = 16  # a component's most characteristic words, to name it by on the detect page
+ESCAPE_AT = 80  # codes above this one take a second character; see `encode_weights`
+SPLIT = 10.0  # nats, where the one-character grid ends and the two-character one begins
+# Every printable character a JavaScript string may hold between double quotes without an
+# escape, which is 92 of them: the alphabet the weights are written in, one character per
+# number. It is shipped in the file rather than repeated in the page, so the two cannot
+# disagree about which character means which code.
+ALPHABET = "".join(chr(c) for c in range(33, 127) if chr(c) not in '"\\')
 # WHICH COMPONENT THE PAGE IS ABOUT: the largest one of the last LEAD_WINDOW weeks. Nothing is
 # selected on how much it grew. A month rather than a week, because a week is 5,300 descriptions
 # and the subject of the whole page should not turn on which of two close components led across
@@ -540,6 +549,175 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
     return W, C, A, M, float(ent.sum() - top.sum())
 
 
+# -------------------------------------------------------------------- classifier
+
+# THE FIT IS ALREADY A CLASSIFIER and nothing has to be added to it to make one. The assignment
+# step is argmax_c x . log W_c, and x . log W_c is the log-likelihood of a description under a
+# multinomial that draws every word from W_c, up to a coefficient that does not vary with c. Give
+# each component the weight of how much of the corpus it holds and the same quantity is Bayes:
+#
+#     P(c | x) = pi_c prod_v W_c[v] ^ x_v / sum over the components of the same thing
+#
+# which is multinomial naive Bayes with these centres as its class-conditional distributions.
+# `SMOOTH` is what makes it usable on text the fit never saw: no centre gives any word zero
+# probability, so one unexpected word cannot zero a whole component.
+#
+# `detect/index.html` does that arithmetic in a browser, and these three functions write the file
+# it reads. What has to be shipped is the WHOLE of W -- ten numbers for each of twenty thousand
+# words, where the board shows a hundred and fifty of them -- and as JSON that is 4 MB. So it is
+# written as text, one character at a time.
+
+
+def front_coded(vocab):
+    """The sorted vocabulary, each word stored as what it adds to the one before it.
+
+    A word is one character saying how much of its predecessor it repeats, then the rest of
+    itself. That is the trie of the vocabulary written out in the order a walk of it visits: the
+    shared prefix is the path already climbed and the suffix is the branch. 174 kB of words
+    become 78 kB, and the page rebuilds them in one pass with no tree to hold.
+
+    The length is a capital letter, `A` for nothing shared through `Z` for twenty-five, and that
+    is why the cap is twenty-five rather than a measurement: a word is lowercased before it is
+    ever counted, so no capital can appear inside one and the two alphabets cannot collide. A
+    pair sharing more than twenty-five characters simply repeats the rest.
+    """
+    out, prev = [], ""
+    for w in vocab:
+        assert not any("A" <= ch <= "Z" for ch in w), f"a capital in the vocabulary: {w}"
+        n = 0
+        while n < min(len(w), len(prev), 25) and w[n] == prev[n]:
+            n += 1
+        out.append(chr(65 + n) + w[n:])
+        prev = w
+    return "".join(out)
+
+
+def un_front_coded(text):
+    """`front_coded` read back, which is what the page does. Here for the selftest.
+
+    The capital that opens a word is also what ends the one before it, so the words need no
+    separator between them and the pass needs no length written down anywhere.
+    """
+    out, prev, i = [], "", 0
+    while i < len(text):
+        j = i + 1
+        while j < len(text) and not ("A" <= text[j] <= "Z"):
+            j += 1
+        prev = prev[: ord(text[i]) - 65] + text[i + 1 : j]
+        out.append(prev)
+        i = j
+    return out
+
+
+def encode_weights(M):
+    """W, as one character per (word, component). Returns the text and the grid to read it with.
+
+    What is stored is not W itself but E = log(1 + M / SMOOTH), where M is the appearances the
+    component holds of that word, because that quantity is EXACTLY ZERO wherever the word is
+    absent -- and a quarter of the entries are. The rest of log W is the same number for every
+    word in a component:
+
+        log W_c[v] = log(M[c,v] + SMOOTH) - log(Z_c) = floor_c + E[c,v]
+
+    so the page adds `floor_c` once per word of the text rather than reading it out of the table
+    twenty thousand times, and a word the component never wrote costs nothing to store and is
+    reconstructed exactly.
+
+    The grid is two grids, and the reason is that a character is only worth so much. Ninety-one
+    levels across the whole range would put the step at 0.15 nats everywhere, and where that
+    hurts is the top: E runs to 18 for a word written half a million times, a word like that
+    turns up several times in one description, and the error is paid once per appearance. So the
+    codes are split. The first `ESCAPE_AT` of them are one character and cover the crowded bottom
+    of the range, where six present entries in seven sit; the eleven above it are an escape, and
+    that character with the one after it names a point on a grid of 11 x 92 levels over the
+    sparse top. The two-character band is a seventh of the entries that are there at all, and
+    nine times finer: 0.068 nats a step below the split against 0.0079 above it.
+
+    A uniform grid and not one fitted to the values, which was tried and is much worse -- 1.2%
+    against 0.11% at the same size. What matters is not the average error but the largest one,
+    because a word written five hundred thousand times is consulted in every description and its
+    error is systematic rather than noise. A fitted grid spends its levels where the values are
+    crowded, which is the bottom, and leaves the top -- the commonest words -- coarse.
+
+    Measured against the exact centres over the 467,387 descriptions of the corpus: no entry is
+    more than 0.034 nats out, 0.11% of descriptions are assigned to a different component, and
+    those are ties -- the median gap between their top two is 0.02 nats against 15.7 across the
+    corpus. 99.1% of descriptions have every reported probability within 0.02 of the exact one,
+    and the worst any of them is out by is 0.26.
+    """
+    n_esc = len(ALPHABET) - 1 - ESCAPE_AT
+    E = np.log1p(M / SMOOTH)
+    # the top of the range is a measurement -- the commonest word of the biggest component -- and
+    # floored at the split so that a corpus small enough to have no escaped entry still writes a
+    # grid the page can read
+    lo, hi = float(np.log1p(1 / SMOOTH)), float(max(E.max(), SPLIT))
+    low = np.linspace(lo, SPLIT, ESCAPE_AT)  # codes 1 .. ESCAPE_AT
+    high = np.linspace(SPLIT, hi, n_esc * len(ALPHABET))  # the escaped pairs, in order
+    # word-major, so the ten numbers of a word are together in the table the page builds
+    e, absent = E.T.ravel(), (M.T.ravel() == 0)
+    j_low = np.searchsorted((low[1:] + low[:-1]) / 2, e)
+    j_high = np.searchsorted((high[1:] + high[:-1]) / 2, e)
+    over = ~absent & (e > SPLIT)
+    first = np.where(absent, 0, np.where(over, 1 + ESCAPE_AT + j_high // len(ALPHABET), 1 + j_low))
+    text = "".join(
+        ALPHABET[a] + ALPHABET[b] if t else ALPHABET[a]
+        for a, b, t in zip(first.tolist(), (j_high % len(ALPHABET)).tolist(), over.tolist())
+    )
+    return text, [round(lo, 6), SPLIT, round(hi, 6)]
+
+
+def decode_weights(text, k, V, grid, esc=ESCAPE_AT, alphabet=ALPHABET):
+    """`encode_weights` read back, which is what the page does. Here for the selftest."""
+    lo, split, hi = grid
+    n_esc = len(alphabet) - 1 - esc
+    code = {ch: i for i, ch in enumerate(alphabet)}
+    step_lo = (split - lo) / (esc - 1)
+    step_hi = (hi - split) / (n_esc * len(alphabet) - 1)
+    out, i = np.zeros(V * k), 0
+    for n in range(V * k):
+        a = code[text[i]]
+        i += 1
+        if a > esc:
+            out[n] = split + ((a - 1 - esc) * len(alphabet) + code[text[i]]) * step_hi
+            i += 1
+        elif a:
+            out[n] = lo + (a - 1) * step_lo
+    assert i == len(text), "the weights did not end where the words ran out"
+    return out.reshape(V, k).T
+
+
+def classifier(vocab, M, C, order, comps, meta):
+    """Everything `detect/index.html` needs and nothing the board already carries.
+
+    Two priors are shipped rather than one. The corpus-wide share is what the fit itself weighs a
+    component by; the share of the last four weeks is what a text written TODAY should be judged
+    against, and the two differ by a factor of five on the component this project is about. The
+    page offers both, because which prior to hold is the one part of a Bayesian answer that is
+    not in the data.
+    """
+    text, grid = encode_weights(M[order])
+    total = M[order].sum(axis=1) + SMOOTH * len(vocab)
+    return {
+        **meta,
+        "words": len(vocab),
+        "grid": grid,
+        "escape": ESCAPE_AT,
+        "alphabet": ALPHABET,
+        # what a word the component never wrote is worth, in nats: log(SMOOTH) - log(Z_c). The
+        # page adds it once for every word of the text it recognises, and the table holds only
+        # what each word adds to it.
+        "floor": [round(float(v), 6) for v in np.log(SMOOTH) - np.log(total)],
+        "prior": [round(float(v), 6) for v in C.sum(axis=0)[order] / max(C.sum(), 1e-12)],
+        "recent": [
+            round(float(v), 6)
+            for v in C[-LEAD_WINDOW:].sum(axis=0)[order] / max(C[-LEAD_WINDOW:].sum(), 1e-12)
+        ],
+        "top": [c["word_list"][:TOP_WORDS] for c in comps],
+        "vocab": front_coded(vocab),
+        "weights": text,
+    }
+
+
 # --------------------------------------------------------------------------- out
 
 
@@ -666,6 +844,25 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
         "k": len(comps),
         "cost": round(cost, 1),
         "components": comps,
+        # Not part of the analysis and not written to the same file: `main` lifts this out and
+        # writes it to `model.js`, which only `detect/index.html` reads. It is built here rather
+        # than beside the caller because it has to be the SAME fit in the same order as the board
+        # -- component 0 has to mean component 0 on both pages -- and `order` is decided here.
+        "model": classifier(
+            vocab,
+            M,
+            C,
+            order,
+            comps,
+            {
+                "generated": date.today().isoformat(),
+                "seed": int(seed),
+                "k": len(comps),
+                "documents": int(X.shape[0]),
+                "weeks": len(weeks),
+                "last": weeks[-1],
+            },
+        ),
     }
 
 
@@ -779,9 +976,28 @@ def selftest():
         f"the planted component did not rise ({before:.3f} then {after:.3f})"
     )
 
+    # WHAT THE CLASSIFIER IS SHIPPED: `detect/index.html` reads a written-down copy of these
+    # centres, and a copy that does not classify as they do is a second model wearing the first
+    # one's name. Both halves of the file are read back here and checked against the fit itself.
+    words = [f"w{j:03d}" for j in range(V)]
+    assert un_front_coded(front_coded(words)) == words, "the vocabulary did not come back"
+    text, grid = encode_weights(M)
+    floor = np.log(SMOOTH) - np.log(M.sum(axis=1) + SMOOTH * V)
+    shipped = floor[:, None] + decode_weights(text, 3, V, grid)
+    err = float(np.abs(shipped - np.log(W)).max())
+    assert err < 0.05, f"the shipped weights are {err:.3f} nats from the fitted ones"
+    # and the only thing the error may not do is move a description to another component
+    agree = float(
+        (
+            np.asarray(X @ np.log(W).T).argmax(axis=1) == np.asarray(X @ shipped.T).argmax(axis=1)
+        ).mean()
+    )
+    assert agree > 0.99, f"the shipped weights assign {1 - agree:.2%} of descriptions elsewhere"
+
     print(
         f"selftest: ok  (centres are distributions, counts are whole and reconstruct each "
-        f"week, planted component {before:.3f} -> {after:.3f} at week {arrives})"
+        f"week, planted component {before:.3f} -> {after:.3f} at week {arrives}, the shipped "
+        f"weights are within {err:.3f} nats and agree on {agree:.2%} of descriptions)"
     )
 
 
@@ -792,6 +1008,7 @@ def main():
     ap.add_argument("--n-init", type=int, default=N_INIT, dest="n_init")
     ap.add_argument("--retries", type=int, default=RETRIES)
     ap.add_argument("--out", "-o", default="analysis.js")
+    ap.add_argument("--model", default="model.js")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -809,14 +1026,19 @@ def main():
         n_init=args.n_init,
         retries=args.retries,
     )
-    with open(args.out, "w", encoding="utf-8") as fh:
-        fh.write("window.ANALYSIS = ")
-        json.dump(out, fh, ensure_ascii=False, separators=(",", ":"))
-        fh.write(";\n")
+    # the classifier's copy of the fit goes to its own file: it is a third of a megabyte that
+    # only `detect/index.html` reads, and the board should not wait for it
+    model = out.pop("model")
+    for path, name, obj in ((args.out, "ANALYSIS", out), (args.model, "MODEL", model)):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(f"window.{name} = ")
+            json.dump(obj, fh, ensure_ascii=False, separators=(",", ":"))
+            fh.write(";\n")
     print(
         f"\nseed {out['seed']} published, {out['fits']} fit(s) run, "
         f"cost {out['cost']:,.0f}, wrote {args.out} "
-        f"({os.path.getsize(args.out) / 1e3:.0f} kB)\n"
+        f"({os.path.getsize(args.out) / 1e3:.0f} kB) and {args.model} "
+        f"({os.path.getsize(args.model) / 1e3:.0f} kB)\n"
     )
     for c in out["components"]:
         print(

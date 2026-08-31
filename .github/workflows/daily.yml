@@ -4,7 +4,7 @@
 # touches an earlier one, so the history of the repository is the history of the sample. The
 # analysis.js is derived and rewritten every run.
 #
-# The site is published separately, to `gh-pages`, which carries the three files a browser
+# The site is published separately, to `gh-pages`, which carries the handful of files a browser
 # needs and nothing else. A published Pages site may be no larger than 1 GB and the corpus grows
 # 1.4 MB a day, so a site built from this branch would eventually have walked into that ceiling
 # and taken the page down with it. Now the corpus and the site grow independently.
@@ -34,6 +34,8 @@ on:
     paths:
       - index.html
       - analysis.js
+      - model.js
+      - detect/index.html
       - .nojekyll
 
 permissions:
@@ -87,7 +89,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/days analysis.js
+          git add data/days analysis.js model.js
           # nothing to say if the day was already present and the fit is unchanged
           git diff --cached --quiet && echo "no change" && exit 0
           git commit -m "Sample $(date -u -d yesterday +%F) and rebuild"
@@ -102,7 +104,10 @@ jobs:
       - name: Publish the site
         run: |
           site=$(mktemp -d)
-          cp index.html analysis.js .nojekyll "$site"/
+          cp index.html analysis.js model.js .nojekyll "$site"/
+          # the classifier is a page of its own under /detect, and it reads ../model.js
+          mkdir -p "$site"/detect
+          cp detect/index.html "$site"/detect/
           git -C "$site" init -q -b gh-pages
           git -C "$site" config user.name  "github-actions[bot]"
           git -C "$site" config user.email "41898282+github-actions[bot]@users.noreply.github.com"

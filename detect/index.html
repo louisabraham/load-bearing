@@ -1,0 +1,862 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Which way of writing is this?</title>
+<!-- The site's counter, configured once at the root of the domain, exactly as the board loads
+     it. The path is root-relative and stays that way: this page is served from
+     louisabraham.github.io/load-bearing/detect/, so it resolves, and a fork or a checkout finds
+     nothing at it and reports nothing. -->
+<script defer src="/assets/js/ph.js"></script>
+<style>
+  /* RASTERFELD, the second board.
+ *
+ * The same field, the same ink and the same one accent as the board next door, because this is
+ * the same model answering a different question: there it is asked what the corpus is made of,
+ * here it is asked what ONE text is made of. Two boxes and a strip: what is pasted, what the ten
+ * components make of it, and which words did it.
+ *
+ * The accent means the answer -- the component the ten scores land on, and the words that
+ * carried it there. Everything else is the grey ramp, so the board can be read at a glance and
+ * still read closely.
+ */
+
+  :root {
+    /* Light only, and said to the browser rather than only meant: a phone in dark mode repaints
+       a page that does not say, and repaints the prose while leaving every fill alone. `only`
+       is the half that withholds the permission. The board next door carries the long version
+       of this note. */
+    color-scheme: only light;
+    --grotesk: "Helvetica Neue", Helvetica, Roboto, ui-sans-serif, system-ui, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --ground: #ffffff;
+    --ink: #0d0d0d;
+    --muted: #5f5f5f;
+    --accent: #de301e;
+    --hairline: #0d0d0d;
+    --fill: #de301e1f;
+    --rule: 2px;
+    --pad: 16px 18px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 17px/1.5 var(--grotesk);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  b {
+    font-weight: 700;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------------------------------------------------------------- the field */
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    border: var(--rule) solid var(--ink);
+    margin: 18px;
+  }
+
+  .cell {
+    border-bottom: var(--rule) solid var(--ink);
+    padding: var(--pad);
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+  }
+
+  /* one seam at five-twelfths, down the whole board, as next door: prose on the left of it and
+     measurement on the right */
+  .cell.head {
+    grid-column: span 5;
+  }
+
+  .cell.fig {
+    grid-column: span 7;
+    border-left: var(--rule) solid var(--ink);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .cell.ask {
+    grid-column: span 5;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cell.tell {
+    grid-column: span 7;
+    border-left: var(--rule) solid var(--ink);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cell.why {
+    grid-column: span 12;
+  }
+
+  .cell.foot {
+    grid-column: span 12;
+    border-top: var(--rule) solid var(--ink);
+    border-bottom: 0;
+    padding: 10px 18px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px 18px;
+  }
+
+  /* the last content row and the footer share one rule rather than printing two */
+  .cell.why {
+    border-bottom: 0;
+  }
+
+  /* mono, uppercase, muted: every label on a measurement, here as next door */
+  .label,
+  .readout {
+    font: 500 11px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  h1 {
+    margin: 0;
+    font: 700 clamp(1.45rem, 3.1vw, 2.35rem)/1.5 var(--grotesk);
+    letter-spacing: -0.04em;
+    text-transform: uppercase;
+  }
+
+  h1 em {
+    font-style: normal;
+    background: var(--accent);
+    color: #fff;
+    padding: 0 0.12em;
+  }
+
+  .lede,
+  .standfirst {
+    margin: 0 0 8px;
+    font: 500 clamp(1rem, 1.55vw, 1.2rem)/1.28 var(--grotesk);
+    letter-spacing: -0.02em;
+  }
+
+  .standfirst {
+    margin-bottom: 18px;
+    max-width: 54ch;
+  }
+
+  .lede b {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .note {
+    margin: 14px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .note:first-child {
+    margin-top: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    text-decoration-skip-ink: none;
+  }
+
+  a:hover,
+  a:focus-visible {
+    color: var(--accent);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .stat b {
+    display: block;
+    font: 700 clamp(1.05rem, 2vw, 1.6rem)/1 var(--grotesk);
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat .label {
+    display: block;
+    margin-top: 6px;
+  }
+
+  .stat i {
+    display: block;
+    width: 100%;
+    height: 6px;
+    margin-bottom: 8px;
+  }
+
+  .stat:nth-child(1) i {
+    background: #de301e;
+  }
+
+  .stat:nth-child(2) i {
+    background: #0b5cab;
+  }
+
+  .stat:nth-child(3) i {
+    background: #ffcf33;
+  }
+
+  /* ---------------------------------------------------------------- what is pasted */
+
+  /* The text is the data on this board, so it is set in the face the data is set in everywhere
+     else -- and a pull request description is written in a box like this one to begin with, so
+     mono is also what it was written in. */
+  textarea {
+    flex: 1;
+    width: 100%;
+    min-height: 210px;
+    margin-top: 8px;
+    padding: 12px;
+    border: var(--rule) solid var(--hairline);
+    border-radius: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 13px/1.55 var(--mono);
+    resize: vertical;
+  }
+
+  textarea::placeholder {
+    color: var(--muted);
+  }
+
+  .tries {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  /* Every button on this board is the same object: a hairline box in the mono label, which takes
+     the accent when it is the one in force. Nothing here is a link, so nothing here is underlined
+     -- a control that looked like a link would promise a page it does not go to. */
+  button {
+    padding: 6px 10px;
+    border: var(--rule) solid var(--hairline);
+    border-radius: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 500 11px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: var(--fill);
+  }
+
+  button.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  /* ---------------------------------------------------------------- what it makes of it */
+
+  .top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 18px;
+    margin-bottom: 12px;
+  }
+
+  .top .readout {
+    margin: 0;
+  }
+
+  .prior {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .prior button {
+    padding: 4px 8px;
+  }
+
+  .bars {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  /* One row a component, in the board's own order -- largest of the last four weeks first, which
+     is the order the stack next door is drawn in -- and the order does NOT change with the
+     answer. A list that re-sorted itself on every keystroke would make the reader find the row
+     again after every word typed, and the whole point of the row is that it is the same row. The
+     accent is what moves. */
+  .bar {
+    position: relative;
+    display: grid;
+    grid-template-columns: 2.4em 1fr 4.2em;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 8px;
+    border: 1px solid #e6e6e6;
+    min-height: 30px;
+  }
+
+  /* the reading, printed as a bar behind its own row rather than beside it: the row is the
+     measure, so the fill starts at the row's own left edge and the words sit on top of it */
+  .bar i {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: #ececec;
+    transition: width 0.12s linear;
+  }
+
+  .bar>* {
+    position: relative;
+  }
+
+  .bar .rank,
+  .bar .pct {
+    font: 500 11px/1.3 var(--mono);
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bar .pct {
+    text-align: right;
+  }
+
+  /* a component is named by the words that are most its own, which is the same list the board
+     next door prints in full */
+  .bar .words {
+    font: 400 12px/1.25 var(--mono);
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bar.win {
+    border-color: var(--accent);
+  }
+
+  .bar.win i {
+    background: var(--fill);
+  }
+
+  .bar.win .rank,
+  .bar.win .pct {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .bar.win .words {
+    color: var(--ink);
+  }
+
+  /* ---------------------------------------------------------------- which words did it */
+
+  .words-for {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px 10px;
+  }
+
+  /* Sized by what the word is worth and coloured by which way it points: the accent for the
+     words that put the text where it is, the ink for the words that argued against it. Ordered
+     by the same number, so the strip reads left to right from the strongest reason to the
+     strongest objection. */
+  .words-for span {
+    font-family: var(--mono);
+    line-height: 1.15;
+    white-space: nowrap;
+  }
+
+  .words-for span.for {
+    color: var(--accent);
+  }
+
+  .words-for span.against {
+    color: var(--ink);
+  }
+
+  .missed {
+    margin: 14px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .missed b {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--ink);
+  }
+
+  /* ---------------------------------------------------------------- the narrow board */
+
+  /* One column below the seam's width. The two cells of a row are a pair -- what is pasted and
+     what came of it -- so they stack in that order and each takes the full twelve. */
+  @media (max-width: 1000px) {
+
+    .cell.head,
+    .cell.fig,
+    .cell.ask,
+    .cell.tell,
+    .cell.why {
+      grid-column: span 12;
+      border-left: 0;
+    }
+
+  }
+
+  /* the fill under a row is a reading, not an animation: it eases only so the eye can follow a
+     row that moved rather than find a row that has changed. Asked for stillness, it stops. */
+  @media (prefers-reduced-motion: reduce) {
+    .bar i {
+      transition: none;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .board {
+      margin: 10px;
+    }
+
+    :root {
+      --pad: 14px 15px;
+    }
+
+    h1 {
+      font-size: clamp(1.35rem, 7.2vw, 2rem);
+    }
+
+    .stats {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    /* the words that name a component are the first thing to go when the row runs out of width:
+       the reading and which row it is on are what the row is for */
+    .bar {
+      grid-template-columns: 2.4em 1fr 4.2em;
+    }
+
+    .bar .words {
+      font-size: 11px;
+    }
+  }
+</style>
+
+<div id="app"></div>
+
+<script>
+  const DATA = "../model.js";
+  const app = document.getElementById("app");
+  const fmt = n => Math.round(n).toLocaleString("en-US");
+  const esc = s => s.replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  /* two significant figures however small, because the point of the smallest number here is that
+     it is nearly zero and "0.0%" hides that. The same rule as the board next door. */
+  /* Two significant figures however small, as on the board next door -- and a floor under it,
+     which the board next door does not need. A share of the corpus is never smaller than 0.19%;
+     a posterior over ten components routinely comes back at e^-50, and "1.9e-22%" printed in a
+     column four characters wide is not a reading, it is a column that has broken. Everything
+     under a hundredth of a percent says so and stops. */
+  const pc = v => {
+    const x = v * 100;
+    if (x < 0.01) return "<0.01%";
+    return (x >= 10 ? x.toFixed(0) : x >= 1 ? x.toFixed(1) : x.toFixed(2)) + "%";
+  };
+
+  let M = null;                              // the model, as `analyze.py` wrote it down
+  let VOCAB = null, INDEX = null, E = null;  // the words, where to find one, and the table
+  let RECENT = false;                        // which of the two priors is in force
+  const WORDS_SHOWN = 60;                    // how many words the strip prints; the rest are tail
+
+  /* Two descriptions written FOR THIS PAGE, not taken from anybody: they are here to show what
+     the answer looks like when it is certain and when it is not, and a real description would
+     put a stranger's writing on a page that then judges it. The first lands on component 01 and
+     the second on 02, which is what makes the pair worth having. */
+  const TRIES = [
+    ["an arriving one",
+      "The failing assertion was not the bug — it was load-bearing. `resolve()` handed back "
+      + "the cached row before the write had landed, so the test passed for a reason nobody had "
+      + "written down. That narrows the fix to the seam between the two: the cache is dropped "
+      + "where the write commits, and the assertion now says plainly what it is checking. "
+      + "Genuinely one line of behaviour; the rest of the diff is the test that would have "
+      + "caught it."],
+    ["an ordinary one",
+      "bump grpc to 1.62 and regen the protos. fixes #4412. tested locally on linux, ci is "
+      + "green. no api changes, but the generated files are noisy so review the first commit "
+      + "only."],
+    ["a few words",
+      "fix the typo in the readme"],
+  ];
+
+  /* ------------------------------------------------------------------ the words of a text */
+
+  /* `tokens` in `analyze.py`, character for character, because a classifier that reads its input
+     differently from the way the corpus was read is answering about a different text. Every rule
+     below is explained where it was written -- links to their domain, tags whole, the em dash
+     counted by hand, a letter required, the ends trimmed -- and the only thing to say here is
+     that the two must not drift. `tests/test_detect.py` runs both over the same strings and
+     fails if they ever disagree. */
+  const URL_RE = /https?:\/\/[^\s<>"'`)\]}]+/g;
+  const TAG_RE = /<[a-z/!][^<>]*>/g;
+  const WORD_RE = /[a-z0-9_/-]*[a-z][a-z0-9_/-]*/g;
+  const SNYK_ID_RE = /^snyk-.+-\d{4,}$/;
+  const EM_DASH = "—";
+
+  function domainToken(url) {
+    const at = url.indexOf("//");
+    const host = (at < 0 ? url : url.slice(at + 2))
+      .split("/")[0].split("@").pop().split(":")[0];
+    const labels = host.split(".").filter(x => x && x !== "www");
+    const name = labels.length >= 2 ? labels[labels.length - 2] : (labels[0] || "link");
+    return `[${name}-url]`;
+  }
+
+  function tokens(body) {
+    body = body.toLowerCase();
+    const out = (body.match(URL_RE) || []).map(domainToken);
+    for (let i = 0; i < body.length; i++) if (body[i] === EM_DASH) out.push(EM_DASH);
+    const rest = body.replace(URL_RE, " ").replace(TAG_RE, " ");
+    for (const raw of rest.match(WORD_RE) || []) {
+      const w = raw.replace(/^[_/]+/, "").replace(/[_/]+$/, "").replace(/-+$/, "");
+      if (w) out.push(w.startsWith("snyk-") && SNYK_ID_RE.test(w) ? "[snyk-id]" : w);
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ the model, read back */
+
+  /* The vocabulary, rebuilt from the trie `analyze.py` wrote out. A word is a capital saying how
+     much of the word before it to keep, then the rest of itself, and the capital that opens a
+     word is also what ends the one before it -- a word is lowercased before it is ever counted,
+     so no capital can appear inside one and the words need no separator between them. */
+  function readVocab(s) {
+    const out = [], index = new Map();
+    let prev = "", i = 0;
+    while (i < s.length) {
+      let j = i + 1;
+      while (j < s.length && (s.charCodeAt(j) < 65 || s.charCodeAt(j) > 90)) j++;
+      prev = prev.slice(0, s.charCodeAt(i) - 65) + s.slice(i + 1, j);
+      index.set(prev, out.length);
+      out.push(prev);
+      i = j;
+    }
+    return [out, index];
+  }
+
+  /* The table, one character per (word, component), in the order `encode_weights` wrote it: all
+     ten of a word together, so the ten numbers a word is looked up for are neighbours in memory.
+
+     What is stored is not log W but the part of it that varies with the word: a code of 0 means
+     the component never wrote that word, and is exactly zero rather than nearly. `MODEL.floor`
+     carries the rest, which is one number a component and is added once per word of the text
+     instead of being read out of the table twenty thousand times.
+
+     A code above `MODEL.escape` is an escape: that character and the one after it name a point
+     on a grid forty times finer, for the top of the range where the commonest words are and
+     where a coarse step costs the most. */
+  function readWeights(s) {
+    const NA = M.alphabet.length, K = M.k, esc = M.escape;
+    const [lo, split, hi] = M.grid;
+    const stepLo = (split - lo) / (esc - 1);
+    const stepHi = (hi - split) / ((NA - 1 - esc) * NA - 1);
+    const code = new Int16Array(128).fill(-1);
+    for (let i = 0; i < NA; i++) code[M.alphabet.charCodeAt(i)] = i;
+    /* Float64 and not Float32, for 1.6 MB rather than 0.8. What is stored has already been
+       rounded once, to the grid, and that error is measured and paid for; a second rounding to
+       single precision would be a second error nobody had decided to accept. At this size the
+       memory is not worth a decision, and the page's answer is then the same number Python gets
+       from the same file, which is what `tests/test_detect.py` is able to check. */
+    const out = new Float64Array(M.words * K);
+    let i = 0;
+    for (let n = 0; n < out.length; n++) {
+      const a = code[s.charCodeAt(i++)];
+      out[n] = a === 0 ? 0
+        : a <= esc ? lo + (a - 1) * stepLo
+          : split + ((a - 1 - esc) * NA + code[s.charCodeAt(i++)]) * stepHi;
+    }
+    if (i !== s.length) throw new Error("the weights did not end where the words ran out");
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ the answer */
+
+  /* Bayes on the fit exactly as it stands. The assignment step of the model is
+   * argmax_c x . log W_c, which is the log-likelihood of the text under a multinomial that draws
+   * every word from component c, up to a coefficient that does not vary with c. Weight each
+   * component by how much of the corpus it holds and the same quantity is a posterior:
+   *
+   *     P(c | text) = pi_c prod_v W_c[v] ^ x_v / the same, summed over the ten
+   *
+   * Nothing is fitted here and nothing is chosen here. The one thing that is not in the data is
+   * which pi to hold, and the page offers both it could reasonably be -- see `prior`.
+   *
+   * Words the vocabulary does not have are dropped rather than guessed at. The floor is fifty
+   * distinct accounts, so a word that is not in it was not written by enough people for the fit
+   * to have measured it, and a model that has never seen a word has nothing to say about it.
+   */
+  function classify(text) {
+    const K = M.k, all = tokens(text), count = new Map();
+    let known = 0;
+    const missing = [];
+    for (const w of all) {
+      const j = INDEX.get(w);
+      if (j === undefined) { missing.push(w); continue; }
+      known++;
+      count.set(j, (count.get(j) || 0) + 1);
+    }
+    const prior = RECENT ? M.recent : M.prior;
+    const score = new Float64Array(K);
+    for (let c = 0; c < K; c++) score[c] = Math.log(prior[c]) + known * M.floor[c];
+    for (const [j, x] of count) {
+      const off = j * K;
+      for (let c = 0; c < K; c++) score[c] += x * E[off + c];
+    }
+    const top = Math.max(...score);
+    const p = Array.from(score, s => Math.exp(s - top));
+    const sum = p.reduce((a, b) => a + b, 0);
+    return { all, known, missing, count, score, p: p.map(v => v / sum) };
+  }
+
+  /* Which words carried it, and by how much. The gap between two components is a sum over the
+     words of the text and over nothing else:
+
+         score(a) - score(b) = log(pi_a / pi_b) + sum over v of x_v ( log W_a[v] - log W_b[v] )
+
+     so a word's share of the gap is exactly that term, in the same nats the gap is printed in,
+     and the strip below the answer adds up to the number above it. Against the runner-up rather
+     than against the average of the other nine, because the runner-up is the component the
+     answer was actually decided against, and a reader can check the subtraction. */
+  function evidence(r, a, b) {
+    const K = M.k, out = [];
+    for (const [j, x] of r.count) {
+      out.push({
+        w: VOCAB[j], x,
+        d: x * (M.floor[a] + E[j * K + a] - M.floor[b] - E[j * K + b]),
+      });
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ the page */
+
+  function build() {
+    const T = M.top.map(t => t.slice(0, 7).join(", "));
+    app.innerHTML = `<div class="board">
+    <div class="cell head">
+      <h1>Which way of <em>writing</em> is this?</h1>
+    </div>
+    <div class="cell fig">
+      <p class="standfirst">The clustering that groups the corpus is already a classifier. Paste
+        a pull request description and it says which of the ${M.k} ways of writing the words
+        belong to, and how sure it is. It runs here, in the page:</p>
+      <div class="stats">
+        <div class="stat"><i></i><b>${fmt(M.k)}</b><span class="label">ways of writing</span></div>
+        <div class="stat"><i></i><b>${fmt(M.words)}</b><span class="label">words it knows</span></div>
+        <div class="stat"><i></i><b>${fmt(M.documents)}</b><span class="label">it learnt them from</span></div>
+      </div>
+    </div>
+    <div class="cell ask">
+      <label class="label" for="text">the text</label>
+      <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off"
+        autocapitalize="off" placeholder="Paste a pull request description here."></textarea>
+      <div class="tries"><span class="label">or try</span>${TRIES.map((t, i) =>
+      `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
+      <p class="note">Nothing is sent anywhere. The whole model — ${fmt(M.words)} words, ${M.k}
+        numbers each — is in <a href="../model.js">one file beside this page</a>, and the
+        arithmetic happens in your browser.</p>
+    </div>
+    <div class="cell tell">
+      <div class="top">
+        <p class="readout"></p>
+        <div class="prior"><span class="label">prior</span>
+          <button type="button" class="pri on" data-recent="0">the whole corpus</button>
+          <button type="button" class="pri" data-recent="1">the last four weeks</button>
+        </div>
+      </div>
+      <ol class="bars">${M.top.map((_, c) => `<li class="bar" data-c="${c}">
+        <i style="width:0"></i>
+        <span class="rank">${String(c + 1).padStart(2, "0")}</span>
+        <span class="words" title="${esc(T[c])}">${esc(T[c])}</span>
+        <span class="pct"></span></li>`).join("")}</ol>
+      <p class="note">Component <b>01</b> is the one <a href="../">the board</a> is about. The
+        seven words after each number are that component's most characteristic, which is how it
+        is named there too.</p>
+    </div>
+    <div class="cell why">
+      <p class="readout ev"></p>
+      <div class="words-for"></div>
+      <p class="missed"></p>
+      <p class="note">The gap is in <b>nats</b>, the unit the model measures in: one nat is odds
+        of 2.7 to 1, ten nats is 22,000 to 1. Which is why a description of any length comes back
+        at 100% — every word is counted as an independent draw, and sixty of them in agreement
+        put the odds past anything a percentage can print. <b>Read the order and the gap, not the
+        last decimal.</b> The probability is what the model says; it is not how often the model
+        is right.</p>
+    </div>
+    <div class="cell foot">
+      <span class="label">fit of ${M.generated}, seed ${M.seed}, ${M.weeks} weeks to ${M.last}</span>
+      <span class="label"><a href="../">the board</a> ·
+        <a href="https://github.com/louisabraham/load-bearing">the code</a></span>
+    </div>
+  </div>`;
+
+    const box = app.querySelector("#text");
+    box.addEventListener("input", paint);
+    app.querySelectorAll(".try").forEach(b => b.addEventListener("click", () => {
+      box.value = TRIES[+b.dataset.i][1];
+      paint();
+      box.focus();
+    }));
+    /* The prior is a control and not a setting: it is what the answer is worth BEFORE the text
+       is read, and the two on offer are the two the corpus can honestly supply -- what the whole
+       window holds, which is what the fit weighs a component by, and what the last four weeks
+       hold, which is what a text written today should be judged against. They differ by a factor
+       of five on component 01 and the answer almost never moves, which is the thing worth
+       seeing: past a dozen words the words decide it and the prior is a rounding. */
+    app.querySelectorAll(".pri").forEach(b => b.addEventListener("click", () => {
+      RECENT = b.dataset.recent === "1";
+      app.querySelectorAll(".pri").forEach(o => o.classList.toggle("on", o === b));
+      paint();
+    }));
+    paint();
+  }
+
+  function paint() {
+    const text = app.querySelector("#text").value;
+    const r = classify(text);
+    const order = r.p.map((v, c) => c).sort((a, b) => r.p[b] - r.p[a]);
+    const [win, second] = order;
+    const empty = r.known === 0;
+
+    app.querySelectorAll(".bar").forEach(el => {
+      const c = +el.dataset.c;
+      el.classList.toggle("win", !empty && c === win);
+      el.querySelector("i").style.width = `${(r.p[c] * 100).toFixed(2)}%`;
+      el.querySelector(".pct").textContent = pc(r.p[c]);
+    });
+
+    const readout = app.querySelector(".top .readout");
+    readout.innerHTML = empty
+      ? "nothing to read yet — the answer is the prior"
+      : `<b>${fmt(r.known)}</b> of <b>${fmt(r.all.length)}</b> words are in the vocabulary`;
+
+    /* The gap, split into the part the words are worth and the part the prior is worth, because
+       those are the only two things in it and a reader who can see the split can see what the
+       prior did -- which is nearly always nothing. */
+    const ev = app.querySelector(".ev");
+    const strip = app.querySelector(".words-for");
+    const missed = app.querySelector(".missed");
+    if (empty) {
+      ev.innerHTML = "no words, no evidence";
+      strip.innerHTML = "";
+      missed.textContent = "";
+      return;
+    }
+    const prior = RECENT ? M.recent : M.prior;
+    const fromPrior = Math.log(prior[win] / prior[second]);
+    const gap = r.score[win] - r.score[second];
+    const n = String(win + 1).padStart(2, "0"), m = String(second + 1).padStart(2, "0");
+    const sign = v => (v >= 0 ? "+" : "") + v.toFixed(1);
+    ev.innerHTML = `<b>${n}</b> over <b>${m}</b> by <b>${gap.toFixed(1)}</b> nats — `
+      + `the words ${sign(gap - fromPrior)}, the prior ${sign(fromPrior)}`;
+
+    /* Sized on a log scale for the same reason the wall next door is: a word's share of the gap
+       runs over three orders of magnitude, and on a linear ramp everything past the first few
+       would sit at the floor. */
+    /* The strip holds the words that MOVED the answer, which is the largest by size and not the
+       largest by sign: cutting the list after sixty of the words that argue for the answer would
+       drop every word that argued against it, and the objections are half of what a reader is
+       looking for. Chosen by size, then printed in order of sign, so the row still reads from
+       the strongest reason to the strongest objection. */
+    const rows = evidence(r, win, second);
+    const shown = rows.slice().sort((u, v) => Math.abs(v.d) - Math.abs(u.d))
+      .slice(0, WORDS_SHOWN).sort((u, v) => v.d - u.d);
+    if (rows.length > WORDS_SHOWN) {
+      ev.innerHTML += ` · the ${WORDS_SHOWN} of ${fmt(rows.length)} words that moved it most`;
+    }
+    const hiL = Math.log(1 + Math.max(...rows.map(v => Math.abs(v.d))));
+    strip.innerHTML = shown.map(({ w, x, d }) => {
+      const t = hiL > 0 ? Math.log(1 + Math.abs(d)) / hiL : 0;
+      return `<span class="${d >= 0 ? "for" : "against"}" style="font-size:`
+        + `${(10.5 + 9 * t).toFixed(1)}px;opacity:${(0.45 + 0.55 * t).toFixed(2)}" `
+        + `title="${esc(w)} — written ${x}×, worth ${d >= 0 ? "+" : ""}${d.toFixed(2)} `
+        + `nats to ${n}">${esc(w)}</span>`;
+    }).join("");
+
+    /* What the model did not read is worth printing: the vocabulary has a floor of fifty
+       distinct accounts, so a description of ordinary English can still be half unknown -- and a
+       reader who cannot see that has no way to tell a confident answer from a confident answer
+       about a quarter of what was pasted. */
+    const miss = [...new Set(r.missing)];
+    const gone = r.all.length - r.known;
+    missed.innerHTML = miss.length
+      ? `<b>${fmt(gone)}</b> of the words ${gone === 1 ? "is" : "are"} not in the vocabulary and `
+      + `${gone === 1 ? "counts" : "count"} for nothing: `
+      + `${miss.slice(0, 12).map(w => `<b>${esc(w)}</b>`).join(", ")}`
+      + `${miss.length > 12 ? ` and ${fmt(miss.length - 12)} more` : ""}.`
+      : "Every word of it is in the vocabulary.";
+  }
+
+  const tag = document.createElement("script");
+  tag.src = DATA;
+  tag.onload = () => {
+    M = window.MODEL;
+    if (!M) return fail();
+    [VOCAB, INDEX] = readVocab(M.vocab);
+    if (VOCAB.length !== M.words) return fail();
+    E = readWeights(M.weights);
+    build();
+  };
+  tag.onerror = fail;
+  document.head.appendChild(tag);
+
+  function fail() {
+    app.innerHTML = `<p style="padding:80px 24px;font-family:ui-monospace,monospace">`
+      + `<b>${DATA}</b> not found.<br>Run <b>python analyze.py</b> first.</p>`;
+  }
+</script>
