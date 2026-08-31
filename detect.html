@@ -95,9 +95,37 @@
      comfortable to read, and centred, so a wide window gives the page air on both sides instead
      of a longer line. */
   .board {
-    max-width: 860px;
-    margin: 24px auto;
+    max-width: 720px;
+    margin: 18px auto;
     border: var(--rule) solid var(--ink);
+    /* ONE SCREEN. The answer is the page, and on a laptop it was landing below the fold behind a
+       box of text the reader had just finished with -- pressing a sample button changed nothing
+       visible. So the board is the window: what cannot shrink keeps its height, and the two
+       boxes that can give way do, the text box first.
+
+       `dvh` and not `vh`, for the phone: `vh` is measured against the browser with its toolbars
+       hidden, so a board an exact `100vh` tall is taller than the screen until the toolbar rolls
+       away, and the footer sits under it.
+
+       away, and the footer sits under it.
+
+       A floor under it as well, because a window can be shorter than the board's own parts and
+       there is no arrangement that fits: under 600px the board stops shrinking and the page
+       scrolls instead, which is the honest thing to do with a window nothing fits in.
+
+       And it is a screen wide enough to be worth filling only. On a phone the head alone is a
+       third of the window and the answer cannot be got onto the same screen as the box without
+       squeezing both to nothing -- so below the seam the board stops trying to be the window and
+       becomes what a phone expects, a page that scrolls. */
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (min-width: 621px) {
+    .board {
+      height: calc(100dvh - 36px);
+      min-height: 600px;
+    }
   }
 
   .cell {
@@ -107,10 +135,40 @@
     position: relative;
   }
 
+  .cell.head,
+  .cell.foot {
+    flex: none;
+  }
+
   .cell.ask,
   .cell.tell {
     display: flex;
     flex-direction: column;
+  }
+
+  /* Whatever the screen has spare goes to the text box, and it is also the first thing to give
+     it back -- the text has been read once already by the person pasting it, and the answer has
+     not. The hundred is what puts the two in that order: flex shares a shortfall out in
+     proportion, so left level the answer lost as much as the box did and both ended up clipped.
+
+     No `min-height: 0` here, deliberately, which is what stops the shrinking before it cuts
+     anything off: the box bottoms out at the three lines the textarea will not go under, and
+     what is left over after that goes to the board's own floor and the page scrolls. */
+  .cell.ask {
+    flex: 1 100 auto;
+  }
+
+  /* the answer gives way last, and what gives way in it is the tail of the strip, which scrolls
+     inside itself rather than pushing the footer off the screen */
+  .cell.tell {
+    flex: 0 1 auto;
+    min-height: 0;
+    /* the only box on the board told it may be smaller than its contents, so it is the only one
+       that has to say what happens then. Everywhere else this is left off ON PURPOSE: `overflow`
+       other than visible zeroes a flex item's automatic minimum size, and with it set on every
+       cell the text box was allowed to shrink past its own three-line floor and print over the
+       answer -- the rule meant as the safety net was the thing that cut the net down. */
+    overflow: hidden;
   }
 
   /* the last box and the footer share one rule rather than printing two */
@@ -139,13 +197,18 @@
 
   h1 {
     margin: 0 0 12px;
-    font: 700 clamp(1.45rem, 3.1vw, 2.35rem)/1.5 var(--grotesk);
+    /* tighter than the prose under it, which is the way round it should be: at three lines of
+       38px uppercase, body leading printed the title as three separate bands */
+    font: 700 clamp(1.35rem, 2.9vw, 2.1rem)/1.12 var(--grotesk);
     letter-spacing: -0.04em;
     text-transform: uppercase;
   }
 
   h1 em {
     font-style: normal;
+    /* the one red mark on the page is the phrase the page is about, and the browser was breaking
+       it at its own hyphen: two red rectangles, the first ending in a hyphen inside the knockout */
+    white-space: nowrap;
     background: var(--accent);
     color: #fff;
     padding: 0 0.12em;
@@ -188,7 +251,9 @@
      else -- and a pull request description is written in a box like this one to begin with. */
   textarea {
     width: 100%;
-    height: 210px;
+    flex: 1 1 auto;
+    /* three lines, which is as small as a box you can still read a sentence in */
+    min-height: calc(3 * 1.55em + 26px);
     margin-top: 8px;
     padding: 12px;
     border: var(--rule) solid var(--ink);
@@ -196,10 +261,10 @@
     background: var(--ground);
     color: var(--ink);
     font: 400 13px/1.55 var(--mono);
-    /* A fixed height and no handle, so that the answer stays on the screen. A box that grew with
-       its text would push the answer below the fold for exactly the descriptions worth asking
-       about -- the long ones -- and the reader would have to scroll back to a reading that had
-       already been taken. Twelve lines, and the rest scrolls inside. */
+    /* No handle: the box is what absorbs whatever the screen has spare, so a height dragged onto
+       it is a height the next layout pass takes back. What does not fit scrolls inside it, which
+       is the right way round -- the text has been read once by the person pasting it, and the
+       answer has not. */
     resize: none;
   }
 
@@ -243,8 +308,10 @@
     min-height: 1.3em;
   }
 
+  /* ink and not the accent: the accent means the answer on this board, and a page that printed
+     "no such thing" in it was showing the reader a red box beside a grey answer */
   .said.bad {
-    color: var(--accent);
+    color: var(--ink);
   }
 
   .tries {
@@ -310,7 +377,7 @@
     height: 14px;
     margin: 14px 0 0;
     border: var(--rule) solid var(--ink);
-    background: repeating-linear-gradient(135deg, #fff 0 4px, #f0f0f0 4px 8px);
+    background: var(--ground);
   }
 
   .meter i {
@@ -337,6 +404,8 @@
      colour is not the only thing saying which is which. */
   .strip {
     margin-top: 8px;
+    overflow-y: auto;
+    min-height: 0;
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -380,7 +449,19 @@
     }
 
     h1 {
-      font-size: clamp(1.35rem, 7.2vw, 2rem);
+      font-size: clamp(1.25rem, 6.6vw, 1.8rem);
+    }
+
+    /* the label takes its own line, so the three buttons read as three of a kind rather than
+       one beside the words and two under them */
+    .tries .label {
+      flex-basis: 100%;
+    }
+
+    /* nothing is competing for the height here -- the page scrolls -- so the box is the size it
+       wants to be rather than the size that would have been left over */
+    textarea {
+      min-height: calc(9 * 1.55em + 26px);
     }
   }
 
@@ -404,7 +485,10 @@
   /* How sure, in words a reader can hold. Two significant figures under a half, and a ceiling
      over it: the model is routinely sure to one part in 10^20 and "99.999999999999999999%" is
      not a reading, it is the note below the answer written out as a number. */
-  const sure = v => v >= 0.995 ? "over 99%"
+  /* How much of the answer is this cluster, in words a reader can hold, and capped at both ends:
+     the model is routinely sure to one part in 10^20 and "99.999999999999999999%" is not a
+     reading, it is the note about independent draws written out as a number. */
+  const sure = v => v >= 0.995 ? "over 99%" : v <= 0.005 ? "under 1%"
     : (v * 100 >= 10 ? (v * 100).toFixed(0) : (v * 100).toFixed(1)) + "%";
 
   let M = null;                              // the model, as `analyze.py` wrote it down
@@ -673,7 +757,7 @@
       <div class="fetch">
         <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
           autocapitalize="off" aria-label="a github pull request, issue or comment link"
-          placeholder="…or a github pull request or comment link">
+          placeholder="…or a github link">
         <button type="button" class="load">load</button>
       </div>
       <p class="said label" role="status"></p>
@@ -690,7 +774,7 @@
       <div class="meter"><i style="width:0"></i></div>
       <div class="ends"><span class="label">this cluster</span>
         <span class="label">the others</span></div>
-      <span class="label of-words">the words that decided it · red for this cluster</span>
+      <span class="label of-words">the deciding words · red is this cluster</span>
       <div class="strip"></div>
     </div>
     <div class="cell foot"><span class="label">generated ${M.generated}</span>
@@ -749,8 +833,13 @@
 
     const yes = r.p[0] > 0.5;
     verdict.className = `verdict ${yes ? "yes" : "no"}`;
+    /* The share of THIS cluster, whichever way the answer came out, because that is what the bar
+       under it draws and what its two ends are labelled. Reported as the confidence in the
+       verdict instead -- 97% for a No -- it sat fourteen pixels above a bar that was 3% red, and
+       a reader who had learnt from a Yes that the bar is the number was being contradicted. One
+       number, in one place, measuring one thing. */
     verdict.innerHTML = `<b>${yes ? "Yes" : "No"}.</b>`
-      + `<span class="sure">${sure(yes ? r.p[0] : 1 - r.p[0])} sure, on `
+      + `<span class="sure">${sure(r.p[0])} this cluster, on `
       + `${fmt(r.known)} of the ${fmt(r.all.length)} words</span>`;
     bar.style.width = `${(r.p[0] * 100).toFixed(2)}%`;
 
@@ -769,9 +858,11 @@
     strip.innerHTML = rows.slice().sort((u, v) => Math.abs(v.d) - Math.abs(u.d))
       .slice(0, WORDS_SHOWN).sort((u, v) => v.d - u.d).map(({ w, d }) => {
         const t = hiL > 0 ? Math.log(1 + Math.abs(d)) / hiL : 0;
-        return `<span class="${d >= 0 ? "for" : "against"}" style="font-size:`
-          + `${(10.5 + 9 * t).toFixed(1)}px;opacity:${(0.45 + 0.55 * t).toFixed(2)}"`
-          + `>${esc(w)}</span>`;
+        /* Size and nothing else. Opacity was a second encoding of the same number and the
+           weaker one, and at its floor the accent came out a pink no one could read -- it spent
+           the page's one colour on the words that mattered least. */
+        return `<span class="${d >= 0 ? "for" : "against"}" `
+          + `style="font-size:${(10.5 + 9 * t).toFixed(1)}px">${esc(w)}</span>`;
       }).join("");
   }
 
