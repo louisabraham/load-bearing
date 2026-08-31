@@ -35,7 +35,7 @@ on:
       - index.html
       - analysis.js
       - model.js
-      - detect/index.html
+      - detect.html
       - .nojekyll
 
 permissions:
@@ -104,10 +104,7 @@ jobs:
       - name: Publish the site
         run: |
           site=$(mktemp -d)
-          cp index.html analysis.js model.js .nojekyll "$site"/
-          # the classifier is a page of its own under /detect, and it reads ../model.js
-          mkdir -p "$site"/detect
-          cp detect/index.html "$site"/detect/
+          cp index.html detect.html analysis.js model.js .nojekyll "$site"/
           git -C "$site" init -q -b gh-pages
           git -C "$site" config user.name  "github-actions[bot]"
           git -C "$site" config user.email "41898282+github-actions[bot]@users.noreply.github.com"

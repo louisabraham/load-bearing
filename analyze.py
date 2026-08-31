@@ -46,7 +46,7 @@ MAX_PASSES = 200  # a runaway guard, not a setting; the fixed point comes at 30
 WORDS_LISTED = 150  # per component; the cut is arbitrary and `tail` says so
 WORDS_LEAD = 1000  # for the component the page opens on; see `pack`
 TREND_WEEKS = 12  # weeks the reported trend is fitted over
-# What `detect/index.html` reads, and how it is written down. See `classifier`.
+# What `detect.html` reads, and how it is written down. See `classifier`.
 TOP_WORDS = 16  # a component's most characteristic words, to name it by on the detect page
 ESCAPE_AT = 80  # codes above this one take a second character; see `encode_weights`
 SPLIT = 10.0  # nats, where the one-character grid ends and the two-character one begins
@@ -553,17 +553,22 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
 
 # THE FIT IS ALREADY A CLASSIFIER and nothing has to be added to it to make one. The assignment
 # step is argmax_c x . log W_c, and x . log W_c is the log-likelihood of a description under a
-# multinomial that draws every word from W_c, up to a coefficient that does not vary with c. Give
-# each component the weight of how much of the corpus it holds and the same quantity is Bayes:
+# multinomial that draws every word from W_c, up to a coefficient that does not vary with c.
+# Normalise those ten likelihoods and they are a posterior:
 #
-#     P(c | x) = pi_c prod_v W_c[v] ^ x_v / sum over the components of the same thing
+#     P(c | x) = prod_v W_c[v] ^ x_v / sum over the components of the same thing
 #
-# which is multinomial naive Bayes with these centres as its class-conditional distributions.
+# which is multinomial naive Bayes with these centres as its class-conditional distributions and
+# every component equally likely before the text is read. NO PRIOR, deliberately: the shares are
+# a property of the corpus over the window and not of the text in the box, and weighting by them
+# would answer "what does a description of 2025 and 2026 usually look like" over the top of the
+# question actually asked. What is left is the likelihood, which is about this text alone.
+#
 # `SMOOTH` is what makes it usable on text the fit never saw: no centre gives any word zero
 # probability, so one unexpected word cannot zero a whole component.
 #
-# `detect/index.html` does that arithmetic in a browser, and these three functions write the file
-# it reads. What has to be shipped is the WHOLE of W -- ten numbers for each of twenty thousand
+# `detect.html` does that arithmetic in a browser, and these three functions write the file it
+# reads. What has to be shipped is the WHOLE of W -- ten numbers for each of twenty thousand
 # words, where the board shows a hundred and fifty of them -- and as JSON that is 4 MB. So it is
 # written as text, one character at a time.
 
@@ -633,17 +638,20 @@ def encode_weights(M):
     sparse top. The two-character band is a seventh of the entries that are there at all, and
     nine times finer: 0.068 nats a step below the split against 0.0079 above it.
 
-    A uniform grid and not one fitted to the values, which was tried and is much worse -- 1.2%
-    against 0.11% at the same size. What matters is not the average error but the largest one,
-    because a word written five hundred thousand times is consulted in every description and its
-    error is systematic rather than noise. A fitted grid spends its levels where the values are
-    crowded, which is the bottom, and leaves the top -- the commonest words -- coarse.
+    A uniform grid and not one fitted to the values, which is the opposite of what fitting a
+    quantiser is usually for. At one character a number and no escape, a uniform grid misplaces
+    0.8% of the corpus and a grid fitted to the distribution of E misplaces 7 to 10% of it. What
+    matters here is not the average error but the largest one: a word written five hundred
+    thousand times is consulted in every description and its error is systematic rather than
+    noise. A fitted grid spends its levels where the values are crowded, which is the bottom, and
+    leaves the top -- the commonest words -- coarse. The escape does that job the other way
+    round, by making the top finer rather than the bottom coarser.
 
     Measured against the exact centres over the 467,387 descriptions of the corpus: no entry is
-    more than 0.034 nats out, 0.11% of descriptions are assigned to a different component, and
-    those are ties -- the median gap between their top two is 0.02 nats against 15.7 across the
+    more than 0.034 nats out, 0.054% of descriptions are assigned to a different component, and
+    those are ties -- the median gap between their top two is 0.04 nats against 15.6 across the
     corpus. 99.1% of descriptions have every reported probability within 0.02 of the exact one,
-    and the worst any of them is out by is 0.26.
+    and the worst any of them is out by is 0.25.
     """
     n_esc = len(ALPHABET) - 1 - ESCAPE_AT
     E = np.log1p(M / SMOOTH)
@@ -686,14 +694,13 @@ def decode_weights(text, k, V, grid, esc=ESCAPE_AT, alphabet=ALPHABET):
     return out.reshape(V, k).T
 
 
-def classifier(vocab, M, C, order, comps, meta):
-    """Everything `detect/index.html` needs and nothing the board already carries.
+def classifier(vocab, M, order, comps, meta):
+    """Everything `detect.html` needs, and nothing else.
 
-    Two priors are shipped rather than one. The corpus-wide share is what the fit itself weighs a
-    component by; the share of the last four weeks is what a text written TODAY should be judged
-    against, and the two differ by a factor of five on the component this project is about. The
-    page offers both, because which prior to hold is the one part of a Bayesian answer that is
-    not in the data.
+    Nothing else is the point of a second file. The shares are not here because the page holds no
+    prior; the weekly counts are not here because the page draws no curve; nine of the ten word
+    lists are not here because the page asks one question, which is whether a text is the
+    arriving component or is not. What is left is the centres and the words they are over.
     """
     text, grid = encode_weights(M[order])
     total = M[order].sum(axis=1) + SMOOTH * len(vocab)
@@ -707,12 +714,9 @@ def classifier(vocab, M, C, order, comps, meta):
         # page adds it once for every word of the text it recognises, and the table holds only
         # what each word adds to it.
         "floor": [round(float(v), 6) for v in np.log(SMOOTH) - np.log(total)],
-        "prior": [round(float(v), 6) for v in C.sum(axis=0)[order] / max(C.sum(), 1e-12)],
-        "recent": [
-            round(float(v), 6)
-            for v in C[-LEAD_WINDOW:].sum(axis=0)[order] / max(C[-LEAD_WINDOW:].sum(), 1e-12)
-        ],
-        "top": [c["word_list"][:TOP_WORDS] for c in comps],
+        # the arriving component's most characteristic words, which is how the page names the
+        # thing it is asking about. Component 0 is that component: `order` puts it first.
+        "top": comps[0]["word_list"][:TOP_WORDS],
         "vocab": front_coded(vocab),
         "weights": text,
     }
@@ -845,23 +849,15 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
         "cost": round(cost, 1),
         "components": comps,
         # Not part of the analysis and not written to the same file: `main` lifts this out and
-        # writes it to `model.js`, which only `detect/index.html` reads. It is built here rather
+        # writes it to `model.js`, which only `detect.html` reads. It is built here rather
         # than beside the caller because it has to be the SAME fit in the same order as the board
         # -- component 0 has to mean component 0 on both pages -- and `order` is decided here.
         "model": classifier(
             vocab,
             M,
-            C,
             order,
             comps,
-            {
-                "generated": date.today().isoformat(),
-                "seed": int(seed),
-                "k": len(comps),
-                "documents": int(X.shape[0]),
-                "weeks": len(weeks),
-                "last": weeks[-1],
-            },
+            {"generated": date.today().isoformat(), "seed": int(seed), "k": len(comps)},
         ),
     }
 
@@ -976,7 +972,7 @@ def selftest():
         f"the planted component did not rise ({before:.3f} then {after:.3f})"
     )
 
-    # WHAT THE CLASSIFIER IS SHIPPED: `detect/index.html` reads a written-down copy of these
+    # WHAT THE CLASSIFIER IS SHIPPED: `detect.html` reads a written-down copy of these
     # centres, and a copy that does not classify as they do is a second model wearing the first
     # one's name. Both halves of the file are read back here and checked against the fit itself.
     words = [f"w{j:03d}" for j in range(V)]
@@ -1027,7 +1023,7 @@ def main():
         retries=args.retries,
     )
     # the classifier's copy of the fit goes to its own file: it is a third of a megabyte that
-    # only `detect/index.html` reads, and the board should not wait for it
+    # only `detect.html` reads, and the board should not wait for it
     model = out.pop("model")
     for path, name, obj in ((args.out, "ANALYSIS", out), (args.model, "MODEL", model)):
         with open(path, "w", encoding="utf-8") as fh:

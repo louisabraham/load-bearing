@@ -12,8 +12,8 @@ them. One of the ten was 0.7% of the corpus at the start of 2025 and is 39% of i
 | `fetch_day.py` | ten requests a day to GitHub's search API, one `data/days/YYYY-MM-DD.jsonl`. Standard library only. |
 | `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js` and `model.js`. Needs `numpy`, `scipy` and `numba`. |
 | `index.html` | reads `analysis.js`. One board, one screen: the figures, the stack, a word's own history, the thousand words. No build step. Open it. |
-| `detect/index.html` | reads `model.js`. Paste a description, and the same fit says which of the ten it belongs to and how sure it is. Runs in the page; §7. |
-| `model.js` | the whole of the fit written down — every word, all ten numbers — in 306 kB. Nothing but the classifier reads it. |
+| `detect.html` | reads `model.js`. Paste a description, and the same fit says whether it is the arriving way of writing. Runs in the page; §7. |
+| `model.js` | the whole of the fit written down — every word, all ten numbers — in 304 kB. Nothing but the classifier reads it. |
 | `tests/` | what the two pages must keep doing, driven in a real browser. Every test is a bug one of them once had. |
 | `.github/workflows/daily.yml` | does all of the above daily, commits the corpus here, publishes the page to `gh-pages`. |
 
@@ -26,7 +26,7 @@ python fetch_day.py --backfill 30    # and the last 30 days, if missing
 python analyze.py                    # ~50 s on twelve cores
 python analyze.py --selftest         # the invariants, on synthetic data
 open index.html                      # the board
-open detect/index.html               # the same fit, asked about one text
+open detect.html                     # the same fit, asked about one text
 
 pre-commit install                   # optional: ruff and the html formatter, on commit
 uv pip install pytest-playwright && pytest tests -q
@@ -212,42 +212,45 @@ corpus growing wherever it draws the word arriving.
 
 Nothing is added to the fit to make one. The assignment step is $\arg\max_c x_d \cdot \log W_c$,
 and $x_d \cdot \log W_c$ is the log-likelihood of the description under a multinomial that draws
-every word from $W_c$, up to a coefficient that does not vary with $c$. Weight each component by
-how much of the corpus it holds and the same quantity is a posterior:
+every word from $W_c$, up to a coefficient that does not vary with $c$. Normalise the ten and they
+are a posterior:
 
 ```math
-P(c \mid x) \;=\; \frac{\pi_c \prod_v W_c[v]^{\,x_v}}
-                        {\sum_{c'} \pi_{c'} \prod_v W_{c'}[v]^{\,x_v}}
+P(c \mid x) \;=\; \frac{\prod_v W_c[v]^{\,x_v}}{\sum_{c'} \prod_v W_{c'}[v]^{\,x_v}}
 ```
 
 which is multinomial naive Bayes with these centres as its class-conditional distributions.
 `SMOOTH` is what makes it usable on text the fit never saw: no centre gives any word probability
-zero, so one unexpected word cannot zero a whole component. **[detect/](https://louisabraham.github.io/load-bearing/detect/)**
-does that arithmetic in the browser, on a text you paste. Nothing is uploaded — the model is a
-file beside the page.
+zero, so one unexpected word cannot zero a whole component.
+**[detect.html](https://louisabraham.github.io/load-bearing/detect.html)** does that arithmetic in
+the browser and asks one question of it — is this the component that arrived, or is it one of the
+other nine? Nothing is uploaded; the model is a file beside the page.
 
-**Two priors, because $\pi$ is the one part of the answer that is not in the data.** The share of
-the whole corpus is what the fit itself weighs a component by; the share of the last four weeks is
-what a text written *today* should be judged against, and on the arriving component the two differ
-by a factor of five. The page offers both, and the useful thing is how rarely it matters: past a
-dozen words the likelihood decides and the prior is a rounding. Six words is where you can watch
-it move.
+**No prior.** The components are not equally big — the arriving one is 8% of the window and 39% of
+the last month — and there is no $\pi_c$ in the formula above because weighting by those shares
+would answer *what does a description of 2025 and 2026 usually look like* over the top of the
+question the box actually asks, which is about the text in it. Left out, the ten start level and
+only the words move them. It is a choice and not an absence of one: with a prior, six words that
+say almost nothing come back as the shares; without one, they come back as two to one, which is
+what having almost nothing to go on should look like.
 
-**The probability saturates, and the page says so rather than hiding it.** Every word is counted
-as an independent draw, so sixty of them in agreement put the odds past anything a percentage can
-print, and a description of ordinary length comes back at 100%. What the page reports beside it is
-the gap in nats and each word's share of that gap — the two components' scores differ by a sum over
-the words of the text and by nothing else, so the strip under the answer adds up to the number
-above it. The order and the gap are the reading; the last decimal is not.
+**The answer saturates, and the page says so rather than hiding it.** Every word counts as a
+separate piece of evidence, so sixty of them in agreement put the odds past anything a percentage
+can usefully print, and anything longer than a line or two comes back certain. The page caps what
+it will claim at *over 99%* for that reason, and under the answer it prints the words themselves —
+sized by how much each moved it, red for the ones that make it this vocabulary and black for the
+ones that argue against, in that order. The distance between two components is a sum over the words
+of the text and over nothing else, so the strip is the whole of the reason rather than a selection
+from it.
 
-**It says which vocabulary a text is closest to. It does not say who wrote it.** The ten components
-are ways of writing, fitted with no label of any kind, and the corpus behind them is pull request
-descriptions — a text that is not one is being measured against a ruler made for something else.
+**It reads vocabulary. It does not read authorship.** The ten components are ways of writing,
+fitted with no label of any kind, and the corpus behind them is pull request descriptions — a text
+that is not one is being measured against a ruler made for something else.
 
 ### What is shipped, and what the shipping costs
 
 The board draws 150 words a component. The classifier needs all of them: ten numbers for each of
-the 20,309 words, which is 4 MB of JSON. It is 306 kB instead, written as text one character at a
+the 20,309 words, which is 4 MB of JSON. It is 304 kB instead, written as text one character at a
 time, and the arithmetic on the other end is a lookup and an add.
 
 **The vocabulary, 174 kB of words, is 78 kB.** Sorted, each word is stored as how much of its
@@ -266,16 +269,18 @@ character with the next names a point on a grid nine times finer over the sparse
 commonest words live and where a coarse step is paid once per appearance. A seventh of the present
 entries take the second character.
 
-A grid fitted to the values does worse — 1.2% of descriptions reassigned against 0.11% at the same
-size — and it is worth saying why, because it is the opposite of what fitting a quantiser is for.
-What matters here is not the average error but the largest one: a word written half a million times
-is consulted in every description and its error is systematic, not noise. A fitted grid spends its
-levels where the values are crowded, which is the bottom, and leaves the top coarse.
+A *uniform* grid, which is the opposite of what fitting a quantiser is usually for, and it is worth
+saying why. At one character a number and no escape, a uniform grid misplaces 0.8% of the corpus
+and a grid fitted to the distribution of $E$ misplaces 7 to 10% of it. What matters here is not the
+average error but the largest one: a word written half a million times is consulted in every
+description and its error is systematic, not noise. A fitted grid spends its levels where the
+values are crowded, which is the bottom, and leaves the top coarse. The escape does that job the
+other way round.
 
 **What the precision costs, measured against the exact centres over the whole corpus:** no entry is
-more than 0.034 nats out; 0.11% of descriptions land on a different component, and those are ties —
-the median gap between their top two is 0.02 nats against 15.7 across the corpus; 99.1% of
-descriptions have every reported probability within 0.02 of the exact one, and the worst is 0.26.
+more than 0.034 nats out; 0.054% of descriptions land on a different component, and those are ties —
+the median gap between their top two is 0.04 nats against 15.6 across the corpus; 99.1% of
+descriptions have every reported probability within 0.02 of the exact one, and the worst is 0.25.
 `analyze.py --selftest` reads the file back and fails the build if either half of it stops
 reconstructing the fit.
 
@@ -302,7 +307,7 @@ different, and one of them was chosen by looking at the answer.
 | `LEAD_START`, `LEAD_END` | 2%, 20% | round numbers, wide margins, and they only *check* |
 | `WORDS_LEAD` | 1000 | **arbitrary** round number |
 | `BOT_SUFFIX`, `BOT_LOGIN` | `[bot]`, `-bot`, `copilot` | judgement — what a login says is not a person |
-| `ESCAPE_AT`, `SPLIT` | 80, 10 nats | measured — the pair that costs 0.11% of assignments at 306 kB; §7 |
+| `ESCAPE_AT`, `SPLIT` | 80, 10 nats | measured — the pair that costs 0.054% of assignments at 304 kB; §7 |
 | `TOP_WORDS` | 16 | **arbitrary** — enough to name a component on one line |
 
 **`K = 10` was chosen on the outcome, but from a window rather than a preference.** Below ten the
