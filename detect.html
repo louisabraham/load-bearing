@@ -368,6 +368,9 @@
     margin: 6px 0 0;
     font: 700 2.4rem/1.15 var(--grotesk);
     letter-spacing: -0.04em;
+    /* the word and the line under it, reserved whether or not there is a word yet: `1.15em` is
+       one line of this box's own type, so it holds against the smaller size a phone sets */
+    min-height: calc(1.15em + 1.43rem + 4px);
   }
 
   .verdict .sure {
@@ -382,8 +385,13 @@
     color: var(--accent);
   }
 
-  /* with no answer there is no first line, so the second one is the only one and should not be
-     hung a line below where a heading would have been */
+  /* the message stands where the word will stand rather than a line under an empty space being
+     kept for it */
+  .verdict.none {
+    display: flex;
+    align-items: center;
+  }
+
   .verdict.none .sure {
     margin-top: 0;
   }
@@ -426,8 +434,10 @@
        1280 x 800 laptop -- which is most laptops -- the strip kept five rows of words and the
        description went into a box three lines deep. So the strip is told what it may take and
        the box gets the rest. The words are in order, so what scrolls out of sight is what
-       mattered least, and three rows is most of a description's vocabulary. */
-    max-height: calc(3 * 1.35em);
+       mattered least, and three rows is most of a description's vocabulary. A height and not a
+       ceiling, so the box is the same three rows before the first word arrives as after: the
+       answer holds its shape and the board stops moving under the reader. */
+    height: calc(3 * 1.35em);
     overflow-y: auto;
     display: flex;
     flex-wrap: wrap;
@@ -451,11 +461,17 @@
 
   /* Nothing to read is nothing to draw. An empty meter with both ends labelled, under a heading
      for a strip with no words in it, is three pieces of furniture standing where an answer goes:
-     it reads as an answer that failed to load rather than as a page waiting for a text. */
+     it reads as an answer that failed to load rather than as a page waiting for a text.
+
+     HIDDEN AND NOT REMOVED, though, which is the difference between a thing not being drawn and
+     a thing not being there. Taken out of the flow, the answer's box was two lines tall until
+     the reader pressed something and seven lines tall afterwards, and the difference came out of
+     the text box directly above it -- pressing an example moved every rule on the board. The
+     slot keeps its size and fills it. */
   .tell.blank .meter,
   .tell.blank .ends,
   .tell.blank .of-words {
-    display: none;
+    visibility: hidden;
   }
 
   /* ---------------------------------------------------------------- the narrow board */
