@@ -84,58 +84,41 @@
 
   /* ---------------------------------------------------------------- the field */
 
+  /* ONE COLUMN, and the board next door's twelve are deliberately not here. There the field is
+     doing work -- five columns of prose against seven of chart, a seam the whole board is read
+     across. Here there are two things and they happen in ORDER: a text is given, an answer comes
+     back. Set side by side, the answer's box is empty until the reader has done something and
+     stays half empty afterwards, because an answer is four lines and a text is twenty; the seam
+     was drawing a room nothing was ever going to fill.
+
+     A measure rather than a width: the column is capped where a line of the prose stops being
+     comfortable to read, and centred, so a wide window gives the page air on both sides instead
+     of a longer line. */
   .board {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
+    max-width: 860px;
+    margin: 24px auto;
     border: var(--rule) solid var(--ink);
-    margin: 18px;
   }
 
   .cell {
     border-bottom: var(--rule) solid var(--ink);
     padding: var(--pad);
     min-width: 0;
-    min-height: 0;
     position: relative;
   }
 
-  .cell.head {
-    grid-column: span 5;
-  }
-
-  /* the sentence is a sentence and not a caption, so it is centred against the title rather than
-     hung from the top of the box with the leftover printed underneath */
-  .cell.what {
-    grid-column: span 7;
-    border-left: var(--rule) solid var(--ink);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-
-  /* the seam at five-twelfths, as next door: what is asked on the left of it, what came back on
-     the right */
-  .cell.ask {
-    grid-column: span 5;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .cell.tell {
-    grid-column: span 7;
-    border-left: var(--rule) solid var(--ink);
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* the last content row and the footer share one rule rather than printing two */
   .cell.ask,
+  .cell.tell {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* the last box and the footer share one rule rather than printing two */
   .cell.tell {
     border-bottom: 0;
   }
 
   .cell.foot {
-    grid-column: span 12;
     border-top: var(--rule) solid var(--ink);
     border-bottom: 0;
     padding: 10px 18px;
@@ -155,7 +138,7 @@
   }
 
   h1 {
-    margin: 0;
+    margin: 0 0 12px;
     font: 700 clamp(1.45rem, 3.1vw, 2.35rem)/1.5 var(--grotesk);
     letter-spacing: -0.04em;
     text-transform: uppercase;
@@ -170,7 +153,6 @@
 
   .standfirst {
     margin: 0;
-    max-width: 74ch;
     font: 500 clamp(1rem, 1.55vw, 1.2rem)/1.28 var(--grotesk);
     letter-spacing: -0.02em;
   }
@@ -205,9 +187,8 @@
   /* The text is the data on this board, so it is set in the face the data is set in everywhere
      else -- and a pull request description is written in a box like this one to begin with. */
   textarea {
-    flex: 1;
     width: 100%;
-    min-height: 200px;
+    height: 210px;
     margin-top: 8px;
     padding: 12px;
     border: var(--rule) solid var(--ink);
@@ -215,9 +196,10 @@
     background: var(--ground);
     color: var(--ink);
     font: 400 13px/1.55 var(--mono);
-    /* No handle, because there is nothing behind it: the box is a flex child that grows to its
-       cell, so a height dragged onto it is overridden by the layout on the next pass and the
-       corner offers a gesture that cannot work. */
+    /* A fixed height and no handle, so that the answer stays on the screen. A box that grew with
+       its text would push the answer below the fold for exactly the descriptions worth asking
+       about -- the long ones -- and the reader would have to scroll back to a reading that had
+       already been taken. Twelve lines, and the rest scrolls inside. */
     resize: none;
   }
 
@@ -316,10 +298,10 @@
     color: var(--accent);
   }
 
-  /* the empty slot is a rule, not a colour: light enough to read as a place where something
-     goes and dark enough to be a mark on the page */
-  .verdict.none b {
-    color: #cfcfcf;
+  /* with no answer there is no first line, so the second one is the only one and should not be
+     hung a line below where a heading would have been */
+  .verdict.none .sure {
+    margin-top: 0;
   }
 
   /* the reading, drawn once: how much of the answer is this vocabulary and how much is the other
@@ -388,25 +370,6 @@
 
   /* One column below the seam's width. The two cells are a pair -- what is pasted and what came
      of it -- so they stack in that order and each takes the full twelve. */
-  @media (max-width: 900px) {
-
-    .cell.head,
-    .cell.what,
-    .cell.ask,
-    .cell.tell {
-      grid-column: span 12;
-      border-left: 0;
-    }
-
-    .cell.ask {
-      border-bottom: var(--rule) solid var(--ink);
-    }
-
-    textarea {
-      min-height: 180px;
-    }
-  }
-
   @media (max-width: 620px) {
     .board {
       margin: 10px;
@@ -700,11 +663,9 @@
   function build() {
     app.innerHTML = `<div class="board">
     <div class="cell head">
-      <h1>Is this the <em>load-bearing</em> vocabulary?</h1>
-    </div>
-    <div class="cell what">
+      <h1>Is this the <em>load-bearing</em> vocabulary of Claude?</h1>
       <p class="standfirst">We <a href="index.html">analysed</a> the vocabulary of pull requests
-        over the last two years to identify a distinctive cluster that grew only recently. Paste
+        over the last two years to identify a distinctive cluster that grew only recently and that is strongly associated with AI expressions. Paste
         some text below to know whether it belongs to that cluster.</p>
     </div>
     <div class="cell ask">
@@ -729,7 +690,7 @@
       <div class="meter"><i style="width:0"></i></div>
       <div class="ends"><span class="label">this cluster</span>
         <span class="label">the others</span></div>
-      <span class="label of-words">the words that decided it</span>
+      <span class="label of-words">the words that decided it · red for this cluster</span>
       <div class="strip"></div>
     </div>
     <div class="cell foot"><span class="label">generated ${M.generated}</span>
@@ -773,13 +734,14 @@
     /* Nothing to answer about is not the same as a No. With no words the ten scores are all
        zero, the ten probabilities are a tenth apiece, and printing "no, 90% sure" off the back
        of that would be the page inventing an answer out of the shape of its own arithmetic. */
-    /* The slot always holds the same three shapes -- a word, a rule under it, and nothing else
-       -- so an empty box gets a dash rather than a sentence about not having an answer. A
-       sentence set at the size of the answer reads as the answer. */
+    /* An answer is a word set at the size of a heading; anything the page says INSTEAD of an
+       answer is set as what it is, which is a note in the second voice -- the one the line under
+       the answer is already in. A sentence set at the size of the answer reads as the answer. */
     if (!r.known) {
       verdict.className = "verdict none";
-      verdict.innerHTML = "<b>—</b>" + (r.all.length
-        ? '<span class="sure">none of these words is in the vocabulary</span>' : "");
+      verdict.innerHTML = `<span class="sure">${r.all.length
+        ? "None of these words is in the vocabulary."
+        : "Enter some text first."}</span>`;
       bar.style.width = "0";
       strip.innerHTML = "";
       return;

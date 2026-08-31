@@ -166,15 +166,16 @@ def test_an_empty_box_is_not_a_no(page):
     page inventing an answer out of the shape of its own arithmetic."""
     page.fill("#text", "")
     assert page.locator(".verdict.none").count() == 1
-    assert page.locator(".verdict b").inner_text() == "—", "an empty box printed a word"
+    assert page.locator(".verdict b").count() == 0, "an empty box printed an answer"
+    assert "Enter some text first" in page.locator(".verdict").text_content()
     assert page.locator(".strip span").count() == 0
     assert page.locator(".meter i").evaluate("e => e.style.width") == "0px"
 
 
 def test_words_the_vocabulary_does_not_have_are_not_an_answer_either(page):
     page.fill("#text", "zzqqxxwv frobnicatoriumly wugglesnorf")
-    assert page.locator(".verdict b").inner_text() == "—"
-    assert "none of these words" in page.locator(".verdict").text_content()
+    assert page.locator(".verdict b").count() == 0
+    assert "None of these words" in page.locator(".verdict").text_content()
 
 
 def test_the_strip_keeps_the_objections(page):
