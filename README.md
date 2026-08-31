@@ -225,8 +225,10 @@ zero, so one unexpected word cannot zero a whole component.
 **[detect.html](https://louisabraham.github.io/load-bearing/detect.html)** does that arithmetic in
 the browser and asks one question of it — is this the component that arrived, or is it one of the
 other nine? Nothing is uploaded; the model is a file beside the page. A GitHub link can be pasted
-instead of the text, and the browser fetches it from GitHub's API itself, which answers a page
-directly and sixty times an hour without a login.
+instead of the text — a pull request, an issue, or any of the three kinds of comment — and the
+browser fetches it from GitHub's API itself, which answers a page directly and sixty times an hour
+without a login. A link that loads goes into the page's own address as `?url=`, so a reading can be
+sent to somebody and read back on the way in.
 
 **No prior.** The components are not equally big — the arriving one is 8% of the window and 39% of
 the last month — and there is no $\pi_c$ in the formula above because weighting by those shares

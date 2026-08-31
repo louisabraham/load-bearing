@@ -56,9 +56,30 @@
     font-weight: 700;
   }
 
+  /* A ring outside a box that already has a two-pixel rule is two rules with a white gap between
+     them, which is what a focused field looked like. Everything on this board that a caret can
+     enter is drawn as a box, so focus colours the box's OWN rule and draws nothing extra; the
+     things that are not boxes -- a link in the prose -- keep the ring, because they have no rule
+     of their own to colour. */
   :focus-visible {
-    outline: 3px solid var(--accent);
-    outline-offset: 2px;
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  textarea:focus-visible,
+  .fetch input:focus-visible,
+  button:focus-visible {
+    outline: none;
+  }
+
+  textarea:focus,
+  .fetch:focus-within,
+  button:focus-visible {
+    border-color: var(--accent);
+  }
+
+  .fetch:focus-within button {
+    border-left-color: var(--accent);
   }
 
   /* ---------------------------------------------------------------- the field */
@@ -194,7 +215,10 @@
     background: var(--ground);
     color: var(--ink);
     font: 400 13px/1.55 var(--mono);
-    resize: vertical;
+    /* No handle, because there is nothing behind it: the box is a flex child that grows to its
+       cell, so a height dragged onto it is overridden by the layout on the next pass and the
+       corner offers a gesture that cannot work. */
+    resize: none;
   }
 
   textarea::placeholder {
@@ -263,8 +287,10 @@
     cursor: pointer;
   }
 
+  /* grey and not the accent: the accent means the answer on this board, and a button that turned
+     the colour of the answer under the pointer was saying something it does not know */
   button:hover {
-    background: var(--fill);
+    background: #f2f2f2;
   }
 
   /* ---------------------------------------------------------------- the answer */
@@ -290,9 +316,10 @@
     color: var(--accent);
   }
 
-  .verdict.none {
-    color: var(--muted);
-    font-weight: 500;
+  /* the empty slot is a rule, not a colour: light enough to read as a place where something
+     goes and dark enough to be a mark on the page */
+  .verdict.none b {
+    color: #cfcfcf;
   }
 
   /* the reading, drawn once: how much of the answer is this vocabulary and how much is the other
@@ -647,8 +674,25 @@
     const body = (await res.json()).body || "";
     if (!body.trim()) return say("that one has no text in it", true);
     say(`${fmt(tokens(body).length)} words loaded`);
+    // the address before the box, so that a page showing the text is never a page whose address
+    // has not caught up with it
+    remember(field.value.trim());
     app.querySelector("#text").value = body;
     paint();
+  }
+
+  /* A loaded link goes into this page's own address, so what is on the screen can be sent to
+     somebody -- and the same address read back is how it arrives. Only on a load that worked:
+     an address holding a link that answered nothing is worse than no address at all.
+
+     `replaceState` and not `pushState`, because loading a link is not somewhere the reader went
+     and the back button should still be the way out of the page. In a try, because a page opened
+     from a checkout is a `file://` page and a browser will not let one rewrite its address. */
+  function remember(link) {
+    try {
+      history.replaceState(null, "",
+        link ? `${location.pathname}?url=${encodeURIComponent(link)}` : location.pathname);
+    } catch { /* a file:// page keeps the address it was opened with */ }
   }
 
   /* ------------------------------------------------------------------ the page */
@@ -676,29 +720,30 @@
         autocapitalize="off" placeholder="Paste a pull request description here."></textarea>
       <div class="tries"><span class="label">or try</span>${TRIES.map((t, i) =>
       `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
-      <p class="note">Nothing you paste is sent anywhere: the whole model is in
-        <a href="model.js">one file beside this page</a> and the arithmetic happens in your
-        browser. A link is the one exception — your browser asks GitHub for it directly, which
-        it will do sixty times an hour without a login.</p>
+      <p class="note">Nothing you paste is sent anywhere: the model is evaluated in your
+        browser.</p>
     </div>
     <div class="cell tell">
       <span class="label">the answer</span>
       <p class="verdict none"></p>
       <div class="meter"><i style="width:0"></i></div>
-      <div class="ends"><span class="label">this vocabulary</span>
-        <span class="label">the other nine</span></div>
+      <div class="ends"><span class="label">this cluster</span>
+        <span class="label">the others</span></div>
       <span class="label of-words">the words that decided it</span>
       <div class="strip"></div>
     </div>
-    <div class="cell foot">
-      <span class="label">generated ${M.generated}</span>
-      <span class="label"><a href="index.html">the board</a> ·
-        <a href="https://github.com/louisabraham/load-bearing">the code</a></span>
+    <div class="cell foot"><span class="label">generated ${M.generated}</span>
+      <span class="label">Made with ❤️ by <a href="https://louisabraham.github.io/">Louis
+          Abraham</a></span>
     </div>
   </div>`;
 
     const box = app.querySelector("#text");
-    box.addEventListener("input", paint);
+    box.addEventListener("input", () => {
+      // what is in the box is no longer what the address says is in the box
+      if (location.search) remember("");
+      paint();
+    });
     app.querySelector(".load").addEventListener("click", load);
     // a link is pasted and the reader presses return, which is what return is for in a field
     // with one button beside it
@@ -711,8 +756,9 @@
     app.querySelectorAll(".try").forEach(b => b.addEventListener("click", () => {
       box.value = TRIES[+b.dataset.i][1];
       app.querySelector(".said").textContent = "";
+      app.querySelector("#url").value = "";
+      remember("");
       paint();
-      box.focus();
     }));
     paint();
   }
@@ -727,11 +773,13 @@
     /* Nothing to answer about is not the same as a No. With no words the ten scores are all
        zero, the ten probabilities are a tenth apiece, and printing "no, 90% sure" off the back
        of that would be the page inventing an answer out of the shape of its own arithmetic. */
+    /* The slot always holds the same three shapes -- a word, a rule under it, and nothing else
+       -- so an empty box gets a dash rather than a sentence about not having an answer. A
+       sentence set at the size of the answer reads as the answer. */
     if (!r.known) {
       verdict.className = "verdict none";
-      verdict.textContent = r.all.length
-        ? "None of these words is in the vocabulary."
-        : "Nothing to read yet.";
+      verdict.innerHTML = "<b>—</b>" + (r.all.length
+        ? '<span class="sure">none of these words is in the vocabulary</span>' : "");
       bar.style.width = "0";
       strip.innerHTML = "";
       return;
@@ -774,6 +822,12 @@
     if (VOCAB.length !== M.words) return fail();
     E = readWeights(M.weights);
     build();
+    // an address may arrive with the link already in it, which is how a reading is shared
+    const asked = new URLSearchParams(location.search).get("url");
+    if (asked) {
+      app.querySelector("#url").value = asked;
+      load();
+    }
   };
   tag.onerror = fail;
   document.head.appendChild(tag);

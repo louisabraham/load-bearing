@@ -166,14 +166,15 @@ def test_an_empty_box_is_not_a_no(page):
     page inventing an answer out of the shape of its own arithmetic."""
     page.fill("#text", "")
     assert page.locator(".verdict.none").count() == 1
-    assert page.locator(".verdict b").count() == 0
+    assert page.locator(".verdict b").inner_text() == "—", "an empty box printed a word"
     assert page.locator(".strip span").count() == 0
     assert page.locator(".meter i").evaluate("e => e.style.width") == "0px"
 
 
 def test_words_the_vocabulary_does_not_have_are_not_an_answer_either(page):
     page.fill("#text", "zzqqxxwv frobnicatoriumly wugglesnorf")
-    assert "None of these words" in page.locator(".verdict").inner_text()
+    assert page.locator(".verdict b").inner_text() == "—"
+    assert "none of these words" in page.locator(".verdict").text_content()
 
 
 def test_the_strip_keeps_the_objections(page):
@@ -240,15 +241,55 @@ def answers(page, payload, status=200, headers=None):
     )
     page.fill("#url", "https://github.com/o/r/pull/12")
     page.click(".load")
+    # the empty slot prints a dash of its own, so the verdict appearing is not the signal: what
+    # says the fetch is over is text in the box or a failure printed beside it
+    page.wait_for_function(
+        "() => document.querySelector('#text').value.length > 0"
+        " || document.querySelector('.said').classList.contains('bad')"
+    )
 
 
 def test_a_link_fills_the_box_and_is_answered(page):
     """The link is a second way into the same box, so what comes back is classified the same."""
     answers(page, {"body": ARRIVING})
-    page.wait_for_selector(".verdict b")
     assert page.input_value("#text") == ARRIVING
     assert page.locator(".verdict b").inner_text() == "Yes."
     assert "words loaded" in page.locator(".said").text_content()
+
+
+def test_a_loaded_link_goes_into_the_address(page):
+    """What is on the screen can be sent to somebody, which is the point of putting it there --
+    and typing over it takes it out again, because an address describing a text nobody is looking
+    at is worse than none."""
+    answers(page, {"body": ARRIVING})
+    assert "url=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Fpull%2F12" in page.url
+    page.fill("#text", "something else entirely")
+    assert "?" not in page.url
+
+
+def test_an_address_with_a_link_in_it_loads_the_link(browser, detect):
+    """The other half of the same thing: the address is read back on the way in."""
+    page = browser.new_page(viewport=BOARD, device_scale_factor=RETINA)
+    page.route(
+        "https://api.github.com/**",
+        lambda route: route.fulfill(
+            status=200,
+            headers={"content-type": "application/json"},
+            body=json.dumps({"body": ARRIVING}),
+        ),
+    )
+    page.goto(f"{detect}?url=https://github.com/o/r/pull/12%23issuecomment-9")
+    page.wait_for_function("() => document.querySelector('#text').value.length > 0")
+    got, said = page.input_value("#text"), page.locator(".said").text_content()
+    page.close()
+    assert got == ARRIVING
+    assert "words loaded" in said
+
+
+def test_a_link_that_fails_leaves_the_address_alone(page):
+    """An address holding a link that answered nothing is worse than no address at all."""
+    answers(page, {}, 404)
+    assert "?" not in page.url
 
 
 @pytest.mark.parametrize(
@@ -264,7 +305,6 @@ def test_a_link_that_does_not_work_says_which_way_it_failed(page, status, header
     """The rate limit is the failure a reader will actually hit, and `wait` is the right advice
     where `try again` is not, so the three are told apart rather than answered as one."""
     answers(page, payload, status, headers)
-    page.wait_for_selector(".said.bad")
     assert said in page.locator(".said").text_content()
     assert page.input_value("#text") == "", "a failed fetch emptied or overwrote the box"
 
