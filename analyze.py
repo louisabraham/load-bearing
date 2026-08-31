@@ -47,7 +47,6 @@ WORDS_LISTED = 150  # per component; the cut is arbitrary and `tail` says so
 WORDS_LEAD = 1000  # for the component the page opens on; see `pack`
 TREND_WEEKS = 12  # weeks the reported trend is fitted over
 # What `detect.html` reads, and how it is written down. See `classifier`.
-TOP_WORDS = 16  # a component's most characteristic words, to name it by on the detect page
 ESCAPE_AT = 80  # codes above this one take a second character; see `encode_weights`
 SPLIT = 10.0  # nats, where the one-character grid ends and the two-character one begins
 # Every printable character a JavaScript string may hold between double quotes without an
@@ -694,13 +693,22 @@ def decode_weights(text, k, V, grid, esc=ESCAPE_AT, alphabet=ALPHABET):
     return out.reshape(V, k).T
 
 
-def classifier(vocab, M, order, comps, meta):
+def classifier(vocab, M, order, meta):
     """Everything `detect.html` needs, and nothing else.
 
     Nothing else is the point of a second file. The shares are not here because the page holds no
-    prior; the weekly counts are not here because the page draws no curve; nine of the ten word
-    lists are not here because the page asks one question, which is whether a text is the
-    arriving component or is not. What is left is the centres and the words they are over.
+    prior, the weekly counts because the page draws no curve, the word lists because the page
+    names nothing. What is left is the centres and the words they are over.
+
+    TEN NUMBERS A WORD AND NOT NINE, and it is worth saying why, because nine is what the answer
+    mathematically needs. The posterior depends only on the differences: P(0 | x) is
+    1 / (1 + sum over c of exp((L_c - L_0) . x)), so one of the ten rows is redundant and the
+    model could be written as nine. It is not, because it would be BIGGER. The ten rows are
+    log(1 + M / SMOOTH), which is exactly zero wherever a component never wrote the word -- a
+    quarter of the entries -- and packs into one character for 90% of the rest. The nine
+    differences have no such floor and spread over twice the range: 7% of them are zero and 29%
+    need the second character. Measured at the same precision, ten numbers cost 11.02 characters
+    a word and nine cost 11.65.
     """
     text, grid = encode_weights(M[order])
     total = M[order].sum(axis=1) + SMOOTH * len(vocab)
@@ -714,9 +722,6 @@ def classifier(vocab, M, order, comps, meta):
         # page adds it once for every word of the text it recognises, and the table holds only
         # what each word adds to it.
         "floor": [round(float(v), 6) for v in np.log(SMOOTH) - np.log(total)],
-        # the arriving component's most characteristic words, which is how the page names the
-        # thing it is asking about. Component 0 is that component: `order` puts it first.
-        "top": comps[0]["word_list"][:TOP_WORDS],
         "vocab": front_coded(vocab),
         "weights": text,
     }
@@ -856,7 +861,6 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
             vocab,
             M,
             order,
-            comps,
             {"generated": date.today().isoformat(), "seed": int(seed), "k": len(comps)},
         ),
     }

@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Is this the load-bearing vocabulary?</title>
+<title>Is this PR AI-generated?</title>
 <!-- The site's counter, configured once at the root of the domain, exactly as the board loads
      it. The path is root-relative and stays that way: this page is served from
      louisabraham.github.io/load-bearing/, so it resolves, and a fork or a checkout finds nothing
@@ -79,7 +79,17 @@
   }
 
   .cell.head {
-    grid-column: span 12;
+    grid-column: span 5;
+  }
+
+  /* the sentence is a sentence and not a caption, so it is centred against the title rather than
+     hung from the top of the box with the leftover printed underneath */
+  .cell.what {
+    grid-column: span 7;
+    border-left: var(--rule) solid var(--ink);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 
   /* the seam at five-twelfths, as next door: what is asked on the left of it, what came back on
@@ -124,7 +134,7 @@
   }
 
   h1 {
-    margin: 0 0 12px;
+    margin: 0;
     font: 700 clamp(1.45rem, 3.1vw, 2.35rem)/1.5 var(--grotesk);
     letter-spacing: -0.04em;
     text-transform: uppercase;
@@ -176,7 +186,7 @@
   textarea {
     flex: 1;
     width: 100%;
-    min-height: 230px;
+    min-height: 200px;
     margin-top: 8px;
     padding: 12px;
     border: var(--rule) solid var(--ink);
@@ -189,6 +199,46 @@
 
   textarea::placeholder {
     color: var(--muted);
+  }
+
+  /* The link field and its button are one object, so they are drawn as one: a single hairline
+     box with a seam down it rather than two boxes with a gap, which read as two controls that
+     happen to be near each other. */
+  .fetch {
+    display: flex;
+    margin-top: 8px;
+    border: var(--rule) solid var(--ink);
+  }
+
+  .fetch input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 12px/1.4 var(--mono);
+  }
+
+  .fetch input::placeholder {
+    color: var(--muted);
+  }
+
+  .fetch button {
+    border: 0;
+    border-left: var(--rule) solid var(--ink);
+  }
+
+  /* what the fetch is doing, in the place it will be read from -- and it holds its line whether
+     or not there is anything in it, so the box below does not step down the page on a keystroke */
+  .said {
+    margin: 6px 0 0;
+    min-height: 1.3em;
+  }
+
+  .said.bad {
+    color: var(--accent);
   }
 
   .tries {
@@ -298,12 +348,23 @@
     color: var(--ink);
   }
 
+  /* Nothing to read is nothing to draw. An empty meter with both ends labelled, under a heading
+     for a strip with no words in it, is three pieces of furniture standing where an answer goes:
+     it reads as an answer that failed to load rather than as a page waiting for a text. */
+  .tell.blank .meter,
+  .tell.blank .ends,
+  .tell.blank .of-words {
+    display: none;
+  }
+
   /* ---------------------------------------------------------------- the narrow board */
 
   /* One column below the seam's width. The two cells are a pair -- what is pasted and what came
      of it -- so they stack in that order and each takes the full twelve. */
   @media (max-width: 900px) {
 
+    .cell.head,
+    .cell.what,
     .cell.ask,
     .cell.tell {
       grid-column: span 12;
@@ -528,25 +589,97 @@
     return out;
   }
 
+  /* ------------------------------------------------------------------ a link */
+
+  /* GitHub's API answers a browser directly -- it sends `Access-Control-Allow-Origin: *` -- so a
+     link can be turned into the text it points at with no server of ours in between. Sixty an
+     hour from one address without a login, which is the whole of what this costs.
+
+     What a link can be: a pull request or an issue, whose body is the description; or a comment
+     on either, which is the fragment after the `#`. The three fragment shapes are the three
+     kinds of comment GitHub writes -- a plain one on the conversation, one on a line of the
+     diff, and the top of a review -- and each is a different endpoint. Anything else falls
+     through to the body of the thing itself, which is what a bare link means. */
+  function endpoint(link) {
+    const m = link.trim().match(
+      /^https?:\/\/(?:www\.)?github\.com\/([^/\s]+)\/([^/\s]+)\/(pull|issues)\/(\d+)(?:[^#]*#(\S+))?/);
+    if (!m) return null;
+    const [, owner, repo, kind, num, frag] = m;
+    const base = `https://api.github.com/repos/${owner}/${repo}`;
+    let f;
+    if (frag && (f = frag.match(/^issuecomment-(\d+)$/))) return `${base}/issues/comments/${f[1]}`;
+    if (frag && (f = frag.match(/^discussion_r(\d+)$/))) return `${base}/pulls/comments/${f[1]}`;
+    if (frag && (f = frag.match(/^pullrequestreview-(\d+)$/)))
+      return `${base}/pulls/${num}/reviews/${f[1]}`;
+    return kind === "pull" ? `${base}/pulls/${num}` : `${base}/issues/${num}`;
+  }
+
+  async function load() {
+    const field = app.querySelector("#url"), said = app.querySelector(".said");
+    const say = (text, bad) => {
+      said.textContent = text;
+      said.classList.toggle("bad", !!bad);
+    };
+    const url = endpoint(field.value);
+    if (!field.value.trim()) return say("");
+    if (!url) return say("not a github pull request, issue or comment link", true);
+    say("asking github…");
+    let res;
+    try {
+      res = await fetch(url, { headers: { accept: "application/vnd.github+json" } });
+    } catch {
+      return say("github could not be reached", true);
+    }
+    if (res.status === 404) return say("no such thing, or the repository is private", true);
+    /* The rate limit is the one failure a reader will actually hit, and it is worth naming: it
+       is per address and it resets on the hour, so "try again" is bad advice and "wait" is good.
+       Read out of the body rather than out of `x-ratelimit-remaining`, because a header on a
+       cross-origin response is only legible if the server said it may be -- GitHub does say so,
+       and a page that would answer wrongly if it ever stopped is a page resting on somebody
+       else's header list. The message is in the JSON either way. */
+    if (res.status === 403 || res.status === 429) {
+      const why = await res.json().catch(() => ({}));
+      return say(/rate limit/i.test(why.message || "")
+        ? "github's limit of sixty an hour is used up for this address; it resets on the hour"
+        : "github refused that one", true);
+    }
+    if (!res.ok) return say(`github answered ${res.status}`, true);
+    const body = (await res.json()).body || "";
+    if (!body.trim()) return say("that one has no text in it", true);
+    say(`${fmt(tokens(body).length)} words loaded`);
+    app.querySelector("#text").value = body;
+    paint();
+  }
+
   /* ------------------------------------------------------------------ the page */
 
   function build() {
     app.innerHTML = `<div class="board">
     <div class="cell head">
       <h1>Is this the <em>load-bearing</em> vocabulary?</h1>
-      <p class="standfirst">The board next door splits GitHub pull request descriptions into
-        ${M.k} ways of writing, one of which arrived in 2026 and is now most of them. Paste a
-        description here and the same fit says whether it is that one.</p>
+    </div>
+    <div class="cell what">
+      <p class="standfirst">We <a href="index.html">analysed</a> the vocabulary of pull requests
+        over the last two years to identify a distinctive cluster that grew only recently. Paste
+        some text below to know whether it belongs to that cluster.</p>
     </div>
     <div class="cell ask">
       <label class="label" for="text">the text</label>
+      <div class="fetch">
+        <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
+          autocapitalize="off" aria-label="a github pull request, issue or comment link"
+          placeholder="…or a github pull request or comment link">
+        <button type="button" class="load">load</button>
+      </div>
+      <p class="said label" role="status"></p>
       <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off"
         autocapitalize="off" placeholder="Paste a pull request description here."></textarea>
       <div class="tries"><span class="label">or try</span>${TRIES.map((t, i) =>
       `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
-      <p class="note">Nothing is sent anywhere. The whole model — ${fmt(M.words)} words,
-        ${M.k} numbers each — is in <a href="model.js">one file beside this page</a>, and the
-        arithmetic happens in your browser.</p>
+      <p class="note">Nothing you paste is sent anywhere: the whole model is in
+        <a href="model.js">one file beside this page</a> and the arithmetic happens in your
+        browser. A link is the one exception — your browser asks GitHub for it directly, which
+        it will do sixty times an hour without a login.</p>
     </div>
     <div class="cell tell">
       <span class="label">the answer</span>
@@ -554,13 +687,8 @@
       <div class="meter"><i style="width:0"></i></div>
       <div class="ends"><span class="label">this vocabulary</span>
         <span class="label">the other nine</span></div>
-      <span class="label">the words that decided it</span>
+      <span class="label of-words">the words that decided it</span>
       <div class="strip"></div>
-      <p class="note">That way of writing is <code>${esc(M.top.slice(0, 8).join(", "))}</code> —
-        <a href="index.html">the board</a> is about it. This reads vocabulary and nothing else, so
-        it can say a text is written like that cluster and never who wrote it; and because every
-        word counts as a separate piece of evidence, anything longer than a line or two comes back
-        certain.</p>
     </div>
     <div class="cell foot">
       <span class="label">generated ${M.generated}</span>
@@ -571,8 +699,18 @@
 
     const box = app.querySelector("#text");
     box.addEventListener("input", paint);
+    app.querySelector(".load").addEventListener("click", load);
+    // a link is pasted and the reader presses return, which is what return is for in a field
+    // with one button beside it
+    app.querySelector("#url").addEventListener("keydown", ev => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        load();
+      }
+    });
     app.querySelectorAll(".try").forEach(b => b.addEventListener("click", () => {
       box.value = TRIES[+b.dataset.i][1];
+      app.querySelector(".said").textContent = "";
       paint();
       box.focus();
     }));
@@ -584,6 +722,7 @@
     const verdict = app.querySelector(".verdict");
     const strip = app.querySelector(".strip");
     const bar = app.querySelector(".meter i");
+    app.querySelector(".cell.tell").classList.toggle("blank", !r.known);
 
     /* Nothing to answer about is not the same as a No. With no words the ten scores are all
        zero, the ten probabilities are a tenth apiece, and printing "no, 90% sure" off the back

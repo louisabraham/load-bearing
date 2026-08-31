@@ -224,7 +224,9 @@ which is multinomial naive Bayes with these centres as its class-conditional dis
 zero, so one unexpected word cannot zero a whole component.
 **[detect.html](https://louisabraham.github.io/load-bearing/detect.html)** does that arithmetic in
 the browser and asks one question of it — is this the component that arrived, or is it one of the
-other nine? Nothing is uploaded; the model is a file beside the page.
+other nine? Nothing is uploaded; the model is a file beside the page. A GitHub link can be pasted
+instead of the text, and the browser fetches it from GitHub's API itself, which answers a page
+directly and sixty times an hour without a login.
 
 **No prior.** The components are not equally big — the arriving one is 8% of the window and 39% of
 the last month — and there is no $\pi_c$ in the formula above because weighting by those shares
@@ -258,6 +260,17 @@ predecessor it repeats and then the rest of itself — the trie of the vocabular
 order a walk of it visits, where the shared prefix is the path already climbed. The repeat count is
 a capital letter, and that is why it can run without separators: a word is lowercased before it is
 ever counted, so the capital that opens a word is also what ends the one before it.
+
+**Ten numbers a word, where nine would do.** The posterior depends only on the differences: it is
+$1 / (1 + \sum_c \exp((L_c - L_0) \cdot x))$, so one of the ten rows is redundant and the model
+is exactly expressible in nine. It is shipped as ten because nine is *bigger*. The ten rows are
+$\log(1 + M/\texttt{SMOOTH})$, which is exactly zero wherever a component never wrote the word — a
+quarter of the entries — and fits one character for 90% of the rest. The nine differences have no
+such floor and spread over twice the range: 7% of them are zero and 29% need a second character.
+Measured at the same precision, ten numbers cost 11.02 characters a word and nine cost 11.65. The
+approximations that would really shrink it are not the same model: pooling the other nine into one
+distribution costs 12% of the corpus its answer, 3% even after the best single correction, and a
+logistic regression fitted to imitate the fit — one number a word — still differs on 1%.
 
 **The weights, 203,090 numbers, are 226 kB.** What is stored is not $\log W$ but
 $E = \log(1 + M/\texttt{SMOOTH})$, where $M$ is the appearances that component holds of that word
@@ -308,7 +321,6 @@ different, and one of them was chosen by looking at the answer.
 | `WORDS_LEAD` | 1000 | **arbitrary** round number |
 | `BOT_SUFFIX`, `BOT_LOGIN` | `[bot]`, `-bot`, `copilot` | judgement — what a login says is not a person |
 | `ESCAPE_AT`, `SPLIT` | 80, 10 nats | measured — the pair that costs 0.054% of assignments at 304 kB; §7 |
-| `TOP_WORDS` | 16 | **arbitrary** — enough to name a component on one line |
 
 **`K = 10` was chosen on the outcome, but from a window rather than a preference.** Below ten the
 component is a mixture: at `k = 8` the leading component's own top twenty carries WebKit, nixos and

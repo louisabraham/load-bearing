@@ -199,6 +199,76 @@ def test_the_strip_points_the_same_way_whichever_the_answer_is(page):
     assert page.locator(".strip span.against").count() > 0
 
 
+# What a link may be, and what GitHub is asked for it. The fragment is the whole of the
+# difference between a description and a comment on it, and GitHub writes three kinds of comment.
+LINKS = [
+    ("https://github.com/o/r/pull/12", "https://api.github.com/repos/o/r/pulls/12"),
+    ("https://github.com/o/r/issues/12", "https://api.github.com/repos/o/r/issues/12"),
+    ("https://www.github.com/o/r/pull/12", "https://api.github.com/repos/o/r/pulls/12"),
+    ("https://github.com/o/r/pull/12/commits/abc", "https://api.github.com/repos/o/r/pulls/12"),
+    (
+        "https://github.com/o/r/pull/12#issuecomment-456",
+        "https://api.github.com/repos/o/r/issues/comments/456",
+    ),
+    (
+        "https://github.com/o/r/pull/12/files#discussion_r789",
+        "https://api.github.com/repos/o/r/pulls/comments/789",
+    ),
+    (
+        "https://github.com/o/r/pull/12#pullrequestreview-99",
+        "https://api.github.com/repos/o/r/pulls/12/reviews/99",
+    ),
+    ("https://gitlab.com/o/r/pull/12", None),
+    ("not a link at all", None),
+    ("https://github.com/o/r", None),
+]
+
+
+@pytest.mark.parametrize("link,want", LINKS)
+def test_a_link_names_the_thing_github_is_asked_for(page, link, want):
+    assert page.evaluate("l => endpoint(l)", link) == want
+
+
+def answers(page, payload, status=200, headers=None):
+    page.route(
+        "https://api.github.com/**",
+        lambda route: route.fulfill(
+            status=status,
+            headers={"content-type": "application/json", **(headers or {})},
+            body=json.dumps(payload),
+        ),
+    )
+    page.fill("#url", "https://github.com/o/r/pull/12")
+    page.click(".load")
+
+
+def test_a_link_fills_the_box_and_is_answered(page):
+    """The link is a second way into the same box, so what comes back is classified the same."""
+    answers(page, {"body": ARRIVING})
+    page.wait_for_selector(".verdict b")
+    assert page.input_value("#text") == ARRIVING
+    assert page.locator(".verdict b").inner_text() == "Yes."
+    assert "words loaded" in page.locator(".said").text_content()
+
+
+@pytest.mark.parametrize(
+    "status,headers,payload,said",
+    [
+        (404, None, {}, "no such thing"),
+        (403, None, {"message": "API rate limit exceeded for 1.2.3.4."}, "sixty an hour"),
+        (403, None, {"message": "Must have push access."}, "refused that one"),
+        (200, None, {"body": "   "}, "no text in it"),
+    ],
+)
+def test_a_link_that_does_not_work_says_which_way_it_failed(page, status, headers, payload, said):
+    """The rate limit is the failure a reader will actually hit, and `wait` is the right advice
+    where `try again` is not, so the three are told apart rather than answered as one."""
+    answers(page, payload, status, headers)
+    page.wait_for_selector(".said.bad")
+    assert said in page.locator(".said").text_content()
+    assert page.input_value("#text") == "", "a failed fetch emptied or overwrote the box"
+
+
 @pytest.mark.parametrize("width", [320, 390, 820, 1400])
 def test_nothing_scrolls_sideways(browser, detect, width):
     page = browser.new_page(viewport={"width": width, "height": 844}, device_scale_factor=RETINA)
