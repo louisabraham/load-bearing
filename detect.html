@@ -359,6 +359,36 @@
     background: #f2f2f2;
   }
 
+  /* ---------------------------------------------------------------- what scrolls */
+
+  /* Two boxes on this board scroll inside themselves -- the text, and the tail of the strip --
+     and the browser draws each a scrollbar in whatever it thinks a scrollbar looks like:
+     rounded, grey, floating, and on a Mac not drawn at all until it is touched. Nothing else on
+     this page is rounded, grey, or dependent on being touched first.
+
+     So they are hidden, which is what the board next door does with the one on its column: a
+     rule the page cannot draw in its own terms is a rule the page should not draw. Styling it
+     instead was tried and is worse than either -- Chrome takes `scrollbar-width` over the
+     pseudo-elements whenever both are given, so the two engines cannot be made to agree on a
+     square thumb, and what came out was a thin rounded bar in one browser and a square one in
+     the other.
+
+     What says a box has more in it is the box: the strip is cut at three and a bit rows, so
+     there is always a row of words half-showing under the last whole one when there are more
+     than fit -- see its own note. `contain` keeps a finger scrolling the strip from carrying the
+     page with it once the strip has run out. */
+  .strip,
+  textarea {
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .strip::-webkit-scrollbar,
+  textarea::-webkit-scrollbar {
+    display: none;
+  }
+
   /* ---------------------------------------------------------------- the answer */
 
   /* The one sentence the page exists to print, set at the size of a heading because it is the
@@ -436,8 +466,13 @@
        the box gets the rest. The words are in order, so what scrolls out of sight is what
        mattered least, and three rows is most of a description's vocabulary. A height and not a
        ceiling, so the box is the same three rows before the first word arrives as after: the
-       answer holds its shape and the board stops moving under the reader. */
-    height: calc(3 * 1.35em);
+       answer holds its shape and the board stops moving under the reader.
+
+       Three rows AND A THIRD, because the scrollbar is hidden and something has to say there is
+       more: a whole number of rows ends flush at the rule and reads as the end of the list. A
+       third of a row leaves the tops of the next row's words showing under the last whole one,
+       which is the oldest way of saying a column continues. */
+    height: calc(3.35 * 1.35em);
     overflow-y: auto;
     display: flex;
     flex-wrap: wrap;
