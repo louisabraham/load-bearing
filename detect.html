@@ -362,31 +362,55 @@
   /* ---------------------------------------------------------------- what scrolls */
 
   /* Two boxes on this board scroll inside themselves -- the text, and the tail of the strip --
-     and the browser draws each a scrollbar in whatever it thinks a scrollbar looks like:
-     rounded, grey, floating, and on a Mac not drawn at all until it is touched. Nothing else on
-     this page is rounded, grey, or dependent on being touched first.
+     and left alone each gets whatever the browser thinks a scrollbar looks like: rounded, grey,
+     floating over the words, and on a Mac not drawn at all until something moves. Nothing else
+     on this page is rounded or grey or waits to be touched before it is drawn.
 
-     So they are hidden, which is what the board next door does with the one on its column: a
-     rule the page cannot draw in its own terms is a rule the page should not draw. Styling it
-     instead was tried and is worse than either -- Chrome takes `scrollbar-width` over the
-     pseudo-elements whenever both are given, so the two engines cannot be made to agree on a
-     square thumb, and what came out was a thin rounded bar in one browser and a square one in
-     the other.
+     So it is drawn in the board's own terms: a square of ink standing in the paper, two pixels
+     of ground each side of it, in a channel the width of a word's stem. `padding-box` is what
+     lets the border show the ground through instead of the thumb's own colour.
 
-     What says a box has more in it is the box: the strip is cut at three and a bit rows, so
-     there is always a row of words half-showing under the last whole one when there are more
-     than fit -- see its own note. `contain` keeps a finger scrolling the strip from carrying the
-     page with it once the strip has run out. */
+     Whether it takes that channel out of the box or floats over it is the operating system's to
+     decide and not this page's: a Mac set to show scrollbars only while scrolling overlays this
+     one too, styled but not reserved, whatever is asked for here. Which is why the strip is cut
+     at three rows and a third rather than at three -- the bar cannot be the only thing saying a
+     box has more in it, because for most of the time on most Macs there is no bar.
+
+     ONE MECHANISM PER ENGINE, and they must not be written together: Chrome supports both, and
+     given both it takes `scrollbar-width` and ignores every pseudo-element here -- which would
+     leave the page carrying a rule that only one browser can be looking at and no way to tell
+     which. So the pseudo-elements are the rule, and the standard properties are given only where
+     the pseudo-elements do not exist, which is Firefox. */
   .strip,
   textarea {
-    scrollbar-width: none;
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
   }
 
   .strip::-webkit-scrollbar,
   textarea::-webkit-scrollbar {
-    display: none;
+    width: 9px;
+    height: 9px;
+  }
+
+  .strip::-webkit-scrollbar-track,
+  textarea::-webkit-scrollbar-track {
+    background: var(--ground);
+  }
+
+  .strip::-webkit-scrollbar-thumb,
+  textarea::-webkit-scrollbar-thumb {
+    background: var(--ink);
+    background-clip: padding-box;
+    border: 2px solid var(--ground);
+  }
+
+  @supports not selector(::-webkit-scrollbar-thumb) {
+
+    .strip,
+    textarea {
+      scrollbar-width: thin;
+      scrollbar-color: var(--ink) var(--ground);
+    }
   }
 
   /* ---------------------------------------------------------------- the answer */
@@ -468,10 +492,10 @@
        ceiling, so the box is the same three rows before the first word arrives as after: the
        answer holds its shape and the board stops moving under the reader.
 
-       Three rows AND A THIRD, because the scrollbar is hidden and something has to say there is
-       more: a whole number of rows ends flush at the rule and reads as the end of the list. A
-       third of a row leaves the tops of the next row's words showing under the last whole one,
-       which is the oldest way of saying a column continues. */
+       Three rows AND A THIRD, so that a row of words is always half-showing under the last
+       whole one when there are more than fit: a whole number of rows ends flush and reads as the
+       end of the list. The scrollbar says the same thing, but not on a Mac, where it is not
+       drawn at all until something scrolls. */
     height: calc(3.35 * 1.35em);
     overflow-y: auto;
     display: flex;
