@@ -31,7 +31,7 @@
     --accent: #de301e;
     --fill: #de301e1f;
     --rule: 2px;
-    --pad: 16px 18px;
+    --pad: 14px 18px;
   }
 
   * {
@@ -113,19 +113,13 @@
        there is no arrangement that fits: under 600px the board stops shrinking and the page
        scrolls instead, which is the honest thing to do with a window nothing fits in.
 
-       And it is a screen wide enough to be worth filling only. On a phone the head alone is a
-       third of the window and the answer cannot be got onto the same screen as the box without
-       squeezing both to nothing -- so below the seam the board stops trying to be the window and
-       becomes what a phone expects, a page that scrolls. */
+       At every width, phone included. There is no arrangement of these four boxes that is right
+       on a laptop and wrong on a phone -- what changes with the window is how much is left over
+       for the text box, and that is a number, not a layout. */
+    height: calc(100dvh - 36px);
+    min-height: 600px;
     display: flex;
     flex-direction: column;
-  }
-
-  @media (min-width: 621px) {
-    .board {
-      height: calc(100dvh - 36px);
-      min-height: 600px;
-    }
   }
 
   .cell {
@@ -146,29 +140,24 @@
     flex-direction: column;
   }
 
-  /* Whatever the screen has spare goes to the text box, and it is also the first thing to give
-     it back -- the text has been read once already by the person pasting it, and the answer has
-     not. The hundred is what puts the two in that order: flex shares a shortfall out in
-     proportion, so left level the answer lost as much as the box did and both ended up clipped.
-
-     No `min-height: 0` here, deliberately, which is what stops the shrinking before it cuts
-     anything off: the box bottoms out at the three lines the textarea will not go under, and
-     what is left over after that goes to the board's own floor and the page scrolls. */
+  /* Whatever the screen has spare goes to the text box. */
   .cell.ask {
-    flex: 1 100 auto;
+    flex: 1 1 auto;
   }
 
-  /* the answer gives way last, and what gives way in it is the tail of the strip, which scrolls
-     inside itself rather than pushing the footer off the screen */
+  /* AND WHAT GIVES IT BACK IS THE ANSWER, twenty times faster than the box does. Flex shares a
+     shortfall out in proportion, so with the two left level a 1280 x 800 laptop -- which is most
+     laptops -- put a pull request description into a box three lines deep while the strip under
+     it still had five rows of words showing. The tail of the strip is the most disposable thing
+     on the board: it is ordered, so what scrolls out of sight is what mattered least, and it can
+     be scrolled back. The box is where the reader is working.
+
+     Neither is told it may be smaller than its contents. `overflow` other than visible zeroes a
+     flex item's automatic minimum size, and a cell with that set was free to shrink past its own
+     floor and print over the one below it -- so the floors are stated on the two things that
+     have one, the textarea and the strip, and the cells inherit them. */
   .cell.tell {
-    flex: 0 1 auto;
-    min-height: 0;
-    /* the only box on the board told it may be smaller than its contents, so it is the only one
-       that has to say what happens then. Everywhere else this is left off ON PURPOSE: `overflow`
-       other than visible zeroes a flex item's automatic minimum size, and with it set on every
-       cell the text box was allowed to shrink past its own three-line floor and print over the
-       answer -- the rule meant as the safety net was the thing that cut the net down. */
-    overflow: hidden;
+    flex: none;
   }
 
   /* the last box and the footer share one rule rather than printing two */
@@ -197,9 +186,17 @@
 
   h1 {
     margin: 0 0 12px;
-    /* tighter than the prose under it, which is the way round it should be: at three lines of
-       38px uppercase, body leading printed the title as three separate bands */
-    font: 700 clamp(1.35rem, 2.9vw, 2.1rem)/1.12 var(--grotesk);
+    /* Tighter leading than the prose under it, which is the way round it should be: at three
+       lines of uppercase, body leading printed the title as three separate bands.
+
+       A FIXED SIZE, and the board next door's `clamp(..., vw, ...)` is deliberately not here.
+       There the board is the window and type that tracks the window is right. Here the board
+       stops at 720px, so type measured against the WINDOW shrinks while the column it is set in
+       does not -- and every pixel that saved went to the one box on the board that grows into
+       whatever is spare. Narrowing the window made the text box taller, which is the opposite of
+       what narrowing anything should do. Below the seam the board is the window again, and the
+       narrow rules put the `vw` back. */
+    font: 700 2.1rem/1.12 var(--grotesk);
     letter-spacing: -0.04em;
     text-transform: uppercase;
   }
@@ -216,12 +213,12 @@
 
   .standfirst {
     margin: 0;
-    font: 500 clamp(1rem, 1.55vw, 1.2rem)/1.28 var(--grotesk);
+    font: 500 1.2rem/1.28 var(--grotesk);
     letter-spacing: -0.02em;
   }
 
   .note {
-    margin: 14px 0 0;
+    margin: 12px 0 0;
     color: var(--muted);
     font-size: 0.9rem;
   }
@@ -272,12 +269,34 @@
     color: var(--muted);
   }
 
+  /* THE BOX IS THE PAGE'S ONE INPUT, and the other two are ways of filling it. They used to be
+     stacked above and below it as though the three were peers, with the link field FIRST and its
+     placeholder beginning "…or" -- a control that reads as the alternative to something it has
+     not been shown yet.
+
+     So: the box, then the two ways under it, each on a line of its own behind the same label
+     column. One grammar -- "or a link", "or try" -- one rail the labels align on, and the eye
+     runs down the rail rather than hunting for what each row is. */
+  .ways {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 10px 14px;
+    margin-top: 12px;
+  }
+
+  /* the label sits on the first line of a row that may be two lines tall, not floated down the
+     middle of it */
+  .ways>.label {
+    align-self: start;
+    padding-top: 10px;
+  }
+
   /* The link field and its button are one object, so they are drawn as one: a single hairline
      box with a seam down it rather than two boxes with a gap, which read as two controls that
      happen to be near each other. */
   .fetch {
     display: flex;
-    margin-top: 8px;
     border: var(--rule) solid var(--ink);
   }
 
@@ -301,10 +320,10 @@
     border-left: var(--rule) solid var(--ink);
   }
 
-  /* what the fetch is doing, in the place it will be read from -- and it holds its line whether
-     or not there is anything in it, so the box below does not step down the page on a keystroke */
+  /* what the fetch is doing, said under the field it is about -- and holding its line whether or
+     not it has anything to say, so that a fetch does not resize the box above it */
   .said {
-    margin: 6px 0 0;
+    margin: 5px 0 0;
     min-height: 1.3em;
   }
 
@@ -317,9 +336,7 @@
   .tries {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
     gap: 8px;
-    margin-top: 12px;
   }
 
   /* a hairline box in the mono label. Nothing here is a link, so nothing here is underlined --
@@ -349,14 +366,14 @@
      which of the two it is can be had from across the room. */
   .verdict {
     margin: 6px 0 0;
-    font: 700 clamp(1.6rem, 3.4vw, 2.4rem)/1.15 var(--grotesk);
+    font: 700 2.4rem/1.15 var(--grotesk);
     letter-spacing: -0.04em;
   }
 
   .verdict .sure {
     display: block;
     margin-top: 4px;
-    font: 500 clamp(0.95rem, 1.4vw, 1.1rem)/1.3 var(--grotesk);
+    font: 500 1.1rem/1.3 var(--grotesk);
     letter-spacing: -0.02em;
     color: var(--muted);
   }
@@ -375,7 +392,7 @@
      nine. A bar and not a number twice -- the number is in the line above it */
   .meter {
     height: 14px;
-    margin: 14px 0 0;
+    margin: 10px 0 0;
     border: var(--rule) solid var(--ink);
     background: var(--ground);
   }
@@ -394,7 +411,7 @@
   .ends {
     display: flex;
     justify-content: space-between;
-    margin: 5px 0 20px;
+    margin: 5px 0 14px;
     gap: 12px;
   }
 
@@ -404,8 +421,14 @@
      colour is not the only thing saying which is which. */
   .strip {
     margin-top: 8px;
+    /* Three rows, and the rest scrolls inside. A cap and not a share of what is going spare,
+       because the two boxes cannot both be given the leftovers: measured against each other on a
+       1280 x 800 laptop -- which is most laptops -- the strip kept five rows of words and the
+       description went into a box three lines deep. So the strip is told what it may take and
+       the box gets the rest. The words are in order, so what scrolls out of sight is what
+       mattered least, and three rows is most of a description's vocabulary. */
+    max-height: calc(3 * 1.35em);
     overflow-y: auto;
-    min-height: 0;
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -452,17 +475,29 @@
       font-size: clamp(1.25rem, 6.6vw, 1.8rem);
     }
 
-    /* the label takes its own line, so the three buttons read as three of a kind rather than
-       one beside the words and two under them */
-    .tries .label {
-      flex-basis: 100%;
+    .standfirst {
+      font-size: clamp(0.98rem, 4.2vw, 1.12rem);
     }
 
-    /* nothing is competing for the height here -- the page scrolls -- so the box is the size it
-       wants to be rather than the size that would have been left over */
-    textarea {
-      min-height: calc(9 * 1.55em + 26px);
+    .verdict {
+      font-size: clamp(1.6rem, 8vw, 2.1rem);
     }
+
+    .verdict .sure {
+      font-size: 1rem;
+    }
+
+    /* no room for a label column beside the controls, so the rail becomes a stack: each label
+       on its own line above the row it names */
+    .ways {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+
+    .ways>.label {
+      padding-top: 6px;
+    }
+
   }
 
   /* the bar is a reading, not an animation: it eases only so the eye can follow it. Asked for
@@ -754,22 +789,28 @@
     </div>
     <div class="cell ask">
       <label class="label" for="text">the text</label>
-      <div class="fetch">
-        <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
-          autocapitalize="off" aria-label="a github pull request, issue or comment link"
-          placeholder="…or a github link">
-        <button type="button" class="load">load</button>
-      </div>
-      <p class="said label" role="status"></p>
       <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off"
         autocapitalize="off" placeholder="Paste a pull request description here."></textarea>
-      <div class="tries"><span class="label">or try</span>${TRIES.map((t, i) =>
-      `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
+      <div class="ways">
+        <span class="label">or a link</span>
+        <div>
+          <div class="fetch">
+            <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
+              autocapitalize="off" aria-label="a github pull request, issue or comment link"
+              placeholder="a github pull request, issue or comment">
+            <button type="button" class="load">load</button>
+          </div>
+          <p class="said label" role="status"></p>
+        </div>
+        <span class="label">or try</span>
+        <div class="tries">${TRIES.map((t, i) =>
+        `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
+      </div>
       <p class="note">Nothing you paste is sent anywhere: the model is evaluated in your
         browser.</p>
     </div>
     <div class="cell tell">
-      <span class="label">the answer</span>
+      <span class="label">prediction</span>
       <p class="verdict none"></p>
       <div class="meter"><i style="width:0"></i></div>
       <div class="ends"><span class="label">this cluster</span>
