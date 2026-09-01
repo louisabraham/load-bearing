@@ -659,12 +659,17 @@
 
   /* Three descriptions written FOR THIS PAGE, not taken from anybody: a real description would
      put a stranger's writing on a page that then judges it. They are here because the interesting
-     thing about the answer is not any one of them but the difference between them: one is the
-     arriving component and the answer is certain, one is not and the answer is nearly as
-     certain, and the third is seven words long and the answer is two to one, which is what the
-     model looks like when it has almost nothing to go on. */
+     thing about the answer is not any one of them but the difference between them: one lands in
+     the cluster and the answer is certain, one does not and the answer is nearly as certain, and
+     the third is seven words long and the answer is two to one, which is what the model looks
+     like when it has almost nothing to go on.
+
+     The first was called "an arriving one" and named nothing a reader could check: the word
+     arrives nowhere else on the page, and the cluster is called "this cluster" by the sentence
+     over the bar, by the bar's own left end, and by the standfirst. It is called that here
+     too. */
   const TRIES = [
-    ["an arriving one",
+    ["a load-bearing text",
       "The failing assertion was not the bug — it was load-bearing. `resolve()` handed back "
       + "the cached row before the write had landed, so the test passed for a reason nobody had "
       + "written down. That narrows the fix to the seam between the two: the cache is dropped "
@@ -915,9 +920,9 @@
         some text below to know whether it belongs to that cluster.</p>
     </div>
     <div class="cell ask">
-      <label class="label" for="text">the text</label>
+      <label class="label" for="text">Input text</label>
       <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off"
-        autocapitalize="off" placeholder="Paste a pull request description here."></textarea>
+        autocapitalize="off" placeholder="Enter some text (preferably from a pull request)."></textarea>
       <div class="ways">
         <div class="row"><span class="label">or a link</span>
           <span class="said label" role="status"></span></div>
@@ -927,7 +932,7 @@
             placeholder="a pull request or comment">
           <button type="button" class="load">load</button>
         </div>
-        <span class="label">or try</span>
+        <span class="label">or try an example</span>
         <div class="tries">${TRIES.map((t, i) =>
       `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
       </div>
