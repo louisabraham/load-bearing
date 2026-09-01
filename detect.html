@@ -98,8 +98,12 @@
      A measure rather than a width: the column is capped where a line of the prose stops being
      comfortable to read, and centred, so a wide window gives the page air on both sides instead
      of a longer line. */
+  /* Nine hundred and twenty, and the number is a measurement rather than a taste: it is the
+     narrowest the column can be and still lose a line from each of the three sentences at the
+     top, which is what the board needs to fit a 900px window without the page scrolling. Below
+     it the prose takes an extra line and the whole board is fifty pixels too tall. */
   .board {
-    max-width: 720px;
+    max-width: 920px;
     margin: var(--edge) auto;
     border: var(--rule) solid var(--ink);
     /* ONE SCREEN. The answer is the page, and on a laptop it was landing below the fold behind a
@@ -227,6 +231,19 @@
     margin: 0;
     font: 500 1.2rem/1.28 var(--grotesk);
     letter-spacing: -0.02em;
+  }
+
+  /* what the page did, then what to do about it, then what it is not: three sentences doing
+     three jobs, so three paragraphs */
+  .standfirst+.standfirst {
+    margin-top: 8px;
+  }
+
+  /* the same face, size and weight as the two sentences over it -- it is the third of three
+     things the page says about itself, not a footnote to them. The grey is the only step down,
+     and it is there because a caveat should be read second. */
+  .caveat {
+    color: var(--muted);
   }
 
   .note {
@@ -619,6 +636,13 @@
       font-size: 1rem;
     }
 
+    /* two lines of it, because at this width the reading wraps and the message that stands in
+       its place does not: reserving one line let the strip and the footer drop nineteen pixels
+       the moment an answer arrived, which is the one thing this block is shaped to prevent */
+    .verdict {
+      min-height: calc(1.15em + 2.6rem + 4px);
+    }
+
 
   }
 
@@ -676,12 +700,12 @@
       + "where the write commits, and the assertion now says plainly what it is checking. "
       + "Genuinely one line of behaviour; the rest of the diff is the test that would have "
       + "caught it."],
-    ["an ordinary one",
+    ["an ordinary text",
       "bump grpc to 1.62 and regen the protos. fixes #4412. tested locally on linux, ci is "
       + "green. no api changes, but the generated files are noisy so review the first commit "
       + "only."],
-    ["a short one",
-      "removes a check that was doing nothing"],
+    ["a short text",
+      "removes a check that was not doing anything"],
   ];
 
   /* ------------------------------------------------------------------ the words of a text */
@@ -916,20 +940,23 @@
     <div class="cell head">
       <h1>Is this the <em>load-bearing</em> vocabulary of Claude?</h1>
       <p class="standfirst">We <a href="index.html">analysed</a> the vocabulary of pull requests
-        over the last two years to identify a distinctive cluster that grew only recently and that is strongly associated with AI expressions. Paste
-        some text below to know whether it belongs to that cluster.</p>
+        over the last two years to identify a distinctive cluster that grew only recently and that
+        is strongly associated with expressions used by Claude.</p>
+      <p class="standfirst">Paste some text below to know whether it belongs to that cluster.</p>
+      <p class="standfirst caveat">This is not a detector for AI-generated text: it only matches
+        vocabulary against one cluster. That cluster is mostly text written by Claude, but we offer this tool with no guarantee.</p>
     </div>
     <div class="cell ask">
       <label class="label" for="text">Input text</label>
       <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off"
-        autocapitalize="off" placeholder="Enter some text (preferably from a pull request)."></textarea>
+        autocapitalize="off" placeholder="Enter some text (preferably from a pull request)"></textarea>
       <div class="ways">
         <div class="row"><span class="label">or a link</span>
           <span class="said label" role="status"></span></div>
         <div class="fetch">
           <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
             autocapitalize="off" aria-label="a github pull request, issue or comment link"
-            placeholder="a pull request or comment">
+            placeholder="a pull request or comment URL">
           <button type="button" class="load">load</button>
         </div>
         <span class="label">or try an example</span>
@@ -945,10 +972,10 @@
       <div class="meter"><i style="width:0"></i></div>
       <div class="ends"><span class="label">this cluster</span>
         <span class="label">the others</span></div>
-      <span class="label of-words">the deciding words</span>
+      <span class="label of-words">the characteristic words</span>
       <div class="strip"></div>
     </div>
-    <div class="cell foot"><span class="label">generated ${M.generated}</span>
+    <div class="cell foot"><span class="label">last model fit ${M.generated}</span>
       <span class="label">Made with ❤️ by <a href="https://louisabraham.github.io/">Louis
           Abraham</a></span>
     </div>
@@ -1010,8 +1037,8 @@
        a reader who had learnt from a Yes that the bar is the number was being contradicted. One
        number, in one place, measuring one thing. */
     verdict.innerHTML = `<b>${yes ? "Yes" : "No"}.</b>`
-      + `<span class="sure">${sure(r.p[0])} this cluster, on ${r.known === r.all.length
-        ? `all ${fmt(r.known)}` : `${fmt(r.known)} of the ${fmt(r.all.length)}`} words</span>`;
+      + `<span class="sure">${sure(r.p[0])} in this cluster, with ${r.known === r.all.length
+        ? `all ${fmt(r.known)}` : `${fmt(r.known)} of the ${fmt(r.all.length)}`} words analysed by our model</span>`;
     bar.style.width = `${(r.p[0] * 100).toFixed(2)}%`;
 
     /* The nearest of the other nine is what the strip is measured against, because it is what the

@@ -146,9 +146,12 @@ def test_the_words_are_the_whole_of_the_distance(page):
         assert gap == pytest.approx(summed, abs=1e-6)
 
 
-@pytest.mark.parametrize("i,word", [(0, "Yes"), (1, "No"), (2, "Yes")])
+@pytest.mark.parametrize("i,word", [(0, "Yes"), (1, "No")])
 def test_each_example_lands_where_it_says_it_does(page, i, word):
-    """The three buttons are there for the difference between them, so the difference is a test."""
+    """The first two buttons are there for the difference between them, so the difference is a
+    test. The third is not here: what it is for is the model having almost nothing to go on, and
+    which side of a half it comes down on is neither fixed nor the point -- that one is tested by
+    `test_a_short_text_is_not_answered_with_certainty` instead."""
     page.click(f'.try[data-i="{i}"]')
     assert page.locator(".verdict b").inner_text() == f"{word}."
 
