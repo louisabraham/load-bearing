@@ -241,12 +241,41 @@ them: a word is lowercased before it is ever counted, so the capital that opens 
 ends the one before it.
 
 **Each weight is one character from an alphabet of 92.** What is stored is not $\log W$ but
-$E = \log(1 + M/\texttt{SMOOTH})$, where $M$ is the appearances a component holds of the word,
-because $E$ is *exactly* zero wherever the word is absent — a quarter of the entries — and the rest
-of $\log W$ is one number per component. The first code means absent, the next 80 are a grid over
-the crowded bottom of the range, and the eleven above them are an escape: that character with the
-one after it names a point on a grid nine times finer over the sparse top, where the commonest
-words live and where a coarse step is paid once per appearance.
+
+```math
+E \;=\; \log\!\left(1 + M/\texttt{SMOOTH}\right), \qquad \log W_c[v] \;=\; \text{floor}_c + E[c,v]
+```
+
+where $M$ is the appearances a component holds of the word. $E$ is *exactly* zero wherever the word
+is absent — a quarter of the entries — and $\text{floor}_c$ is one number per component that the
+page adds once per word of the text. So only $E$ has to be written down, and it runs from
+$\log(1 + 1/0.01) = 4.615$ for a word written once to 17.978 for the commonest word in the corpus.
+
+Code 0 means the component never wrote the word. Codes 1–80 stand for a value on their own: a grid
+over $[4.615, 10]$, one step every 0.068 nats. The 11 codes left over stand for no value at all.
+Each of them says *this number is in the top of the range and it needs the next character too*, and
+the pair then picks one of $11 \times 92 = 1{,}012$ levels over $(10, 17.978]$ — one step every
+0.0079 nats, nearly nine times finer than the single-character grid.
+
+Eleven, because eleven is what is left: 92 codes, one for absent, eighty for the grid that fits in
+one character. The two halves trade against each other — every code given to the single-character
+grid is one fewer block of 92 in the two-character one — and eighty, with the split at 10 nats, is
+the pair that came out smallest for the accuracy it keeps. The top of the range is worth the second
+character because that is where the commonest words are, and an error there is paid once per
+appearance.
+
+`load-bearing` is the whole scheme in one word. Its ten counts are 945, 166, 5, 0, 5, 0, 3, 1, 1
+and 0, so it needs all three kinds of code:
+
+| component | appearances | $E$ | code | written as |
+|---|---|---|---|---|
+| 0 | 945 | 11.456 | 83, then 1 — a pair | `v#` |
+| 2 | 5 | 6.217 | 24 | `:` |
+| 3 | 0 | — | 0 | `!` |
+
+Code 24 stands for $E = 6.183$ against a true 6.217, and that gap of 0.034 nats is the largest
+error anywhere in the file. The word's ten numbers are the eleven characters `v#o:!:!3##!` — ten
+codes, one of which needed a second character.
 
 **What the compression costs**, against the exact centres over the whole corpus: no entry is more
 than 0.034 nats out, and 0.054% of descriptions land on a different component — all of them ties,

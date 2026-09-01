@@ -635,7 +635,7 @@ def encode_weights(M):
     of the range, where six present entries in seven sit; the eleven above it are an escape, and
     that character with the one after it names a point on a grid of 11 x 92 levels over the
     sparse top. The two-character band is a seventh of the entries that are there at all, and
-    nine times finer: 0.068 nats a step below the split against 0.0079 above it.
+    nearly nine times finer: 0.068 nats a step below the split against 0.0079 above it.
 
     A uniform grid and not one fitted to the values, which is the opposite of what fitting a
     quantiser is usually for. At one character a number and no escape, a uniform grid misplaces
