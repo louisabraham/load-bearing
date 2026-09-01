@@ -95,44 +95,37 @@
      stays half empty afterwards, because an answer is four lines and a text is twenty; the seam
      was drawing a room nothing was ever going to fill.
 
-     A measure rather than a width: the column is capped where a line of the prose stops being
-     comfortable to read, and centred, so a wide window gives the page air on both sides instead
-     of a longer line. */
-  /* Nine hundred and twenty, and the number is a measurement rather than a taste: it is the
-     narrowest the column can be and still lose a line from each of the three sentences at the
-     top, which is what the board needs to fit a 900px window without the page scrolling. Below
-     it the prose takes an extra line and the whole board is fifty pixels too tall. */
+     A measure rather than a width, and centred, so a wide window gives the page air on both
+     sides instead of a longer line. Nine hundred and twenty of them, and the number is measured
+     rather than chosen: it is the narrowest the column can be and still lose a line from each of
+     the three sentences at the top, which is what lets the board fit a 900px window without the
+     page scrolling. Below it the prose takes an extra line and the board is fifty pixels too
+     tall. */
   .board {
     max-width: 920px;
     margin: var(--edge) auto;
     border: var(--rule) solid var(--ink);
-    /* ONE SCREEN. The answer is the page, and on a laptop it was landing below the fold behind a
-       box of text the reader had just finished with -- pressing a sample button changed nothing
-       visible. So the board is the window: what cannot shrink keeps its height, and the two
-       boxes that can give way do, the text box first.
+    /* ONE SCREEN WHERE THERE IS ONE TO FILL. The answer is the page, and it was landing below
+       the fold behind a box of text the reader had just finished with, so that pressing an
+       example changed nothing visible. A window taller than the board is given to the text box,
+       and the answer sits above the footer at the bottom of the screen.
+
+       A MINIMUM AND NOT A HEIGHT, and that is the whole difference between a board that fills
+       the window and a board that lies about fitting in it. Told to be exactly the window, with
+       every box but one keeping the height its contents need, the parts that would not fit did
+       not stop existing: they printed through the bottom rule and down the page, answer and
+       footer both, outside the frame and with no frame beside them -- on a phone, and on a
+       1280 x 720 laptop, where a hundred and thirty pixels of the page's one answer sat outside
+       the only box on the page. As a minimum it is the window when the window will take it and
+       the content when it will not, and then the page scrolls, which is what a page does.
 
        `dvh` and not `vh`, for the phone: `vh` is measured against the browser with its toolbars
        hidden, so a board an exact `100vh` tall is taller than the screen until the toolbar rolls
        away, and the footer sits under it.
 
-       away, and the footer sits under it.
-
-       A floor under it as well, because a window can be shorter than the board's own parts and
-       there is no arrangement that fits: under 600px the board stops shrinking and the page
-       scrolls instead, which is the honest thing to do with a window nothing fits in.
-
        At every width, phone included. There is no arrangement of these four boxes that is right
        on a laptop and wrong on a phone -- what changes with the window is how much is left over
-       for the text box, and that is a number, not a layout.
-
-       A MINIMUM AND NOT A HEIGHT, which is the whole difference between a board that fills the
-       window and a board that lies about fitting in it. Told to be exactly the window, and with
-       every box but one refusing to shrink, the parts that would not fit did not stop existing:
-       they printed straight through the bottom rule and down the page, answer and footer both,
-       outside the frame and with no frame beside them. It happened on a phone and it happened on
-       a 1280 x 720 laptop -- a hundred and thirty pixels of the page's one answer, outside the
-       only box on the page. As a minimum it is the window when the window will take it and the
-       content when it will not, and the page scrolls, which is what a page does. */
+       for the text box, and that is a number, not a layout. */
     min-height: calc(100dvh - 2 * var(--edge));
     display: flex;
     flex-direction: column;
@@ -161,23 +154,19 @@
     flex: 1 1 auto;
   }
 
-  /* AND WHAT GIVES IT BACK IS THE ANSWER, twenty times faster than the box does. Flex shares a
-     shortfall out in proportion, so with the two left level a 1280 x 800 laptop -- which is most
-     laptops -- put a pull request description into a box three lines deep while the strip under
-     it still had five rows of words showing. The tail of the strip is the most disposable thing
-     on the board: it is ordered, so what scrolls out of sight is what mattered least, and it can
-     be scrolled back. The box is where the reader is working.
+  /* AND THE ANSWER TAKES NONE OF IT. It is as tall as it needs to be and no taller, and it does
+     not compete with the box above it for what the window has spare: measured against each other
+     on a 1280 x 800 laptop, which is most laptops, the two of them put a pull request description
+     into a box three lines deep.
 
      Neither is told it may be smaller than its contents. `overflow` other than visible zeroes a
      flex item's automatic minimum size, and a cell with that set was free to shrink past its own
      floor and print over the one below it -- so the floors are stated on the two things that
-     have one, the textarea and the strip, and the cells inherit them. */
+     have one, the textarea and the strip, and the cells inherit them.
+
+     The last box and the footer share one rule rather than printing two. */
   .cell.tell {
     flex: none;
-  }
-
-  /* the last box and the footer share one rule rather than printing two */
-  .cell.tell {
     border-bottom: 0;
   }
 
@@ -426,10 +415,11 @@
 
   /* ---------------------------------------------------------------- what scrolls */
 
-  /* Two boxes on this board scroll inside themselves -- the text, and the tail of the strip --
-     and left alone each gets whatever the browser thinks a scrollbar looks like: rounded, grey,
-     floating over the words, and on a Mac not drawn at all until something moves. Nothing else
-     on this page is rounded or grey or waits to be touched before it is drawn.
+  /* One box on this board scrolls inside itself -- the text -- and left alone it gets whatever
+     the browser thinks a scrollbar looks like: rounded, grey, floating over the words, and on a
+     Mac not drawn at all until something moves. Nothing else on this page is rounded or grey or
+     waits to be touched before it is drawn. The words under the answer never scroll; see
+     `.strip`.
 
      So it is drawn in the board's own terms: a square of ink standing in the paper, two pixels
      of ground each side of it, in a channel the width of a word's stem. `padding-box` is what
@@ -437,32 +427,26 @@
 
      Whether it takes that channel out of the box or floats over it is the operating system's to
      decide and not this page's: a Mac set to show scrollbars only while scrolling overlays this
-     one too, styled but not reserved, whatever is asked for here. Which is why the strip is cut
-     at three rows and a third rather than at three -- the bar cannot be the only thing saying a
-     box has more in it, because for most of the time on most Macs there is no bar.
+     one too, styled but not reserved, whatever is asked for here.
 
      ONE MECHANISM PER ENGINE, and they must not be written together: Chrome supports both, and
      given both it takes `scrollbar-width` and ignores every pseudo-element here -- which would
      leave the page carrying a rule that only one browser can be looking at and no way to tell
      which. So the pseudo-elements are the rule, and the standard properties are given only where
      the pseudo-elements do not exist, which is Firefox. */
-  .strip,
   textarea {
     overscroll-behavior: contain;
   }
 
-  .strip::-webkit-scrollbar,
   textarea::-webkit-scrollbar {
     width: 9px;
     height: 9px;
   }
 
-  .strip::-webkit-scrollbar-track,
   textarea::-webkit-scrollbar-track {
     background: var(--ground);
   }
 
-  .strip::-webkit-scrollbar-thumb,
   textarea::-webkit-scrollbar-thumb {
     background: var(--ink);
     background-clip: padding-box;
@@ -470,8 +454,6 @@
   }
 
   @supports not selector(::-webkit-scrollbar-thumb) {
-
-    .strip,
     textarea {
       scrollbar-width: thin;
       scrollbar-color: var(--ink) var(--ground);
@@ -567,13 +549,17 @@
        ceiling, so the box is the same three rows before the first word arrives as after: the
        answer holds its shape and the board stops moving under the reader.
 
-       Three rows and a third of the fourth: a whole number of rows ends flush and reads as the
-       end of the list, and the third leaves the tops of the next row's words showing under the
-       last whole one. Three rows of 22px and the two gaps between them, plus a third of a row.
-       The scrollbar says the same thing, but not on a Mac, where it is not drawn until something
-       scrolls. */
-    height: calc(3 * 22px + 2 * 3px + 8px);
-    overflow-y: auto;
+       A FLOOR AND NOT A HEIGHT: every word is on the page, always. Nothing here is cut off and
+       nothing here scrolls.
+
+       The floor is what thirty words take at the widths this board is usually read at, three
+       rows and a bit, so at those widths the block is the same size before the answer arrives as
+       after and pressing an example moves nothing. A narrow window needs more rows for the same
+       thirty words, and there the block grows to hold them, which pushes the footer down and
+       makes the page longer. That is the price of never hiding a word, and it is the right way
+       round: the page may be taller than the window, the answer may not be shorter than
+       itself. */
+    min-height: calc(3 * 22px + 2 * 3px + 8px);
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -943,12 +929,12 @@
     app.innerHTML = `<div class="board">
     <div class="cell head">
       <h1>Is this the <em>load-bearing</em> vocabulary of Claude?</h1>
-      <p class="standfirst">We <a href="index.html">analysed</a> the vocabulary of pull requests
-        over the last two years to identify a distinctive cluster that grew only recently and that
+      <p class="standfirst">We <a href="index.html">analyzed</a> the vocabulary of pull requests
+        over the last two years and identified a distinctive cluster that grew only recently and that
         is strongly associated with expressions used by Claude.</p>
       <p class="standfirst">Paste some text below to know whether it belongs to that cluster.</p>
-      <p class="standfirst caveat">This is not a detector for AI-generated text: it only matches
-        vocabulary against one cluster. That cluster is mostly text written by Claude, but we offer this tool with no guarantee.</p>
+      <p class="standfirst caveat">This is not a detector for AI-generated text: all it does is matching 
+        vocabulary against a cluster from our analysis. That cluster is mostly PRs written by Claude, but we offer this tool with no guarantee.</p>
     </div>
     <div class="cell ask">
       <label class="label" for="text">Input text</label>
