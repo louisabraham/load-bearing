@@ -21,7 +21,7 @@
   :root {
     /* Light only, and said to the browser rather than only meant: a phone in dark mode repaints
        a page that does not say, and repaints the prose while leaving every fill alone. `only` is
-       the half that withholds the permission. The board next door carries the long version. */
+       the half that withholds the permission. The board next door has the long version. */
     color-scheme: only light;
     --grotesk: "Helvetica Neue", Helvetica, Roboto, ui-sans-serif, system-ui, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -32,6 +32,10 @@
     --fill: #de301e1f;
     --rule: 2px;
     --pad: 14px 18px;
+    /* the room around the board, and the room the board is denied from the window's height. It
+       is one number because they are one number: they were 10px and 18px on a phone, which put
+       ten pixels of paper above the frame and twenty-six below it. */
+    --edge: 18px;
   }
 
   * {
@@ -84,7 +88,7 @@
 
   /* ---------------------------------------------------------------- the field */
 
-  /* ONE COLUMN, and the board next door's twelve are deliberately not here. There the field is
+  /* ONE COLUMN, and the board next door's twelve are not here, on purpose. There the field is
      doing work -- five columns of prose against seven of chart, a seam the whole board is read
      across. Here there are two things and they happen in ORDER: a text is given, an answer comes
      back. Set side by side, the answer's box is empty until the reader has done something and
@@ -96,7 +100,7 @@
      of a longer line. */
   .board {
     max-width: 720px;
-    margin: 18px auto;
+    margin: var(--edge) auto;
     border: var(--rule) solid var(--ink);
     /* ONE SCREEN. The answer is the page, and on a laptop it was landing below the fold behind a
        box of text the reader had just finished with -- pressing a sample button changed nothing
@@ -115,9 +119,17 @@
 
        At every width, phone included. There is no arrangement of these four boxes that is right
        on a laptop and wrong on a phone -- what changes with the window is how much is left over
-       for the text box, and that is a number, not a layout. */
-    height: calc(100dvh - 36px);
-    min-height: 600px;
+       for the text box, and that is a number, not a layout.
+
+       A MINIMUM AND NOT A HEIGHT, which is the whole difference between a board that fills the
+       window and a board that lies about fitting in it. Told to be exactly the window, and with
+       every box but one refusing to shrink, the parts that would not fit did not stop existing:
+       they printed straight through the bottom rule and down the page, answer and footer both,
+       outside the frame and with no frame beside them. It happened on a phone and it happened on
+       a 1280 x 720 laptop -- a hundred and thirty pixels of the page's one answer, outside the
+       only box on the page. As a minimum it is the window when the window will take it and the
+       content when it will not, and the page scrolls, which is what a page does. */
+    min-height: calc(100dvh - 2 * var(--edge));
     display: flex;
     flex-direction: column;
   }
@@ -189,7 +201,7 @@
     /* Tighter leading than the prose under it, which is the way round it should be: at three
        lines of uppercase, body leading printed the title as three separate bands.
 
-       A FIXED SIZE, and the board next door's `clamp(..., vw, ...)` is deliberately not here.
+       A FIXED SIZE, and the board next door's `clamp(..., vw, ...)` is not here, on purpose.
        There the board is the window and type that tracks the window is right. Here the board
        stops at 720px, so type measured against the WINDOW shrinks while the column it is set in
        does not -- and every pixel that saved went to the one box on the board that grows into
@@ -252,7 +264,9 @@
     /* three lines, which is as small as a box you can still read a sentence in */
     min-height: calc(3 * 1.55em + 26px);
     margin-top: 8px;
-    padding: 12px;
+    /* the same inset as the field and the buttons under it: stacked, two of them started their
+       text twelve pixels in and one fourteen */
+    padding: 12px 10px;
     border: var(--rule) solid var(--ink);
     border-radius: 0;
     background: var(--ground);
@@ -378,10 +392,15 @@
     cursor: pointer;
   }
 
-  /* grey and not the accent: the accent means the answer on this board, and a button that turned
-     the colour of the answer under the pointer was saying something it does not know */
-  button:hover {
-    background: #f2f2f2;
+  /* Grey and not the accent: the accent means the answer on this board, and a button that
+     turned the colour of the answer under the pointer would be saying something it does not
+     know. Behind a hover query, because a phone has no pointer to move away: it holds `:hover`
+     after a tap, and a button left filled for good reads as the one that is chosen -- which is a
+     state this page does not have. */
+  @media (hover: hover) {
+    button:hover {
+      background: #f2f2f2;
+    }
   }
 
   /* ---------------------------------------------------------------- what scrolls */
@@ -441,10 +460,12 @@
   /* ---------------------------------------------------------------- the answer */
 
   /* The one sentence the page exists to print, set at the size of a heading because it is the
-     heading of its own cell -- and the word carries the accent only when the answer is yes, so
+     heading of its own cell -- and the word takes the accent only when the answer is yes, so
      which of the two it is can be had from across the room. */
   .verdict {
-    margin: 6px 0 0;
+    /* the same step under a label as every label in the cell above, rather than a sixth number
+       in a block that already had five */
+    margin: 8px 0 0;
     font: 700 2.4rem/1.15 var(--grotesk);
     letter-spacing: -0.04em;
     /* the word and the line under it, reserved whether or not there is a word yet: `1.15em` is
@@ -472,7 +493,7 @@
      empty state is not a small answer. */
   .verdict.none {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
   }
 
   .verdict.none .sure {
@@ -486,7 +507,8 @@
      nine. A bar and not a number twice -- the number is in the line above it */
   .meter {
     height: 14px;
-    margin: 10px 0 0;
+    /* the bar is a new object under the sentence, so it takes the gap between two groups */
+    margin: 14px 0 0;
     border: var(--rule) solid var(--ink);
     background: var(--ground);
   }
@@ -524,11 +546,12 @@
        ceiling, so the box is the same three rows before the first word arrives as after: the
        answer holds its shape and the board stops moving under the reader.
 
-       Three rows AND A THIRD, so that a row of words is always half-showing under the last
-       whole one when there are more than fit: a whole number of rows ends flush and reads as the
-       end of the list. The scrollbar says the same thing, but not on a Mac, where it is not
-       drawn at all until something scrolls. */
-    height: calc(3.35 * 1.35em);
+       Three rows and a third of the fourth: a whole number of rows ends flush and reads as the
+       end of the list, and the third leaves the tops of the next row's words showing under the
+       last whole one. Three rows of 22px and the two gaps between them, plus a third of a row.
+       The scrollbar says the same thing, but not on a Mac, where it is not drawn until something
+       scrolls. */
+    height: calc(3 * 22px + 2 * 3px + 8px);
     overflow-y: auto;
     display: flex;
     flex-wrap: wrap;
@@ -536,9 +559,13 @@
     gap: 3px 10px;
   }
 
+  /* One pitch for every row whatever size the words in it are set at. On a ratio the row was as
+     tall as its tallest word -- twelve pixels in one row and twenty-two in the next -- so "three
+     rows and a third" was a different fraction of a different row every time, and where the cut
+     fell was decided by which words happened to land last. */
   .strip span {
     font-family: var(--mono);
-    line-height: 1.15;
+    line-height: 22px;
     white-space: nowrap;
   }
 
@@ -570,12 +597,10 @@
   /* One column below the seam's width. The two cells are a pair -- what is pasted and what came
      of it -- so they stack in that order and each takes the full twelve. */
   @media (max-width: 620px) {
-    .board {
-      margin: 10px;
-    }
 
     :root {
       --pad: 14px 15px;
+      --edge: 10px;
     }
 
     h1 {
@@ -625,7 +650,12 @@
 
   let M = null;                              // the model, as `analyze.py` wrote it down
   let VOCAB = null, INDEX = null, E = null;  // the words, where to find one, and the table
-  const WORDS_SHOWN = 60;                    // how many words the strip prints; the rest are tail
+  /* How many words the strip prints. Sixty filled six rows where three are shown, and because
+     the strip is printed in order of sign, all six of the visible ones were words FOR the answer
+     -- a reader looking at a heading about two colours, seeing one, and never scrolling to find
+     the other. Thirty fits the three rows, so the seam between the red and the black is on the
+     screen and the two-colour reading is available without being told. */
+  const WORDS_SHOWN = 30;
 
   /* Three descriptions written FOR THIS PAGE, not taken from anybody: a real description would
      put a stranger's writing on a page that then judges it. They are here because the interesting
@@ -709,7 +739,7 @@
 
      What is stored is not log W but the part of it that varies with the word: a code of 0 means
      the component never wrote that word, and is exactly zero rather than nearly. `MODEL.floor`
-     carries the rest, which is one number a component and is added once per word of the text
+     holds the rest, which is one number a component and is added once per word of the text
      instead of being read out of the table twenty thousand times.
 
      A code above `MODEL.escape` is an escape: that character and the one after it name a point
@@ -724,7 +754,7 @@
     for (let i = 0; i < NA; i++) code[M.alphabet.charCodeAt(i)] = i;
     /* Float64 and not Float32, for 1.6 MB rather than 0.8. What is stored has already been
        rounded once, to the grid, and that error is measured and paid for; a second rounding to
-       single precision would be a second error nobody had decided to accept. At this size the
+       single precision would be a second error no one had decided to accept. At this size the
        memory is not worth a decision, and the page's answer is then the same number Python gets
        from the same file, which is what `tests/test_detect.py` is able to check. */
     const out = new Float64Array(M.words * K);
@@ -894,12 +924,12 @@
         <div class="fetch">
           <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
             autocapitalize="off" aria-label="a github pull request, issue or comment link"
-            placeholder="a github pull request, issue or comment">
+            placeholder="a pull request or comment">
           <button type="button" class="load">load</button>
         </div>
         <span class="label">or try</span>
         <div class="tries">${TRIES.map((t, i) =>
-        `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
+      `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
       </div>
       <p class="note">Nothing you paste is sent anywhere: the model is evaluated in your
         browser.</p>
@@ -910,7 +940,7 @@
       <div class="meter"><i style="width:0"></i></div>
       <div class="ends"><span class="label">this cluster</span>
         <span class="label">the others</span></div>
-      <span class="label of-words">the deciding words · red is this cluster</span>
+      <span class="label of-words">the deciding words</span>
       <div class="strip"></div>
     </div>
     <div class="cell foot"><span class="label">generated ${M.generated}</span>
@@ -961,7 +991,7 @@
       verdict.className = "verdict none";
       verdict.innerHTML = `<span class="sure">${r.all.length
         ? "None of these words is in the vocabulary."
-        : "Enter some text"}</span>`;
+        : "Enter some text first"}</span>`;
       bar.style.width = "0";
       strip.innerHTML = "";
       return;
@@ -975,8 +1005,8 @@
        a reader who had learnt from a Yes that the bar is the number was being contradicted. One
        number, in one place, measuring one thing. */
     verdict.innerHTML = `<b>${yes ? "Yes" : "No"}.</b>`
-      + `<span class="sure">${sure(r.p[0])} this cluster, on `
-      + `${fmt(r.known)} of the ${fmt(r.all.length)} words</span>`;
+      + `<span class="sure">${sure(r.p[0])} this cluster, on ${r.known === r.all.length
+        ? `all ${fmt(r.known)}` : `${fmt(r.known)} of the ${fmt(r.all.length)}`} words</span>`;
     bar.style.width = `${(r.p[0] * 100).toFixed(2)}%`;
 
     /* The nearest of the other nine is what the strip is measured against, because it is what the
