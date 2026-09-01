@@ -274,22 +274,54 @@
      placeholder beginning "…or" -- a control that reads as the alternative to something it has
      not been shown yet.
 
-     So: the box, then the two ways under it, each on a line of its own behind the same label
-     column. One grammar -- "or a link", "or try" -- one rail the labels align on, and the eye
-     runs down the rail rather than hunting for what each row is. */
+     So: the box, then the two ways under it, in the order a reader reaches for them.
+
+     And each under a label of its own, where its label goes -- above it, flush with the left
+     edge of everything else in the cell. They were in a column of labels BESIDE the controls,
+     which reads as a form of its own rather than as more of the same board: the text area
+     started at the cell's edge and the two things under it started forty pixels in, and nothing
+     on the page said why. One left edge, one kind of label, one gap under it. */
   .ways {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    gap: 10px 14px;
-    margin-top: 12px;
+    margin-top: 14px;
   }
 
-  /* the label sits on the first line of a row that may be two lines tall, not floated down the
-     middle of it */
-  .ways>.label {
-    align-self: start;
-    padding-top: 10px;
+  .ways>.label,
+  .ways>.row {
+    margin-top: 14px;
+  }
+
+  .ways>.row:first-child {
+    margin-top: 0;
+  }
+
+  .ways>.fetch,
+  .ways>.tries {
+    margin-top: 8px;
+  }
+
+  /* What the fetch is doing shares the line its label is already on, at the other end of it --
+     the same arrangement the two ends of the bar are in, and for the same reason: two labels
+     about one thing, one line.
+
+     Under the field, which is where it was, it needed a line of its own that had to be held
+     empty so a fetch would not resize the box above it -- and an empty held line between two
+     groups is thirty pixels of nothing where every other gap on the board is fourteen. Here it
+     costs no height at all, because the line was already there. */
+  .ways>.row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+  }
+
+  /* the label names the row and is two words long: it does not wrap to make room for a message
+     about something that has just gone wrong */
+  .ways>.row>.label:first-child {
+    white-space: nowrap;
+  }
+
+  .said {
+    text-align: right;
   }
 
   /* The link field and its button are one object, so they are drawn as one: a single hairline
@@ -318,13 +350,6 @@
   .fetch button {
     border: 0;
     border-left: var(--rule) solid var(--ink);
-  }
-
-  /* what the fetch is doing, said under the field it is about -- and holding its line whether or
-     not it has anything to say, so that a fetch does not resize the box above it */
-  .said {
-    margin: 5px 0 0;
-    min-height: 1.3em;
   }
 
   /* ink and not the accent: the accent means the answer on this board, and a page that printed
@@ -439,8 +464,12 @@
     color: var(--accent);
   }
 
-  /* the message stands where the word will stand rather than a line under an empty space being
-     kept for it */
+  /* The message stands where the word will stand rather than a line under an empty space kept
+     for it -- and it is set in the type the OTHER empty box on this board is set in, which is
+     the placeholder in the text area: same face, same size, same grey. Both are the same thing
+     said twice, a box saying what it wants, and they were saying it in two voices -- one of them
+     the grotesk the answers are written in, at a weight and a size nothing else here uses. An
+     empty state is not a small answer. */
   .verdict.none {
     display: flex;
     align-items: center;
@@ -448,6 +477,9 @@
 
   .verdict.none .sure {
     margin-top: 0;
+    font: 400 13px/1.55 var(--mono);
+    letter-spacing: 0;
+    color: var(--muted);
   }
 
   /* the reading, drawn once: how much of the answer is this vocabulary and how much is the other
@@ -562,16 +594,6 @@
       font-size: 1rem;
     }
 
-    /* no room for a label column beside the controls, so the rail becomes a stack: each label
-       on its own line above the row it names */
-    .ways {
-      grid-template-columns: 1fr;
-      gap: 4px;
-    }
-
-    .ways>.label {
-      padding-top: 6px;
-    }
 
   }
 
@@ -806,7 +828,7 @@
     };
     const url = endpoint(field.value);
     if (!field.value.trim()) return say("");
-    if (!url) return say("not a github pull request, issue or comment link", true);
+    if (!url) return say("not a github pull request, issue or comment", true);
     say("asking github…");
     let res;
     try {
@@ -824,7 +846,7 @@
     if (res.status === 403 || res.status === 429) {
       const why = await res.json().catch(() => ({}));
       return say(/rate limit/i.test(why.message || "")
-        ? "github's limit of sixty an hour is used up for this address; it resets on the hour"
+        ? "github's sixty an hour is used up; it resets on the hour"
         : "github refused that one", true);
     }
     if (!res.ok) return say(`github answered ${res.status}`, true);
@@ -867,15 +889,13 @@
       <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off"
         autocapitalize="off" placeholder="Paste a pull request description here."></textarea>
       <div class="ways">
-        <span class="label">or a link</span>
-        <div>
-          <div class="fetch">
-            <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
-              autocapitalize="off" aria-label="a github pull request, issue or comment link"
-              placeholder="a github pull request, issue or comment">
-            <button type="button" class="load">load</button>
-          </div>
-          <p class="said label" role="status"></p>
+        <div class="row"><span class="label">or a link</span>
+          <span class="said label" role="status"></span></div>
+        <div class="fetch">
+          <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
+            autocapitalize="off" aria-label="a github pull request, issue or comment link"
+            placeholder="a github pull request, issue or comment">
+          <button type="button" class="load">load</button>
         </div>
         <span class="label">or try</span>
         <div class="tries">${TRIES.map((t, i) =>
@@ -941,7 +961,7 @@
       verdict.className = "verdict none";
       verdict.innerHTML = `<span class="sure">${r.all.length
         ? "None of these words is in the vocabulary."
-        : "Enter some text first."}</span>`;
+        : "Enter some text"}</span>`;
       bar.style.width = "0";
       strip.innerHTML = "";
       return;

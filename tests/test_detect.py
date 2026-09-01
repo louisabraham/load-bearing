@@ -167,7 +167,7 @@ def test_an_empty_box_is_not_a_no(page):
     page.fill("#text", "")
     assert page.locator(".verdict.none").count() == 1
     assert page.locator(".verdict b").count() == 0, "an empty box printed an answer"
-    assert "Enter some text first" in page.locator(".verdict").text_content()
+    assert "Enter some text" in page.locator(".verdict").text_content()
     assert page.locator(".strip span").count() == 0
     assert page.locator(".meter i").evaluate("e => e.style.width") == "0px"
 
