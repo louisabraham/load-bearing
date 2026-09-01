@@ -103,6 +103,12 @@
      tall. */
   .board {
     max-width: 920px;
+    /* A WIDTH AS WELL AS A MARGIN. `margin: x auto` gives the sides `auto`, and `auto` is
+       whatever is left over -- which is nothing at all once the window is narrower than the
+       column, so on a phone the frame ran edge to edge and the board had ten pixels of paper
+       above it and none beside it. The width takes the same edge off both sides at every size,
+       and `auto` still centres what is left. */
+    width: calc(100% - 2 * var(--edge));
     margin: var(--edge) auto;
     border: var(--rule) solid var(--ink);
     /* ONE SCREEN WHERE THERE IS ONE TO FILL. The answer is the page, and it was landing below
@@ -267,12 +273,22 @@
   textarea {
     width: 100%;
     flex: 1 1 auto;
-    /* Ten lines, which is a box you can paste a pull request description into and read it back.
+    /* Ten lines of text plus the box's own frame, which is what the twenty-eight is: twelve of
+       padding and two of rule on each side. It was twenty-six, two short of the frame it was
+       supposed to be clearing.
+
+       At rest the box shows those ten lines and the top of an eleventh, and that cannot be tuned
+       away: a scrolling box's bottom padding is scrollable space rather than a margin, so the
+       only height that ends flush on a line is one with no bottom padding at all, which stands
+       the last line on the rule. The part-line is the same cue the strip's last row gives, and
+       for the same reason -- it says there is more under it.
+
+       Ten, because that is a box you can paste a pull request description into and read back.
        It grows past that into whatever the window has spare, and it does not go under it: when
        the window is too short for the board, the board is taller than the window and the page
        scrolls, which is the right way round. A box squeezed to three lines to keep everything on
        one screen is a box that has stopped being usable in order to look tidy. */
-    min-height: calc(10 * 1.55em + 26px);
+    min-height: calc(10 * 1.55em + 28px);
     margin-top: 8px;
     /* the same inset as the field and the buttons under it: stacked, two of them started their
        text twelve pixels in and one fourteen */
@@ -624,6 +640,13 @@
 
     .verdict .sure {
       font-size: 1rem;
+    }
+
+    /* One to a line. Three buttons of three widths wrap two-and-one at this width, which reads
+       as a row that ran out rather than as three of a kind -- and a full line is an easier thing
+       to hit with a thumb than two thirds of one. */
+    .tries button {
+      flex: 1 0 100%;
     }
 
     /* two lines of it, because at this width the reading wraps and the message that stands in
