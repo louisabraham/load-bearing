@@ -278,8 +278,12 @@
   textarea {
     width: 100%;
     flex: 1 1 auto;
-    /* three lines, which is as small as a box you can still read a sentence in */
-    min-height: calc(3 * 1.55em + 26px);
+    /* Ten lines, which is a box you can paste a pull request description into and read it back.
+       It grows past that into whatever the window has spare, and it does not go under it: when
+       the window is too short for the board, the board is taller than the window and the page
+       scrolls, which is the right way round. A box squeezed to three lines to keep everything on
+       one screen is a box that has stopped being usable in order to look tidy. */
+    min-height: calc(10 * 1.55em + 26px);
     margin-top: 8px;
     /* the same inset as the field and the buttons under it: stacked, two of them started their
        text twelve pixels in and one fourteen */
@@ -714,7 +718,7 @@
      differently from the way the corpus was read is answering about a different text. Every rule
      below is explained where it was written -- links to their domain, tags whole, the em dash
      counted by hand, a letter required, the ends trimmed -- and the only thing to say here is
-     that the two must not drift. `tests/test_detect.py` runs both over the same strings and
+     that the two must not drift. `tests/test_detector.py` runs both over the same strings and
      fails if they ever disagree. */
   const URL_RE = /https?:\/\/[^\s<>"'`)\]}]+/g;
   const TAG_RE = /<[a-z/!][^<>]*>/g;
@@ -785,7 +789,7 @@
        rounded once, to the grid, and that error is measured and paid for; a second rounding to
        single precision would be a second error no one had decided to accept. At this size the
        memory is not worth a decision, and the page's answer is then the same number Python gets
-       from the same file, which is what `tests/test_detect.py` is able to check. */
+       from the same file, which is what `tests/test_detector.py` is able to check. */
     const out = new Float64Array(M.words * K);
     let i = 0;
     for (let n = 0; n < out.length; n++) {

@@ -46,7 +46,7 @@ MAX_PASSES = 200  # a runaway guard, not a setting; the fixed point comes at 30
 WORDS_LISTED = 150  # per component; the cut is arbitrary and `tail` says so
 WORDS_LEAD = 1000  # for the component the page opens on; see `pack`
 TREND_WEEKS = 12  # weeks the reported trend is fitted over
-# What `detect.html` reads, and how it is written down. See `classifier`.
+# What `detector.html` reads, and how it is written down. See `classifier`.
 ESCAPE_AT = 80  # codes above this one take a second character; see `encode_weights`
 SPLIT = 10.0  # nats, where the one-character grid ends and the two-character one begins
 # Every printable character a JavaScript string may hold between double quotes without an
@@ -566,7 +566,7 @@ def fit(X, week_of, T, k=K, seed=SEED, log=print):
 # `SMOOTH` is what makes it usable on text the fit never saw: no centre gives any word zero
 # probability, so one unexpected word cannot zero a whole component.
 #
-# `detect.html` does that arithmetic in a browser, and these three functions write the file it
+# `detector.html` does that arithmetic in a browser, and these three functions write the file it
 # reads. What has to be shipped is the WHOLE of W -- ten numbers for each of twenty thousand
 # words, where the board shows a hundred and fifty of them -- and as JSON that is 4 MB. So it is
 # written as text, one character at a time.
@@ -694,7 +694,7 @@ def decode_weights(text, k, V, grid, esc=ESCAPE_AT, alphabet=ALPHABET):
 
 
 def classifier(vocab, M, order, meta):
-    """Everything `detect.html` needs, and nothing else.
+    """Everything `detector.html` needs, and nothing else.
 
     Nothing else is the point of a second file. The shares are not here because the page holds no
     prior, the weekly counts because the page draws no curve, the word lists because the page
@@ -854,7 +854,7 @@ def pack(X, week_of, weeks, vocab, W, C, A, M, cost, n_days=0, seed=SEED, fits=1
         "cost": round(cost, 1),
         "components": comps,
         # Not part of the analysis and not written to the same file: `main` lifts this out and
-        # writes it to `model.js`, which only `detect.html` reads. It is built here rather
+        # writes it to `model.js`, which only `detector.html` reads. It is built here rather
         # than beside the caller because it has to be the SAME fit in the same order as the board
         # -- component 0 has to mean component 0 on both pages -- and `order` is decided here.
         "model": classifier(
@@ -976,7 +976,7 @@ def selftest():
         f"the planted component did not rise ({before:.3f} then {after:.3f})"
     )
 
-    # WHAT THE CLASSIFIER IS SHIPPED: `detect.html` reads a written-down copy of these
+    # WHAT THE CLASSIFIER IS SHIPPED: `detector.html` reads a written-down copy of these
     # centres, and a copy that does not classify as they do is a second model wearing the first
     # one's name. Both halves of the file are read back here and checked against the fit itself.
     words = [f"w{j:03d}" for j in range(V)]
@@ -1027,7 +1027,7 @@ def main():
         retries=args.retries,
     )
     # the classifier's copy of the fit goes to its own file: it is a third of a megabyte that
-    # only `detect.html` reads, and the board should not wait for it
+    # only `detector.html` reads, and the board should not wait for it
     model = out.pop("model")
     for path, name, obj in ((args.out, "ANALYSIS", out), (args.model, "MODEL", model)):
         with open(path, "w", encoding="utf-8") as fh:

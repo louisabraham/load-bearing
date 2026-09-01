@@ -35,7 +35,7 @@ on:
       - index.html
       - analysis.js
       - model.js
-      - detect.html
+      - detector.html
       - .nojekyll
 
 permissions:
@@ -104,7 +104,7 @@ jobs:
       - name: Publish the site
         run: |
           site=$(mktemp -d)
-          cp index.html detect.html analysis.js model.js .nojekyll "$site"/
+          cp index.html detector.html analysis.js model.js .nojekyll "$site"/
           git -C "$site" init -q -b gh-pages
           git -C "$site" config user.name  "github-actions[bot]"
           git -C "$site" config user.email "41898282+github-actions[bot]@users.noreply.github.com"

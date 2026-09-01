@@ -12,7 +12,7 @@ them. One of the ten was 0.7% of the corpus at the start of 2025 and is 39% of i
 | `fetch_day.py` | ten requests a day to GitHub's search API, one `data/days/YYYY-MM-DD.jsonl`. Standard library only. |
 | `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js` and `model.js`. Needs `numpy`, `scipy` and `numba`. |
 | `index.html` | reads `analysis.js`. One board, one screen: the figures, the stack, a word's own history, the thousand words. No build step. Open it. |
-| `detect.html` | reads `model.js`. Paste a description, and the same fit says whether it is the arriving way of writing. Runs in the page; §7. |
+| `detector.html` | reads `model.js`. Paste a description, and the same fit says whether it is the arriving way of writing. Runs in the page; §7. |
 | `model.js` | the whole of the fit written down — every word, all ten numbers — in 304 kB. Nothing but the classifier reads it. |
 | `tests/` | what the two pages must keep doing, driven in a real browser. Every test is a bug one of them once had. |
 | `.github/workflows/daily.yml` | does all of the above daily, commits the corpus here, publishes the page to `gh-pages`. |
@@ -26,7 +26,7 @@ python fetch_day.py --backfill 30    # and the last 30 days, if missing
 python analyze.py                    # ~50 s on twelve cores
 python analyze.py --selftest         # the invariants, on synthetic data
 open index.html                      # the board
-open detect.html                     # the same fit, asked about one text
+open detector.html                     # the same fit, asked about one text
 
 pre-commit install                   # optional: ruff and the html formatter, on commit
 uv pip install pytest-playwright && pytest tests -q
@@ -222,7 +222,7 @@ P(c \mid x) \;=\; \frac{\prod_v W_c[v]^{\,x_v}}{\sum_{c'} \prod_v W_{c'}[v]^{\,x
 which is multinomial naive Bayes with these centres as its class-conditional distributions.
 `SMOOTH` is what makes it usable on text the fit never saw: no centre gives any word probability
 zero, so one unexpected word cannot zero a whole component.
-**[detect.html](https://louisabraham.github.io/load-bearing/detect.html)** does that arithmetic in
+**[detector.html](https://louisabraham.github.io/load-bearing/detector.html)** does that arithmetic in
 the browser and asks one question of it — is this the component that arrived, or is it one of the
 other nine? Nothing is uploaded; the model is a file beside the page. A GitHub link can be pasted
 instead of the text — a pull request, an issue, or any of the three kinds of comment — and the
@@ -302,7 +302,7 @@ reconstructing the fit.
 **The page has its own copy of the tokeniser**, in JavaScript, and that is the one part of this
 with nothing structural keeping it honest: a page that split a word differently would classify a
 text the corpus never contained, and would look exactly as confident as a right answer.
-`tests/test_detect.py` runs both over the same strings — links, tags, the em dash, the trimming,
+`tests/test_detector.py` runs both over the same strings — links, tags, the em dash, the trimming,
 advisory identifiers — and fails if they ever disagree.
 
 ## 8. The arbitrary choices

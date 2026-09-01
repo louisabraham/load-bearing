@@ -51,14 +51,14 @@ def model():
 
 
 @pytest.fixture(scope="session")
-def detect(server):
-    return f"{server}/detect.html"
+def detector(server):
+    return f"{server}/detector.html"
 
 
 @pytest.fixture
-def page(browser, detect):
+def page(browser, detector):
     page = browser.new_page(viewport=BOARD, device_scale_factor=RETINA)
-    page.goto(detect)
+    page.goto(detector)
     page.wait_for_selector(".verdict")
     yield page
     page.close()
@@ -271,7 +271,7 @@ def test_a_loaded_link_goes_into_the_address(page):
     assert "?" not in page.url
 
 
-def test_an_address_with_a_link_in_it_loads_the_link(browser, detect):
+def test_an_address_with_a_link_in_it_loads_the_link(browser, detector):
     """The other half of the same thing: the address is read back on the way in."""
     page = browser.new_page(viewport=BOARD, device_scale_factor=RETINA)
     page.route(
@@ -282,7 +282,7 @@ def test_an_address_with_a_link_in_it_loads_the_link(browser, detect):
             body=json.dumps({"body": ARRIVING}),
         ),
     )
-    page.goto(f"{detect}?url=https://github.com/o/r/pull/12%23issuecomment-9")
+    page.goto(f"{detector}?url=https://github.com/o/r/pull/12%23issuecomment-9")
     page.wait_for_function("() => document.querySelector('#text').value.length > 0")
     got, said = page.input_value("#text"), page.locator(".said").text_content()
     page.close()
@@ -314,9 +314,9 @@ def test_a_link_that_does_not_work_says_which_way_it_failed(page, status, header
 
 
 @pytest.mark.parametrize("width", [320, 390, 820, 1400])
-def test_nothing_scrolls_sideways(browser, detect, width):
+def test_nothing_scrolls_sideways(browser, detector, width):
     page = browser.new_page(viewport={"width": width, "height": 844}, device_scale_factor=RETINA)
-    page.goto(detect)
+    page.goto(detector)
     page.wait_for_selector(".verdict")
     page.fill("#text", ARRIVING)
     over = page.evaluate("() => document.documentElement.scrollWidth - innerWidth")
@@ -324,9 +324,9 @@ def test_nothing_scrolls_sideways(browser, detect, width):
     assert over <= 0, f"{over}px of sideways scroll at {width}px"
 
 
-def test_a_phone_gets_the_board_in_one_column(browser, detect):
+def test_a_phone_gets_the_board_in_one_column(browser, detector):
     page = browser.new_page(viewport=PHONE, device_scale_factor=RETINA)
-    page.goto(detect)
+    page.goto(detector)
     page.wait_for_selector(".verdict")
     lefts = page.evaluate(
         "() => [...document.querySelectorAll('.cell')].map(e => e.getBoundingClientRect().left)"
