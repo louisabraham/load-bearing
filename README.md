@@ -12,7 +12,7 @@ them. One of the ten was 0.7% of the corpus at the start of 2025 and is 39% of i
 | `fetch_day.py` | ten requests a day to GitHub's search API, one `data/days/YYYY-MM-DD.jsonl`. Standard library only. |
 | `analyze.py` | reads the days, groups them into whole weeks, fits the model, writes `analysis.js` and `model.js`. Needs `numpy`, `scipy` and `numba`. |
 | `index.html` | reads `analysis.js`. One board, one screen: the figures, the stack, a word's own history, the thousand words. No build step. Open it. |
-| `detector.html` | reads `model.js`. Paste a description, and the same fit says whether it is the arriving way of writing. Runs in the page; §7. |
+| `detector.html` | reads `model.js`. Paste a description, or a GitHub link, and the same fit says whether it is in the arriving cluster. Runs in the page; §7. |
 | `model.js` | the whole of the fit written down — every word, all ten numbers — in 304 kB. Nothing but the classifier reads it. |
 | `tests/` | what the two pages must keep doing, driven in a real browser. Every test is a bug one of them once had. |
 | `.github/workflows/daily.yml` | does all of the above daily, commits the corpus here, publishes the page to `gh-pages`. |
@@ -212,8 +212,7 @@ corpus growing wherever it draws the word arriving.
 
 Nothing is added to the fit to make one. The assignment step is $\arg\max_c x_d \cdot \log W_c$,
 and $x_d \cdot \log W_c$ is the log-likelihood of the description under a multinomial that draws
-every word from $W_c$, up to a coefficient that does not vary with $c$. Normalise the ten and they
-are a posterior:
+every word from $W_c$. Normalise the ten and they are a posterior:
 
 ```math
 P(c \mid x) \;=\; \frac{\prod_v W_c[v]^{\,x_v}}{\sum_{c'} \prod_v W_{c'}[v]^{\,x_v}}
@@ -221,89 +220,41 @@ P(c \mid x) \;=\; \frac{\prod_v W_c[v]^{\,x_v}}{\sum_{c'} \prod_v W_{c'}[v]^{\,x
 
 which is multinomial naive Bayes with these centres as its class-conditional distributions.
 `SMOOTH` is what makes it usable on text the fit never saw: no centre gives any word probability
-zero, so one unexpected word cannot zero a whole component.
-**[detector.html](https://louisabraham.github.io/load-bearing/detector.html)** does that arithmetic in
-the browser and asks one question of it — is this the component that arrived, or is it one of the
-other nine? Nothing is uploaded; the model is a file beside the page. A GitHub link can be pasted
-instead of the text — a pull request, an issue, or any of the three kinds of comment — and the
-browser fetches it from GitHub's API itself, which answers a page directly and sixty times an hour
-without a login. A link that loads goes into the page's own address as `?url=`, so a reading can be
-sent to somebody and read back on the way in.
+zero, so one unexpected word cannot zero a whole component. There is no $\pi_c$ in it — weighting
+by how big each component is would answer *what does a description of 2025 and 2026 usually look
+like* over the top of the question that was asked, which is about the text in the box.
+**[detector.html](https://louisabraham.github.io/load-bearing/detector.html)** does that arithmetic
+in the browser and asks one thing of it: is this the component that arrived, or one of the other
+nine? It reads vocabulary, so it can say a text is written like that cluster and never who wrote
+it.
 
-**No prior.** The components are not equally big — the arriving one is 8% of the window and 39% of
-the last month — and there is no $\pi_c$ in the formula above because weighting by those shares
-would answer *what does a description of 2025 and 2026 usually look like* over the top of the
-question the box actually asks, which is about the text in it. Left out, the ten start level and
-only the words move them. It is a choice and not an absence of one: with a prior, six words that
-say almost nothing come back as the shares; without one, they come back as two to one, which is
-what having almost nothing to go on should look like.
+### How `model.js` fits in 304 kB
 
-**The answer saturates, and the page says so rather than hiding it.** Every word counts as a
-separate piece of evidence, so sixty of them in agreement put the odds past anything a percentage
-can usefully print, and anything longer than a line or two comes back certain. The page caps what
-it will claim at *over 99%* for that reason, and under the answer it prints the words themselves —
-sized by how much each moved it, red for the ones that make it this vocabulary and black for the
-ones that argue against, in that order. The distance between two components is a sum over the words
-of the text and over nothing else, so the strip is the whole of the reason rather than a selection
-from it.
+The classifier needs the whole of $W$ — ten numbers for each of 20,309 words — which is 4 MB of
+JSON. It is written as text instead, one character at a time, and the page rebuilds it in one pass.
 
-**It reads vocabulary. It does not read authorship.** The ten components are ways of writing,
-fitted with no label of any kind, and the corpus behind them is pull request descriptions — a text
-that is not one is being measured against a ruler made for something else.
+**The vocabulary is a trie, flattened: 174 kB of words in 78 kB.** Sorted, each word stores how
+much of its predecessor it repeats and then the rest of itself, which is the tree written out in
+the order a walk of it visits — the shared prefix is the path already climbed and the suffix is the
+branch. The repeat count is a capital letter, and that is why the words need no separator between
+them: a word is lowercased before it is ever counted, so the capital that opens one is also what
+ends the one before it.
 
-### What is shipped, and what the shipping costs
+**Each weight is one character from an alphabet of 92.** What is stored is not $\log W$ but
+$E = \log(1 + M/\texttt{SMOOTH})$, where $M$ is the appearances a component holds of the word,
+because $E$ is *exactly* zero wherever the word is absent — a quarter of the entries — and the rest
+of $\log W$ is one number per component. The first code means absent, the next 80 are a grid over
+the crowded bottom of the range, and the eleven above them are an escape: that character with the
+one after it names a point on a grid nine times finer over the sparse top, where the commonest
+words live and where a coarse step is paid once per appearance.
 
-The board draws 150 words a component. The classifier needs all of them: ten numbers for each of
-the 20,309 words, which is 4 MB of JSON. It is 304 kB instead, written as text one character at a
-time, and the arithmetic on the other end is a lookup and an add.
-
-**The vocabulary, 174 kB of words, is 78 kB.** Sorted, each word is stored as how much of its
-predecessor it repeats and then the rest of itself — the trie of the vocabulary written out in the
-order a walk of it visits, where the shared prefix is the path already climbed. The repeat count is
-a capital letter, and that is why it can run without separators: a word is lowercased before it is
-ever counted, so the capital that opens a word is also what ends the one before it.
-
-**Ten numbers a word, where nine would do.** The posterior depends only on the differences: it is
-$1 / (1 + \sum_c \exp((L_c - L_0) \cdot x))$, so one of the ten rows is redundant and the model
-is exactly expressible in nine. It is shipped as ten because nine is *bigger*. The ten rows are
-$\log(1 + M/\texttt{SMOOTH})$, which is exactly zero wherever a component never wrote the word — a
-quarter of the entries — and fits one character for 90% of the rest. The nine differences have no
-such floor and spread over twice the range: 7% of them are zero and 29% need a second character.
-Measured at the same precision, ten numbers cost 11.02 characters a word and nine cost 11.65. The
-approximations that would really shrink it are not the same model: pooling the other nine into one
-distribution costs 12% of the corpus its answer, 3% even after the best single correction, and a
-logistic regression fitted to imitate the fit — one number a word — still differs on 1%.
-
-**The weights, 203,090 numbers, are 226 kB.** What is stored is not $\log W$ but
-$E = \log(1 + M/\texttt{SMOOTH})$, where $M$ is the appearances that component holds of that word
-— because $E$ is *exactly* zero wherever the word is absent, which a quarter of the entries are,
-and the rest of $\log W$ is one number per component that the page adds once per word of the text.
-Each $E$ is one character from an alphabet of 92. The first code says the word is absent; the next
-80 are a grid over the crowded bottom of the range; the eleven above those are an escape, and that
-character with the next names a point on a grid nine times finer over the sparse top, where the
-commonest words live and where a coarse step is paid once per appearance. A seventh of the present
-entries take the second character.
-
-A *uniform* grid, which is the opposite of what fitting a quantiser is usually for, and it is worth
-saying why. At one character a number and no escape, a uniform grid misplaces 0.8% of the corpus
-and a grid fitted to the distribution of $E$ misplaces 7 to 10% of it. What matters here is not the
-average error but the largest one: a word written half a million times is consulted in every
-description and its error is systematic, not noise. A fitted grid spends its levels where the
-values are crowded, which is the bottom, and leaves the top coarse. The escape does that job the
-other way round.
-
-**What the precision costs, measured against the exact centres over the whole corpus:** no entry is
-more than 0.034 nats out; 0.054% of descriptions land on a different component, and those are ties —
-the median gap between their top two is 0.04 nats against 15.6 across the corpus; 99.1% of
-descriptions have every reported probability within 0.02 of the exact one, and the worst is 0.25.
-`analyze.py --selftest` reads the file back and fails the build if either half of it stops
-reconstructing the fit.
-
-**The page has its own copy of the tokeniser**, in JavaScript, and that is the one part of this
-with nothing structural keeping it honest: a page that split a word differently would classify a
-text the corpus never contained, and would look exactly as confident as a right answer.
-`tests/test_detector.py` runs both over the same strings — links, tags, the em dash, the trimming,
-advisory identifiers — and fails if they ever disagree.
+**What the compression costs**, against the exact centres over the whole corpus: no entry is more
+than 0.034 nats out, and 0.054% of descriptions land on a different component — all of them ties,
+with a median gap of 0.04 nats between their top two against 15.6 across the corpus.
+`analyze.py --selftest` reads the file back and fails the build if either half stops reconstructing
+the fit. The page also has its own copy of the tokeniser, in JavaScript, and nothing structural
+keeps the two in step: `tests/test_detector.py` runs both over the same strings and fails if they
+ever disagree.
 
 ## 8. The arbitrary choices
 
