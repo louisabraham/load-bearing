@@ -1,0 +1,1103 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Is this the load-bearing vocabulary of Claude?</title>
+<!-- The site's counter, configured once at the root of the domain, exactly as the board loads
+     it. The path is root-relative and stays that way: this page is served from
+     louisabraham.github.io/load-bearing/, so it resolves, and a fork or a checkout finds nothing
+     at it and reports nothing. -->
+<script defer src="/assets/js/ph.js"></script>
+<style>
+  /* RASTERFELD, the second board.
+ *
+ * The same field, the same ink and the same one accent as the board next door, because it is the
+ * same fit answering a narrower question: there it is asked what the corpus is made of, here it
+ * is asked one thing about one text. A title, a box to paste into, an answer, a footer.
+ *
+ * The accent means the arriving component -- the answer when it is yes, and the words that made
+ * it yes. Everything else is ink and grey.
+ */
+
+  :root {
+    /* Light only, and said to the browser rather than only meant: a phone in dark mode repaints
+       a page that does not say, and repaints the prose while leaving every fill alone. `only` is
+       the half that withholds the permission. The board next door has the long version. */
+    color-scheme: only light;
+    --grotesk: "Helvetica Neue", Helvetica, Roboto, ui-sans-serif, system-ui, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --ground: #ffffff;
+    --ink: #0d0d0d;
+    --muted: #5f5f5f;
+    --accent: #de301e;
+    --fill: #de301e1f;
+    --rule: 2px;
+    --pad: 14px 18px;
+    /* the room around the board, and the room the board is denied from the window's height. It
+       is one number because they are one number: they were 10px and 18px on a phone, which put
+       ten pixels of paper above the frame and twenty-six below it. */
+    --edge: 18px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 17px/1.5 var(--grotesk);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  b {
+    font-weight: 700;
+  }
+
+  /* A ring outside a box that already has a two-pixel rule is two rules with a white gap between
+     them, which is what a focused field looked like. Everything on this board that a caret can
+     enter is drawn as a box, so focus colours the box's OWN rule and draws nothing extra; the
+     things that are not boxes -- a link in the prose -- keep the ring, because they have no rule
+     of their own to colour. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  textarea:focus-visible,
+  .fetch input:focus-visible,
+  button:focus-visible {
+    outline: none;
+  }
+
+  textarea:focus,
+  .fetch:focus-within,
+  button:focus-visible {
+    border-color: var(--accent);
+  }
+
+  .fetch:focus-within button {
+    border-left-color: var(--accent);
+  }
+
+  /* ---------------------------------------------------------------- the field */
+
+  /* ONE COLUMN, and the board next door's twelve are not here, on purpose. There the field is
+     doing work -- five columns of prose against seven of chart, a seam the whole board is read
+     across. Here there are two things and they happen in ORDER: a text is given, an answer comes
+     back. Set side by side, the answer's box is empty until the reader has done something and
+     stays half empty afterwards, because an answer is four lines and a text is twenty; the seam
+     was drawing a room nothing was ever going to fill.
+
+     A measure rather than a width, and centred, so a wide window gives the page air on both
+     sides instead of a longer line. Nine hundred and twenty of them, and the number is measured
+     rather than chosen: it is the narrowest the column can be and still lose a line from each of
+     the three sentences at the top, which is what lets the board fit a 900px window without the
+     page scrolling. Below it the prose takes an extra line and the board is fifty pixels too
+     tall. */
+  .board {
+    max-width: 920px;
+    /* A WIDTH AS WELL AS A MARGIN. `margin: x auto` gives the sides `auto`, and `auto` is
+       whatever is left over -- which is nothing at all once the window is narrower than the
+       column, so on a phone the frame ran edge to edge and the board had ten pixels of paper
+       above it and none beside it. The width takes the same edge off both sides at every size,
+       and `auto` still centres what is left. */
+    width: calc(100% - 2 * var(--edge));
+    margin: var(--edge) auto;
+    border: var(--rule) solid var(--ink);
+    /* ONE SCREEN WHERE THERE IS ONE TO FILL. The answer is the page, and it was landing below
+       the fold behind a box of text the reader had just finished with, so that pressing an
+       example changed nothing visible. A window taller than the board is given to the text box,
+       and the answer sits above the footer at the bottom of the screen.
+
+       A MINIMUM AND NOT A HEIGHT, and that is the whole difference between a board that fills
+       the window and a board that lies about fitting in it. Told to be exactly the window, with
+       every box but one keeping the height its contents need, the parts that would not fit did
+       not stop existing: they printed through the bottom rule and down the page, answer and
+       footer both, outside the frame and with no frame beside them -- on a phone, and on a
+       1280 x 720 laptop, where a hundred and thirty pixels of the page's one answer sat outside
+       the only box on the page. As a minimum it is the window when the window will take it and
+       the content when it will not, and then the page scrolls, which is what a page does.
+
+       `dvh` and not `vh`, for the phone: `vh` is measured against the browser with its toolbars
+       hidden, so a board an exact `100vh` tall is taller than the screen until the toolbar rolls
+       away, and the footer sits under it.
+
+       At every width, phone included. There is no arrangement of these four boxes that is right
+       on a laptop and wrong on a phone -- what changes with the window is how much is left over
+       for the text box, and that is a number, not a layout. */
+    min-height: calc(100dvh - 2 * var(--edge));
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cell {
+    border-bottom: var(--rule) solid var(--ink);
+    padding: var(--pad);
+    min-width: 0;
+    position: relative;
+  }
+
+  .cell.head,
+  .cell.foot {
+    flex: none;
+  }
+
+  .cell.ask,
+  .cell.tell {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Whatever the screen has spare goes to the text box. */
+  .cell.ask {
+    flex: 1 1 auto;
+  }
+
+  /* AND THE ANSWER TAKES NONE OF IT. It is as tall as it needs to be and no taller, and it does
+     not compete with the box above it for what the window has spare: measured against each other
+     on a 1280 x 800 laptop, which is most laptops, the two of them put a pull request description
+     into a box three lines deep.
+
+     Neither is told it may be smaller than its contents. `overflow` other than visible zeroes a
+     flex item's automatic minimum size, and a cell with that set was free to shrink past its own
+     floor and print over the one below it -- so the floors are stated on the two things that
+     have one, the textarea and the strip, and the cells inherit them.
+
+     The last box and the footer share one rule rather than printing two. */
+  .cell.tell {
+    flex: none;
+    border-bottom: 0;
+  }
+
+  .cell.foot {
+    border-top: var(--rule) solid var(--ink);
+    border-bottom: 0;
+    padding: 10px 18px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px 18px;
+  }
+
+  /* mono, uppercase, muted: every label, here as next door */
+  .label {
+    display: block;
+    font: 500 11px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  h1 {
+    margin: 0 0 12px;
+    /* Tighter leading than the prose under it, which is the way round it should be: at three
+       lines of uppercase, body leading printed the title as three separate bands.
+
+       A FIXED SIZE, and the board next door's `clamp(..., vw, ...)` is not here, on purpose.
+       There the board is the window and type that tracks the window is right. Here the board
+       stops at 720px, so type measured against the WINDOW shrinks while the column it is set in
+       does not -- and every pixel that saved went to the one box on the board that grows into
+       whatever is spare. Narrowing the window made the text box taller, which is the opposite of
+       what narrowing anything should do. Below the seam the board is the window again, and the
+       narrow rules put the `vw` back. */
+    font: 700 2.1rem/1.12 var(--grotesk);
+    letter-spacing: -0.04em;
+    text-transform: uppercase;
+  }
+
+  h1 em {
+    font-style: normal;
+    /* the one red mark on the page is the phrase the page is about, and the browser was breaking
+       it at its own hyphen: two red rectangles, the first ending in a hyphen inside the knockout */
+    white-space: nowrap;
+    background: var(--accent);
+    color: #fff;
+    padding: 0 0.12em;
+  }
+
+  .standfirst {
+    margin: 0;
+    font: 500 1.2rem/1.28 var(--grotesk);
+    letter-spacing: -0.02em;
+  }
+
+  /* what the page did, then what to do about it, then what it is not: three sentences doing
+     three jobs, so three paragraphs */
+  .standfirst+.standfirst {
+    margin-top: 8px;
+  }
+
+  /* the same face, size and weight as the two sentences over it -- it is the third of three
+     things the page says about itself, not a footnote to them. The grey is the only step down,
+     and it is there because a caveat should be read second. */
+  .caveat {
+    color: var(--muted);
+  }
+
+  .note {
+    margin: 12px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .note code {
+    font: 400 0.85rem var(--mono);
+    color: var(--ink);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    text-decoration-skip-ink: none;
+  }
+
+  a:hover,
+  a:focus-visible {
+    color: var(--accent);
+  }
+
+  /* ---------------------------------------------------------------- what is pasted */
+
+  /* The text is the data on this board, so it is set in the face the data is set in everywhere
+     else -- and a pull request description is written in a box like this one to begin with. */
+  textarea {
+    width: 100%;
+    flex: 1 1 auto;
+    /* Ten lines of text plus the box's own frame, which is what the twenty-eight is: twelve of
+       padding and two of rule on each side. It was twenty-six, two short of the frame it was
+       supposed to be clearing.
+
+       At rest the box shows those ten lines and the top of an eleventh, and that cannot be tuned
+       away: a scrolling box's bottom padding is scrollable space rather than a margin, so the
+       only height that ends flush on a line is one with no bottom padding at all, which stands
+       the last line on the rule. The part-line is the same cue the strip's last row gives, and
+       for the same reason -- it says there is more under it.
+
+       Ten, because that is a box you can paste a pull request description into and read back.
+       It grows past that into whatever the window has spare, and it does not go under it: when
+       the window is too short for the board, the board is taller than the window and the page
+       scrolls, which is the right way round. A box squeezed to three lines to keep everything on
+       one screen is a box that has stopped being usable in order to look tidy. */
+    min-height: calc(10 * 1.55em + 28px);
+    margin-top: 8px;
+    /* the same inset as the field and the buttons under it: stacked, two of them started their
+       text twelve pixels in and one fourteen */
+    padding: 12px 10px;
+    border: var(--rule) solid var(--ink);
+    border-radius: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 13px/1.55 var(--mono);
+    /* No handle: the box is what absorbs whatever the screen has spare, so a height dragged onto
+       it is a height the next layout pass takes back. What does not fit scrolls inside it, which
+       is the right way round -- the text has been read once by the person pasting it, and the
+       answer has not. */
+    resize: none;
+  }
+
+  textarea::placeholder {
+    color: var(--muted);
+  }
+
+  /* THE BOX IS THE PAGE'S ONE INPUT, and the other two are ways of filling it. They used to be
+     stacked above and below it as though the three were peers, with the link field FIRST and its
+     placeholder beginning "…or" -- a control that reads as the alternative to something it has
+     not been shown yet.
+
+     So: the box, then the two ways under it, in the order a reader reaches for them.
+
+     And each under a label of its own, where its label goes -- above it, flush with the left
+     edge of everything else in the cell. They were in a column of labels BESIDE the controls,
+     which reads as a form of its own rather than as more of the same board: the text area
+     started at the cell's edge and the two things under it started forty pixels in, and nothing
+     on the page said why. One left edge, one kind of label, one gap under it. */
+  .ways {
+    margin-top: 14px;
+  }
+
+  .ways>.label,
+  .ways>.row {
+    margin-top: 14px;
+  }
+
+  .ways>.row:first-child {
+    margin-top: 0;
+  }
+
+  .ways>.fetch,
+  .ways>.tries {
+    margin-top: 8px;
+  }
+
+  /* What the fetch is doing shares the line its label is already on, at the other end of it --
+     the same arrangement the two ends of the bar are in, and for the same reason: two labels
+     about one thing, one line.
+
+     Under the field, which is where it was, it needed a line of its own that had to be held
+     empty so a fetch would not resize the box above it -- and an empty held line between two
+     groups is thirty pixels of nothing where every other gap on the board is fourteen. Here it
+     costs no height at all, because the line was already there. */
+  .ways>.row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+  }
+
+  /* the label names the row and is two words long: it does not wrap to make room for a message
+     about something that has just gone wrong */
+  .ways>.row>.label:first-child {
+    white-space: nowrap;
+  }
+
+  .said {
+    text-align: right;
+  }
+
+  /* The link field and its button are one object, so they are drawn as one: a single hairline
+     box with a seam down it rather than two boxes with a gap, which read as two controls that
+     happen to be near each other. */
+  .fetch {
+    display: flex;
+    border: var(--rule) solid var(--ink);
+  }
+
+  .fetch input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 12px/1.4 var(--mono);
+  }
+
+  .fetch input::placeholder {
+    color: var(--muted);
+  }
+
+  .fetch button {
+    border: 0;
+    border-left: var(--rule) solid var(--ink);
+  }
+
+  /* ink and not the accent: the accent means the answer on this board, and a page that printed
+     "no such thing" in it was showing the reader a red box beside a grey answer */
+  .said.bad {
+    color: var(--ink);
+  }
+
+  .tries {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* a hairline box in the mono label. Nothing here is a link, so nothing here is underlined --
+     a control that looked like a link would promise a page it does not go to */
+  button {
+    padding: 6px 10px;
+    border: var(--rule) solid var(--ink);
+    border-radius: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 500 11px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  /* Grey and not the accent: the accent means the answer on this board, and a button that
+     turned the colour of the answer under the pointer would be saying something it does not
+     know. Behind a hover query, because a phone has no pointer to move away: it holds `:hover`
+     after a tap, and a button left filled for good reads as the one that is chosen -- which is a
+     state this page does not have. */
+  @media (hover: hover) {
+    button:hover {
+      background: #f2f2f2;
+    }
+  }
+
+  /* ---------------------------------------------------------------- what scrolls */
+
+  /* One box on this board scrolls inside itself -- the text -- and left alone it gets whatever
+     the browser thinks a scrollbar looks like: rounded, grey, floating over the words, and on a
+     Mac not drawn at all until something moves. Nothing else on this page is rounded or grey or
+     waits to be touched before it is drawn. The words under the answer never scroll; see
+     `.strip`.
+
+     So it is drawn in the board's own terms: a square of ink standing in the paper, two pixels
+     of ground each side of it, in a channel the width of a word's stem. `padding-box` is what
+     lets the border show the ground through instead of the thumb's own colour.
+
+     Whether it takes that channel out of the box or floats over it is the operating system's to
+     decide and not this page's: a Mac set to show scrollbars only while scrolling overlays this
+     one too, styled but not reserved, whatever is asked for here.
+
+     ONE MECHANISM PER ENGINE, and they must not be written together: Chrome supports both, and
+     given both it takes `scrollbar-width` and ignores every pseudo-element here -- which would
+     leave the page carrying a rule that only one browser can be looking at and no way to tell
+     which. So the pseudo-elements are the rule, and the standard properties are given only where
+     the pseudo-elements do not exist, which is Firefox. */
+  textarea {
+    overscroll-behavior: contain;
+  }
+
+  textarea::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+
+  textarea::-webkit-scrollbar-track {
+    background: var(--ground);
+  }
+
+  textarea::-webkit-scrollbar-thumb {
+    background: var(--ink);
+    background-clip: padding-box;
+    border: 2px solid var(--ground);
+  }
+
+  @supports not selector(::-webkit-scrollbar-thumb) {
+    textarea {
+      scrollbar-width: thin;
+      scrollbar-color: var(--ink) var(--ground);
+    }
+  }
+
+  /* ---------------------------------------------------------------- the answer */
+
+  /* The one sentence the page exists to print, set at the size of a heading because it is the
+     heading of its own cell -- and the word takes the accent only when the answer is yes, so
+     which of the two it is can be had from across the room. */
+  .verdict {
+    /* the same step under a label as every label in the cell above, rather than a sixth number
+       in a block that already had five */
+    margin: 8px 0 0;
+    font: 700 2.4rem/1.15 var(--grotesk);
+    letter-spacing: -0.04em;
+    /* the word and the line under it, reserved whether or not there is a word yet: `1.15em` is
+       one line of this box's own type, so it holds against the smaller size a phone sets */
+    min-height: calc(1.15em + 1.43rem + 4px);
+  }
+
+  .verdict .sure {
+    display: block;
+    margin-top: 4px;
+    font: 500 1.1rem/1.3 var(--grotesk);
+    letter-spacing: -0.02em;
+    color: var(--muted);
+  }
+
+  .verdict.yes b {
+    color: var(--accent);
+  }
+
+  /* The message stands where the word will stand rather than a line under an empty space kept
+     for it -- and it is set in the type the OTHER empty box on this board is set in, which is
+     the placeholder in the text area: same face, same size, same grey. Both are the same thing
+     said twice, a box saying what it wants, and they were saying it in two voices -- one of them
+     the grotesk the answers are written in, at a weight and a size nothing else here uses. An
+     empty state is not a small answer. */
+  .verdict.none {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  .verdict.none .sure {
+    margin-top: 0;
+    font: 400 13px/1.55 var(--mono);
+    letter-spacing: 0;
+    color: var(--muted);
+  }
+
+  /* the reading, drawn once: how much of the answer is this vocabulary and how much is the other
+     nine. A bar and not a number twice -- the number is in the line above it */
+  .meter {
+    height: 14px;
+    /* the bar is a new object under the sentence, so it takes the gap between two groups */
+    margin: 14px 0 0;
+    border: var(--rule) solid var(--ink);
+    background: var(--ground);
+  }
+
+  .meter i {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.12s linear;
+  }
+
+  /* The bar is a share and not a confidence, and the two are different numbers whenever the
+     answer is no: the line above says how sure the page is of what it said, the bar says how much
+     of the answer was this vocabulary. Naming both ends is what keeps a reader from reading the
+     second as the first. */
+  .ends {
+    display: flex;
+    justify-content: space-between;
+    margin: 5px 0 14px;
+    gap: 12px;
+  }
+
+  /* Sized by how much the word moved the answer and coloured by which way: the accent for the
+     words that make it this vocabulary, the ink for the words that argue against. Ordered by the
+     same number, so the strip reads from the strongest reason to the strongest objection and the
+     colour is not the only thing saying which is which. */
+  .strip {
+    margin-top: 8px;
+    /* Three rows, and the rest scrolls inside. A cap and not a share of what is going spare,
+       because the two boxes cannot both be given the leftovers: measured against each other on a
+       1280 x 800 laptop -- which is most laptops -- the strip kept five rows of words and the
+       description went into a box three lines deep. So the strip is told what it may take and
+       the box gets the rest. The words are in order, so what scrolls out of sight is what
+       mattered least, and three rows is most of a description's vocabulary. A height and not a
+       ceiling, so the box is the same three rows before the first word arrives as after: the
+       answer holds its shape and the board stops moving under the reader.
+
+       A FLOOR AND NOT A HEIGHT: every word is on the page, always. Nothing here is cut off and
+       nothing here scrolls.
+
+       The floor is what thirty words take at the widths this board is usually read at, three
+       rows and a bit, so at those widths the block is the same size before the answer arrives as
+       after and pressing an example moves nothing. A narrow window needs more rows for the same
+       thirty words, and there the block grows to hold them, which pushes the footer down and
+       makes the page longer. That is the price of never hiding a word, and it is the right way
+       round: the page may be taller than the window, the answer may not be shorter than
+       itself. */
+    min-height: calc(3 * 22px + 2 * 3px + 8px);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px 10px;
+  }
+
+  /* One pitch for every row whatever size the words in it are set at. On a ratio the row was as
+     tall as its tallest word -- twelve pixels in one row and twenty-two in the next -- so "three
+     rows and a third" was a different fraction of a different row every time, and where the cut
+     fell was decided by which words happened to land last. */
+  .strip span {
+    font-family: var(--mono);
+    line-height: 22px;
+    white-space: nowrap;
+  }
+
+  .strip span.for {
+    color: var(--accent);
+  }
+
+  .strip span.against {
+    color: var(--ink);
+  }
+
+  /* Nothing to read is nothing to draw. An empty meter with both ends labelled, under a heading
+     for a strip with no words in it, is three pieces of furniture standing where an answer goes:
+     it reads as an answer that failed to load rather than as a page waiting for a text.
+
+     HIDDEN AND NOT REMOVED, though, which is the difference between a thing not being drawn and
+     a thing not being there. Taken out of the flow, the answer's box was two lines tall until
+     the reader pressed something and seven lines tall afterwards, and the difference came out of
+     the text box directly above it -- pressing an example moved every rule on the board. The
+     slot keeps its size and fills it. */
+  .tell.blank .meter,
+  .tell.blank .ends,
+  .tell.blank .of-words {
+    visibility: hidden;
+  }
+
+  /* ---------------------------------------------------------------- the narrow board */
+
+  /* One column below the seam's width. The two cells are a pair -- what is pasted and what came
+     of it -- so they stack in that order and each takes the full twelve. */
+  @media (max-width: 620px) {
+
+    :root {
+      --pad: 14px 15px;
+      --edge: 10px;
+    }
+
+    h1 {
+      font-size: clamp(1.25rem, 6.6vw, 1.8rem);
+    }
+
+    .standfirst {
+      font-size: clamp(0.98rem, 4.2vw, 1.12rem);
+    }
+
+    .verdict {
+      font-size: clamp(1.6rem, 8vw, 2.1rem);
+    }
+
+    .verdict .sure {
+      font-size: 1rem;
+    }
+
+    /* One to a line. Three buttons of three widths wrap two-and-one at this width, which reads
+       as a row that ran out rather than as three of a kind -- and a full line is an easier thing
+       to hit with a thumb than two thirds of one. */
+    .tries button {
+      flex: 1 0 100%;
+    }
+
+    /* two lines of it, because at this width the reading wraps and the message that stands in
+       its place does not: reserving one line let the strip and the footer drop nineteen pixels
+       the moment an answer arrived, which is the one thing this block is shaped to prevent */
+    .verdict {
+      min-height: calc(1.15em + 2.6rem + 4px);
+    }
+
+
+  }
+
+  /* the bar is a reading, not an animation: it eases only so the eye can follow it. Asked for
+     stillness, it stops. */
+  @media (prefers-reduced-motion: reduce) {
+    .meter i {
+      transition: none;
+    }
+  }
+</style>
+
+<div id="app"></div>
+
+<script>
+  const DATA = "model.js";
+  const app = document.getElementById("app");
+  const fmt = n => Math.round(n).toLocaleString("en-US");
+  const esc = s => s.replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  /* How sure, in words a reader can hold. Two significant figures under a half, and a ceiling
+     over it: the model is routinely sure to one part in 10^20 and "99.999999999999999999%" is
+     not a reading, it is the note below the answer written out as a number. */
+  /* How much of the answer is this cluster, in words a reader can hold, and capped at both ends:
+     the model is routinely sure to one part in 10^20 and "99.999999999999999999%" is not a
+     reading, it is the note about independent draws written out as a number. */
+  const sure = v => v >= 0.995 ? "over 99%" : v <= 0.005 ? "under 1%"
+    : (v * 100 >= 10 ? (v * 100).toFixed(0) : (v * 100).toFixed(1)) + "%";
+
+  let M = null;                              // the model, as `analyze.py` wrote it down
+  let VOCAB = null, INDEX = null, E = null;  // the words, where to find one, and the table
+  /* How many words the strip prints. Sixty filled six rows where three are shown, and because
+     the strip is printed in order of sign, all six of the visible ones were words FOR the answer
+     -- a reader looking at a heading about two colours, seeing one, and never scrolling to find
+     the other. Thirty fits the three rows, so the seam between the red and the black is on the
+     screen and the two-colour reading is available without being told. */
+  const WORDS_SHOWN = 30;
+
+  /* Three descriptions written FOR THIS PAGE, not taken from anybody: a real description would
+     put a stranger's writing on a page that then judges it. They are here because the interesting
+     thing about the answer is not any one of them but the difference between them: one lands in
+     the cluster and the answer is certain, one does not and the answer is nearly as certain, and
+     the third is seven words long and the answer is two to one, which is what the model looks
+     like when it has almost nothing to go on.
+
+     The first was called "an arriving one" and named nothing a reader could check: the word
+     arrives nowhere else on the page, and the cluster is called "this cluster" by the sentence
+     over the bar, by the bar's own left end, and by the standfirst. It is called that here
+     too. */
+  const TRIES = [
+    ["a load-bearing text",
+      "The failing assertion was not the bug — it was load-bearing. `resolve()` handed back "
+      + "the cached row before the write had landed, so the test passed for a reason nobody had "
+      + "written down. That narrows the fix to the seam between the two: the cache is dropped "
+      + "where the write commits, and the assertion now says plainly what it is checking. "
+      + "Genuinely one line of behaviour; the rest of the diff is the test that would have "
+      + "caught it."],
+    ["an ordinary text",
+      "bump grpc to 1.62 and regen the protos. fixes #4412. tested locally on linux, ci is "
+      + "green. no api changes, but the generated files are noisy so review the first commit "
+      + "only."],
+    ["a short text",
+      "removes a check that was not doing anything"],
+  ];
+
+  /* ------------------------------------------------------------------ the words of a text */
+
+  /* `tokens` in `analyze.py`, character for character, because a classifier that reads its input
+     differently from the way the corpus was read is answering about a different text. Every rule
+     below is explained where it was written -- links to their domain, tags whole, the em dash
+     counted by hand, a letter required, the ends trimmed -- and the only thing to say here is
+     that the two must not drift. `tests/test_detector.py` runs both over the same strings and
+     fails if they ever disagree. */
+  const URL_RE = /https?:\/\/[^\s<>"'`)\]}]+/g;
+  const TAG_RE = /<[a-z/!][^<>]*>/g;
+  const WORD_RE = /[a-z0-9_/-]*[a-z][a-z0-9_/-]*/g;
+  const SNYK_ID_RE = /^snyk-.+-\d{4,}$/;
+  const EM_DASH = "—";
+
+  function domainToken(url) {
+    const at = url.indexOf("//");
+    const host = (at < 0 ? url : url.slice(at + 2))
+      .split("/")[0].split("@").pop().split(":")[0];
+    const labels = host.split(".").filter(x => x && x !== "www");
+    const name = labels.length >= 2 ? labels[labels.length - 2] : (labels[0] || "link");
+    return `[${name}-url]`;
+  }
+
+  function tokens(body) {
+    body = body.toLowerCase();
+    const out = (body.match(URL_RE) || []).map(domainToken);
+    for (let i = 0; i < body.length; i++) if (body[i] === EM_DASH) out.push(EM_DASH);
+    const rest = body.replace(URL_RE, " ").replace(TAG_RE, " ");
+    for (const raw of rest.match(WORD_RE) || []) {
+      const w = raw.replace(/^[_/]+/, "").replace(/[_/]+$/, "").replace(/-+$/, "");
+      if (w) out.push(w.startsWith("snyk-") && SNYK_ID_RE.test(w) ? "[snyk-id]" : w);
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ the model, read back */
+
+  /* The vocabulary, rebuilt from the trie `analyze.py` wrote out. A word is a capital saying how
+     much of the word before it to keep, then the rest of itself, and the capital that opens a
+     word is also what ends the one before it -- a word is lowercased before it is ever counted,
+     so no capital can appear inside one and the words need no separator between them. */
+  function readVocab(s) {
+    const out = [], index = new Map();
+    let prev = "", i = 0;
+    while (i < s.length) {
+      let j = i + 1;
+      while (j < s.length && (s.charCodeAt(j) < 65 || s.charCodeAt(j) > 90)) j++;
+      prev = prev.slice(0, s.charCodeAt(i) - 65) + s.slice(i + 1, j);
+      index.set(prev, out.length);
+      out.push(prev);
+      i = j;
+    }
+    return [out, index];
+  }
+
+  /* The table, one character per (word, component), in the order `encode_weights` wrote it: all
+     ten of a word together, so the ten numbers a word is looked up for are neighbours in memory.
+
+     What is stored is not log W but the part of it that varies with the word: a code of 0 means
+     the component never wrote that word, and is exactly zero rather than nearly. `MODEL.floor`
+     holds the rest, which is one number a component and is added once per word of the text
+     instead of being read out of the table twenty thousand times.
+
+     A code above `MODEL.escape` is an escape: that character and the one after it name a point
+     on a grid nearly nine times finer, for the top of the range where the commonest words are and
+     a coarse step is paid once per appearance. */
+  function readWeights(s) {
+    const NA = M.alphabet.length, K = M.k, esc = M.escape;
+    const [lo, split, hi] = M.grid;
+    const stepLo = (split - lo) / (esc - 1);
+    const stepHi = (hi - split) / ((NA - 1 - esc) * NA - 1);
+    const code = new Int16Array(128).fill(-1);
+    for (let i = 0; i < NA; i++) code[M.alphabet.charCodeAt(i)] = i;
+    /* Float64 and not Float32, for 1.6 MB rather than 0.8. What is stored has already been
+       rounded once, to the grid, and that error is measured and paid for; a second rounding to
+       single precision would be a second error no one had decided to accept. At this size the
+       memory is not worth a decision, and the page's answer is then the same number Python gets
+       from the same file, which is what `tests/test_detector.py` is able to check. */
+    const out = new Float64Array(M.words * K);
+    let i = 0;
+    for (let n = 0; n < out.length; n++) {
+      const a = code[s.charCodeAt(i++)];
+      out[n] = a === 0 ? 0
+        : a <= esc ? lo + (a - 1) * stepLo
+          : split + ((a - 1 - esc) * NA + code[s.charCodeAt(i++)]) * stepHi;
+    }
+    if (i !== s.length) throw new Error("the weights did not end where the words ran out");
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ the answer */
+
+  /* The fit's own assignment step, normalised. argmax_c x . log W_c is what puts every
+   * description in the corpus in one of the ten, and x . log W_c is the log-likelihood of the
+   * text under a multinomial that draws every word from component c, so dividing each by their
+   * sum turns the ten scores into ten probabilities that add to one.
+   *
+   * NO PRIOR. The components are not equally big -- the arriving one is 8% of the window and 39%
+   * of the last month -- and weighting by that would be answering "what does a description
+   * usually look like" over the top of the question the box asks, which is about the text in it.
+   * Left out, the ten start level and only the words move them.
+   *
+   * Words the vocabulary does not have are dropped rather than guessed at. The floor is fifty
+   * distinct accounts, so a word that is not in it was not written by enough people for the fit
+   * to have measured it, and a model that has never seen a word has nothing to say about it.
+   */
+  function classify(text) {
+    const K = M.k, all = tokens(text), count = new Map();
+    let known = 0;
+    for (const w of all) {
+      const j = INDEX.get(w);
+      if (j === undefined) continue;
+      known++;
+      count.set(j, (count.get(j) || 0) + 1);
+    }
+    const score = new Float64Array(K);
+    for (let c = 0; c < K; c++) score[c] = known * M.floor[c];
+    for (const [j, x] of count) {
+      const off = j * K;
+      for (let c = 0; c < K; c++) score[c] += x * E[off + c];
+    }
+    const top = Math.max(...score);
+    const p = Array.from(score, s => Math.exp(s - top));
+    const sum = p.reduce((a, b) => a + b, 0);
+    return { all, known, count, score, p: p.map(v => v / sum) };
+  }
+
+  /* Which words carried it. The distance between two components is a sum over the words of the
+     text and over nothing else -- score(a) - score(b) = sum over v of x_v (log W_a[v] -
+     log W_b[v]) -- so a word's share of it is exactly that term, and the strip is the whole of
+     the reason, not a selection from it.
+
+     Always measured toward component 0 and against the nearest of the other nine, whichever way
+     the answer came out: the question the page asks is "is this that vocabulary", so red means
+     yes and black means no on a page that said no, exactly as on one that said yes. */
+  function evidence(r, other) {
+    const K = M.k, out = [];
+    for (const [j, x] of r.count) {
+      out.push({
+        w: VOCAB[j], x,
+        d: x * (M.floor[0] + E[j * K] - M.floor[other] - E[j * K + other]),
+      });
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ a link */
+
+  /* GitHub's API answers a browser directly -- it sends `Access-Control-Allow-Origin: *` -- so a
+     link can be turned into the text it points at with no server of ours in between. Sixty an
+     hour from one address without a login, which is the whole of what this costs.
+
+     What a link can be: a pull request or an issue, whose body is the description; or a comment
+     on either, which is the fragment after the `#`. The three fragment shapes are the three
+     kinds of comment GitHub writes -- a plain one on the conversation, one on a line of the
+     diff, and the top of a review -- and each is a different endpoint. Anything else falls
+     through to the body of the thing itself, which is what a bare link means. */
+  function endpoint(link) {
+    const m = link.trim().match(
+      /^https?:\/\/(?:www\.)?github\.com\/([^/\s]+)\/([^/\s]+)\/(pull|issues)\/(\d+)(?:[^#]*#(\S+))?/);
+    if (!m) return null;
+    const [, owner, repo, kind, num, frag] = m;
+    const base = `https://api.github.com/repos/${owner}/${repo}`;
+    let f;
+    if (frag && (f = frag.match(/^issuecomment-(\d+)$/))) return `${base}/issues/comments/${f[1]}`;
+    if (frag && (f = frag.match(/^discussion_r(\d+)$/))) return `${base}/pulls/comments/${f[1]}`;
+    if (frag && (f = frag.match(/^pullrequestreview-(\d+)$/)))
+      return `${base}/pulls/${num}/reviews/${f[1]}`;
+    return kind === "pull" ? `${base}/pulls/${num}` : `${base}/issues/${num}`;
+  }
+
+  async function load() {
+    const field = app.querySelector("#url"), said = app.querySelector(".said");
+    const say = (text, bad) => {
+      said.textContent = text;
+      said.classList.toggle("bad", !!bad);
+    };
+    const url = endpoint(field.value);
+    if (!field.value.trim()) return say("");
+    if (!url) return say("not a github pull request, issue or comment", true);
+    say("asking github…");
+    let res;
+    try {
+      res = await fetch(url, { headers: { accept: "application/vnd.github+json" } });
+    } catch {
+      return say("github could not be reached", true);
+    }
+    if (res.status === 404) return say("no such thing, or the repository is private", true);
+    /* The rate limit is the one failure a reader will actually hit, and it is worth naming: it
+       is per address and it resets on the hour, so "try again" is bad advice and "wait" is good.
+       Read out of the body rather than out of `x-ratelimit-remaining`, because a header on a
+       cross-origin response is only legible if the server said it may be -- GitHub does say so,
+       and a page that would answer wrongly if it ever stopped is a page resting on somebody
+       else's header list. The message is in the JSON either way. */
+    if (res.status === 403 || res.status === 429) {
+      const why = await res.json().catch(() => ({}));
+      return say(/rate limit/i.test(why.message || "")
+        ? "github's sixty an hour is used up; it resets on the hour"
+        : "github refused that one", true);
+    }
+    if (!res.ok) return say(`github answered ${res.status}`, true);
+    const body = (await res.json()).body || "";
+    if (!body.trim()) return say("that one has no text in it", true);
+    say(`${fmt(tokens(body).length)} words loaded`);
+    // the address before the box, so that a page showing the text is never a page whose address
+    // has not caught up with it
+    remember(field.value.trim());
+    app.querySelector("#text").value = body;
+    paint();
+  }
+
+  /* A loaded link goes into this page's own address, so what is on the screen can be sent to
+     somebody -- and the same address read back is how it arrives. Only on a load that worked:
+     an address holding a link that answered nothing is worse than no address at all.
+
+     `replaceState` and not `pushState`, because loading a link is not somewhere the reader went
+     and the back button should still be the way out of the page. In a try, because a page opened
+     from a checkout is a `file://` page and a browser will not let one rewrite its address. */
+  function remember(link) {
+    try {
+      history.replaceState(null, "",
+        link ? `${location.pathname}?url=${encodeURIComponent(link)}` : location.pathname);
+    } catch { /* a file:// page keeps the address it was opened with */ }
+  }
+
+  /* ------------------------------------------------------------------ the page */
+
+  function build() {
+    app.innerHTML = `<div class="board">
+    <div class="cell head">
+      <h1>Is this the <em>load-bearing</em> vocabulary of Claude?</h1>
+      <p class="standfirst">We <a href="index.html">analyzed</a> the vocabulary of pull requests
+        over the last two years and identified a distinctive cluster that grew only recently and that
+        is strongly associated with expressions used by Claude.</p>
+      <p class="standfirst">Paste some text below to know whether it belongs to that cluster.</p>
+      <p class="standfirst caveat">This is not a detector for AI-generated text: all it does is matching 
+        vocabulary against a cluster from our analysis. In practice, that cluster is mostly PRs written by Claude, but we offer this tool with no guarantee.</p>
+    </div>
+    <div class="cell ask">
+      <label class="label" for="text">Input text</label>
+      <textarea id="text" spellcheck="false" autocomplete="off" autocorrect="off"
+        autocapitalize="off" placeholder="Enter some text (preferably from a pull request)"></textarea>
+      <div class="ways">
+        <div class="row"><span class="label">or a link</span>
+          <span class="said label" role="status"></span></div>
+        <div class="fetch">
+          <input type="url" id="url" spellcheck="false" autocomplete="off" autocorrect="off"
+            autocapitalize="off" aria-label="a github pull request, issue or comment link"
+            placeholder="a pull request or comment URL">
+          <button type="button" class="load">load</button>
+        </div>
+        <span class="label">or try an example</span>
+        <div class="tries">${TRIES.map((t, i) =>
+      `<button type="button" class="try" data-i="${i}">${esc(t[0])}</button>`).join("")}</div>
+      </div>
+      <p class="note">Nothing you paste is sent anywhere: the model is evaluated in your
+        browser.</p>
+    </div>
+    <div class="cell tell">
+      <span class="label">prediction</span>
+      <p class="verdict none"></p>
+      <div class="meter"><i style="width:0"></i></div>
+      <div class="ends"><span class="label">this cluster</span>
+        <span class="label">the others</span></div>
+      <span class="label of-words">the characteristic words</span>
+      <div class="strip"></div>
+    </div>
+    <div class="cell foot"><span class="label">last model fit ${M.generated}</span>
+      <span class="label">Made with ❤️ by <a href="https://louisabraham.github.io/">Louis
+          Abraham</a></span>
+    </div>
+  </div>`;
+
+    const box = app.querySelector("#text");
+    box.addEventListener("input", () => {
+      // what is in the box is no longer what the address says is in the box
+      if (location.search) remember("");
+      paint();
+    });
+    app.querySelector(".load").addEventListener("click", load);
+    // a link is pasted and the reader presses return, which is what return is for in a field
+    // with one button beside it
+    app.querySelector("#url").addEventListener("keydown", ev => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        load();
+      }
+    });
+    app.querySelectorAll(".try").forEach(b => b.addEventListener("click", () => {
+      box.value = TRIES[+b.dataset.i][1];
+      app.querySelector(".said").textContent = "";
+      app.querySelector("#url").value = "";
+      remember("");
+      paint();
+    }));
+    paint();
+  }
+
+  function paint() {
+    const r = classify(app.querySelector("#text").value);
+    const verdict = app.querySelector(".verdict");
+    const strip = app.querySelector(".strip");
+    const bar = app.querySelector(".meter i");
+    app.querySelector(".cell.tell").classList.toggle("blank", !r.known);
+
+    /* Nothing to answer about is not the same as a No. With no words the ten scores are all
+       zero, the ten probabilities are a tenth apiece, and printing "no, 90% sure" off the back
+       of that would be the page inventing an answer out of the shape of its own arithmetic. */
+    /* An answer is a word set at the size of a heading; anything the page says INSTEAD of an
+       answer is set as what it is, which is a note in the second voice -- the one the line under
+       the answer is already in. A sentence set at the size of the answer reads as the answer. */
+    if (!r.known) {
+      verdict.className = "verdict none";
+      verdict.innerHTML = `<span class="sure">${r.all.length
+        ? "None of these words is in the vocabulary."
+        : "Enter some text first"}</span>`;
+      bar.style.width = "0";
+      strip.innerHTML = "";
+      return;
+    }
+
+    const yes = r.p[0] > 0.5;
+    verdict.className = `verdict ${yes ? "yes" : "no"}`;
+    /* The share of THIS cluster, whichever way the answer came out, because that is what the bar
+       under it draws and what its two ends are labelled. Reported as the confidence in the
+       verdict instead -- 97% for a No -- it sat fourteen pixels above a bar that was 3% red, and
+       a reader who had learnt from a Yes that the bar is the number was being contradicted. One
+       number, in one place, measuring one thing. */
+    verdict.innerHTML = `<b>${yes ? "Yes" : "No"}.</b>`
+      + `<span class="sure">${sure(r.p[0])} in this cluster, with ${r.known === r.all.length
+        ? `all ${fmt(r.known)}` : `${fmt(r.known)} of the ${fmt(r.all.length)}`} words analysed by our model</span>`;
+    bar.style.width = `${(r.p[0] * 100).toFixed(2)}%`;
+
+    /* The nearest of the other nine is what the strip is measured against, because it is what the
+       answer was actually decided against: the other eight are further away and would only make
+       every word look more decisive than it was. */
+    let other = 1;
+    for (let c = 2; c < M.k; c++) if (r.score[c] > r.score[other]) other = c;
+    const rows = evidence(r, other);
+    /* Sized on a log scale for the same reason the wall next door is: a word's share runs over
+       three orders of magnitude, and on a linear ramp everything past the first few would sit at
+       the floor. Chosen by size and then printed in order of sign -- taking the top sixty by sign
+       would drop every word that argued the other way, and those are half of what the strip is
+       for. */
+    const hiL = Math.log(1 + Math.max(...rows.map(v => Math.abs(v.d))));
+    strip.innerHTML = rows.slice().sort((u, v) => Math.abs(v.d) - Math.abs(u.d))
+      .slice(0, WORDS_SHOWN).sort((u, v) => v.d - u.d).map(({ w, d }) => {
+        const t = hiL > 0 ? Math.log(1 + Math.abs(d)) / hiL : 0;
+        /* Size and nothing else. Opacity was a second encoding of the same number and the
+           weaker one, and at its floor the accent came out a pink no one could read -- it spent
+           the page's one colour on the words that mattered least. */
+        return `<span class="${d >= 0 ? "for" : "against"}" `
+          + `style="font-size:${(10.5 + 9 * t).toFixed(1)}px">${esc(w)}</span>`;
+      }).join("");
+  }
+
+  const tag = document.createElement("script");
+  tag.src = DATA;
+  tag.onload = () => {
+    M = window.MODEL;
+    if (!M) return fail();
+    [VOCAB, INDEX] = readVocab(M.vocab);
+    if (VOCAB.length !== M.words) return fail();
+    E = readWeights(M.weights);
+    build();
+    // an address may arrive with the link already in it, which is how a reading is shared
+    const asked = new URLSearchParams(location.search).get("url");
+    if (asked) {
+      app.querySelector("#url").value = asked;
+      load();
+    }
+  };
+  tag.onerror = fail;
+  document.head.appendChild(tag);
+
+  function fail() {
+    app.innerHTML = `<p style="padding:80px 24px;font-family:ui-monospace,monospace">`
+      + `<b>${DATA}</b> not found.<br>Run <b>python analyze.py</b> first.</p>`;
+  }
+</script>
