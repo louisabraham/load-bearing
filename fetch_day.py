@@ -34,6 +34,7 @@ import argparse
 import json
 import os
 import random
+import re
 import sys
 import time
 import urllib.error
@@ -68,6 +69,35 @@ EXCLUDE_APPS = ("pull", "dependabot", "renovate", "github-actions")
 # The qualifier is repeated per term deliberately: `in:body` does NOT distribute over an OR
 # group, so `(the OR a) in:body` matches titles and lets empty bodies back in.
 PROSE_TERMS = ("the", "a", "to", "of", "and", "in", "is", "for", "that", "with")
+
+# Credentials that people paste into pull request descriptions, masked before a day is written.
+# The corpus is public and committed, so a live key in it would be republished by this
+# repository -- and GitHub's push protection refuses the commit anyway, which is how 2026-09-21
+# failed: an OpenRouter key and a personal access token in one description. The mask is `***`
+# because it has no letter, so `analyze.tokens` drops it and the fit never sees it; the keys
+# themselves were never words, each one unique and far below the floors.
+SECRET_RE = re.compile(
+    "|".join(
+        (
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)",
+            r"\bgh[pousr]_[A-Za-z0-9]{36,}",  # GitHub tokens
+            r"\bgithub_pat_[A-Za-z0-9_]{22,}",
+            r"\bsk-(?:or-v1-|ant-|proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}",  # OpenRouter, Anthropic, OpenAI
+            r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b",  # AWS access key ids
+            r"\bAIza[0-9A-Za-z_-]{35}",  # Google API keys
+            r"\bxox[abposr]-[0-9A-Za-z-]{10,}",  # Slack
+            r"\b[sr]k_live_[0-9A-Za-z]{20,}",  # Stripe
+            r"\bhf_[A-Za-z0-9]{30,}",  # Hugging Face
+            r"\bnpm_[A-Za-z0-9]{36}",  # npm
+            r"\bglpat-[0-9A-Za-z_-]{20,}",  # GitLab
+        )
+    )
+)
+
+
+def redact(body):
+    """The body with every credential `SECRET_RE` recognises replaced by `***`."""
+    return SECRET_RE.sub("***", body)
 
 
 def windows(day):
@@ -247,7 +277,7 @@ def fetch(day, token):
                 # owner and name
                 "repo": "/".join((it.get("repository_url") or "").split("/")[-2:]),
                 "author": ((it.get("user") or {}).get("login") or "").lower(),
-                "body": (it.get("body") or "")[:8000],
+                "body": redact(it.get("body") or "")[:8000],
             }
             for it in data.get("items", [])
         ]
