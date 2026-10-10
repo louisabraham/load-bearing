@@ -1,0 +1,2020 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The load-bearing vocabulary of Claude</title>
+<!-- The only thing this page fetches that is not the analysis: the site's counter, configured
+     once at the root of the domain and loaded from there by every project page, so the key and
+     the settings are in one file rather than pasted into each.
+
+     The path is root-relative and stays that way. This page is served from
+     louisabraham.github.io/load-bearing/, so it resolves; a fork served from another github.io,
+     and a copy opened from a checkout, find nothing at it and report nothing. -->
+<script defer src="/assets/js/ph.js"></script>
+<style>
+  /* RASTERFELD -- the board.
+ *
+ * One screen, no fold. Every part has its own compartment in a twelve-column field: the
+ * corpus, the clustering, the stack, the chosen word, the words themselves. The thousand words
+ * scroll inside their own cell instead of pushing the chart off the bottom, and a word is
+ * clicked rather than hovered, so it stays chosen and the panel can be read with both hands
+ * off the mouse.
+ *
+ * Bauhaus in two senses: the primaries against black on paper, and geometry doing the work
+ * decoration would otherwise do. Light only -- Bauhaus printing was ink on paper and a dark
+ * ground would invert the premise -- so `prefers-color-scheme` is deliberately not honoured,
+ * and `color-scheme: only light` says so to the browser as well, which would otherwise repaint
+ * the board itself on a phone that is in dark mode.
+ *
+ * Colour carries meaning rather than identity: the accent is reserved for the one cluster that
+ * arrives and for the current selection, and the other seven bands are one grey ramp. The
+ * accent clears 4.5:1 on the ground, because it sets small text and not only marks.
+ */
+
+  :root {
+    /* Light only, said to the browser and not only in the note above.
+
+       The board declines to honour `prefers-color-scheme`, which stops the PAGE turning dark
+       and does nothing to stop the BROWSER turning it dark on the page's behalf. A phone in
+       dark mode, finding no `color-scheme` on a page, repaints one: Firefox for Android does
+       it, Chrome for Android does it, and the result is not the board in other colours but the
+       board in two colour schemes at once. The prose inverted to white on #121212 while the
+       accent, the three primaries and every fill inside the two charts stayed exactly as
+       printed -- so the labels over the stack, dark ink at 62% on bands that had not moved,
+       came out as grey on grey and could barely be read.
+
+       `only light` and not `light`: `light` says which schemes the page supports, and a
+       browser forcing dark overrides it anyway -- measured, it changed 68% of the board's
+       pixels either way. `only` is the half that withholds the permission, and with it the
+       board renders pixel for pixel as it does on a phone in daylight. */
+    color-scheme: only light;
+    /* Grotesk for the page, mono for anything that is a measurement. No web fonts: the page is
+       one file that reads one file.
+
+       `Inter` is deliberately NOT in this list. A stack is a list of wishes and the browser
+       grants the first one it can, which makes any name in it a name you are promising to
+       accept in whatever cut the machine happens to hold. On a phone with Inter installed,
+       Firefox granted it -- and the cut installed there is a hairline. Every heading and every
+       figure came out at one thin stroke whether the CSS asked for 400, 500 or 700, measured
+       four times thinner than the same text in Chrome, which reads as grey text on a white
+       ground rather than as black. Chrome does not see that font at all, so only one browser
+       showed it, and each of Roboto, system-ui and sans-serif goes properly bold on the same
+       phone -- they simply sat behind Inter in the queue and never got a turn.
+
+       A face is worth naming here only if every machine that has it has it in the weights the
+       board is set in. Inter is not, so it goes; the rest are the platform's own text faces,
+       which are. `Roboto` is named ahead of the two UI keywords for the same reason -- it is
+       what either can mean on a phone, and Firefox does not implement `ui-sans-serif` at all,
+       so left to the keywords the two browsers reach it by different routes. */
+    --grotesk: "Helvetica Neue", Helvetica, Roboto, ui-sans-serif, system-ui, Arial, sans-serif;
+    /* every named face here is absent from a phone, so both browsers fall to the same
+       `monospace` -- which is why the labels were the one thing that already matched */
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --ground: #ffffff;
+    --ink: #0d0d0d;
+    --muted: #5f5f5f;
+    --accent: #de301e;
+    --hairline: #0d0d0d;
+    --fill: #de301e1f;
+    --rule: 2px;
+    /* the printed rule the whole board is drawn with */
+    --pad: 16px 18px;
+    /* the field over the column, stated once: the stacked layout adds it to the cell's height
+       so that the COLUMN keeps the size it has beside the chart on the board, rather than
+       giving up a row of words to the field */
+    --find: 34px;
+    /* Where the chosen line sits in the column, as a fraction of the box.
+
+       A third of the way down and not half. The column is an ORDER and it is read downward, so
+       the two thirds below the line -- the words not reached yet -- are worth more than an equal
+       share above it, and the empty run the column has to open with is a third of a box instead
+       of half of one. Half a box of white over the first word read as a column that had failed
+       to load rather than as room for the ones above it to arrive in.
+
+       The number is here once. `line()` reads it off the box, so the run above, the snap
+       positions and the line the choice is read back from cannot disagree about it. */
+    --line: 33%;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /* The page sets its own text sizes and the board is measured against them, so no browser may
+     inflate them on its behalf. Only the `-webkit-` spelling was here, which Firefox does not
+     read: on Firefox for Android, where the opt-out is spelled unprefixed (and `-moz-` on the
+     older builds), the labels and the words in the column came back scaled up, wrapped lines
+     the board had budgeted one line for and pushed the measurements out of their cells. All
+     three spellings, so every phone leaves the text at the size it is written at. */
+  html {
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 17px/1.5 var(--grotesk);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  svg {
+    display: block;
+    width: 100%;
+  }
+
+  b {
+    font-weight: 700;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------------------------------------------------------------- the field */
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    border: var(--rule) solid var(--ink);
+    margin: 18px;
+  }
+
+  .cell {
+    border-bottom: var(--rule) solid var(--ink);
+    padding: var(--pad);
+    /* both minimums, so a grid item can be smaller than the thousand words inside it, and
+       `overflow` so that if it ever is not, the words stop at the rule rather than printing
+       over the footer */
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* one seam, at five-twelfths, down the whole board: the left column reads as prose and the
+   right one as measurement */
+  .cell.head {
+    grid-column: span 5;
+  }
+
+  /* The row is as tall as the title beside it, which is taller than the sentence and its three
+     figures. They are one unit -- the sentence ends in a colon the figures answer -- so the unit
+     is centred in the box rather than hung from the top with the leftover printed underneath. */
+  .cell.fig {
+    grid-column: span 7;
+    border-left: var(--rule) solid var(--ink);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .cell.say {
+    grid-column: span 5;
+  }
+
+  .cell.chart {
+    grid-column: span 7;
+    border-left: var(--rule) solid var(--ink);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* the wall is on the left and the chart it feeds on the right, which is the order the eye
+     works in; both are placed on explicit lines rather than reordered in the markup, so the
+     stacked layout below keeps the instruction above the words it is about */
+  .cell.words {
+    grid-column: 1 / span 5;
+    grid-row: 3;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .cell.panel {
+    grid-column: 6 / span 7;
+    grid-row: 3;
+    border-left: var(--rule) solid var(--ink);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* the last content row and the footer share one rule rather than printing two */
+  .cell.panel,
+  .cell.words {
+    border-bottom: 0;
+  }
+
+  .cell.foot {
+    grid-column: span 12;
+    border-top: var(--rule) solid var(--ink);
+    border-bottom: 0;
+    padding: 10px 18px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px 18px;
+  }
+
+  /* Two families and four steps, and what a thing IS decides which one it takes, not where it
+     sits on the board:
+       grotesk 700, tight     the title and the three figures -- what is the size of the page
+       grotesk 500            every sentence the page says, in either box of prose
+       grotesk 400, muted     the note under them
+       mono 500, uppercase    every label on a measurement: the figures' captions, the week
+                              under the pointer, a word's numbers, the axes, the footer
+       mono, sized by lift    the words themselves, which are not labels but the data
+     Two things are deliberately outside it: the chosen word, set in the mono of the column it
+     came from at the size of a heading, and the numbers inside a sentence, which take the
+     accent because they are what the sentence is about. */
+  .label,
+  .readout,
+  .pager,
+  .probe .meta {
+    font: 500 11px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---------------------------------------------------------------- the corpus */
+
+  h1 {
+    margin: 0;
+    font: 700 clamp(1.45rem, 3.1vw, 2.35rem)/1.5 var(--grotesk);
+    letter-spacing: -0.04em;
+    text-transform: uppercase;
+  }
+
+  h1 em {
+    font-style: normal;
+    background: var(--accent);
+    color: #fff;
+    padding: 0 0.12em;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .stat b {
+    display: block;
+    font: 700 clamp(1.05rem, 2vw, 1.6rem)/1 var(--grotesk);
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat .label {
+    display: block;
+    margin-top: 6px;
+  }
+
+  /* the three figures are told apart by the three primaries, not by three labels' worth of ink */
+  .stat i {
+    display: block;
+    width: 100%;
+    height: 6px;
+    margin-bottom: 8px;
+  }
+
+  .stat:nth-child(1) i {
+    background: #de301e;
+  }
+
+  .stat:nth-child(2) i {
+    background: #0b5cab;
+  }
+
+  .stat:nth-child(3) i {
+    background: #ffcf33;
+  }
+
+  /* ---------------------------------------------------------------- the clustering */
+
+  /* the sentence above the figures is a sentence the page says, so it is set as one: the same
+     step as the sentences in the next box, and only its measure and the room under it differ */
+  .lede,
+  .standfirst {
+    margin: 0 0 8px;
+    font: 500 clamp(1rem, 1.55vw, 1.2rem)/1.28 var(--grotesk);
+    letter-spacing: -0.02em;
+  }
+
+  .standfirst {
+    margin-bottom: 18px;
+    max-width: 52ch;
+  }
+
+  .lede:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .lede b {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* the one note on the board: what is left when a line is neither a sentence the page says
+     nor a label on a number */
+  .repo {
+    margin: 16px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  /* one link rule for the whole board. The accent is spent on the figures, so a link keeps the
+   ink and takes the accent as its underline instead of as its colour. */
+  a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    /* one unbroken rule under the words: the gaps a descender cuts in an underline read as
+       three short lines rather than one link */
+    text-decoration-skip-ink: none;
+  }
+
+  a:hover,
+  a:focus-visible {
+    color: var(--accent);
+  }
+
+  /* ---------------------------------------------------------------- the charts */
+
+  /* A finger dragged across a chart scrubs it, and the browser must be told so before the
+     gesture starts. Left to itself Chrome on a phone reads the first sideways millimetre as a
+     pan, takes the gesture and sends `pointercancel`: the line jumped once to where the finger
+     landed and then vanished, and the readout fell back to the last week -- the chart answered
+     a tap but could not be dragged. `pan-y` gives the sideways axis to the page's own handler
+     and keeps the up-and-down one for scrolling, so the chart is scrubbed across and the page
+     still scrolls past it. */
+  .cell.chart svg,
+  .probe svg {
+    touch-action: pan-y;
+  }
+
+  .cell.chart svg {
+    flex: 1;
+    min-height: 150px;
+    height: auto;
+  }
+
+  /* the week under the pointer belongs to the diagram, so it is printed at the head of the
+   diagram's own cell rather than in a compartment of its own or in a tooltip that takes it
+   away again. With no pointer on the chart the line asks for one. */
+  .readout {
+    margin: 0 0 10px;
+    /* one line of room whether or not the week has been written into it yet: the chart is
+       measured before it is drawn, and a readout that arrives afterwards would take its line
+       out of the chart's own height and leave the drawing taller than the box holding it */
+    min-height: 1.3em;
+    color: var(--ink);
+  }
+
+  /* not a measurement, so not in the ink: the invitation takes the grey every other label on
+     the board is set in, and a glance tells a reading from a prompt without reading either */
+  .readout.nudge {
+    color: var(--muted);
+  }
+
+  .readout b {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* ------------------------------------------------------- which cluster the chart is of */
+
+  /* The chart's head row holds both facts about what is drawn: the reading the pointer is
+     taking, on the left, and the cluster it is taking it in, on the right. One line rather than
+     two compartments, because they are one sentence -- this much of this week, of THIS band.
+
+     Baselines rather than boxes, so the number beside the arrows sits on the same line as the
+     readout however the readout wraps on a narrow board. */
+  .cell.chart .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    /* the ten pixels under the row are the ROW's, not the readout's. They were the readout's
+       while it was the whole row; left there, the readout's margin box and the arrows' box
+       are two different heights and the row is as tall as whichever is taller -- so the row
+       changed height when the readout was written into, and the chart under it, which is
+       flex-sized, changed with it. */
+    margin-bottom: 10px;
+  }
+
+  .cell.chart .top .readout {
+    margin: 0;
+  }
+
+  /* the marks rhyme with the column's own up and down: the board has two things that step, and
+     it should say so the same way twice rather than invent a second vocabulary for the second
+     one. The row does not shrink -- the readout re-writes on every pointer move, and a stepper
+     that flinched at "0.02%" would be unusable at exactly the moment it is being read. */
+  .pager {
+    /* the finger's half of the target: added around each mark, and taken back off the end of
+       the row. Aligning the row to the rule aligns the BOX, which leaves the mark inside it
+       short of where every other label on this board sits; the row is pulled out by the same
+       padding that grew the box, so what lines up is the arrow and not its target. */
+    --reach: 9px;
+    display: flex;
+    align-items: center;
+    flex: none;
+    margin-right: calc(-1 * var(--reach));
+    /* The strip is pulled sideways to step the clusters, and the browser has to be told so
+       before the gesture starts -- the same bargain the charts strike a hundred lines up, and
+       for the same reason: the sideways axis is this page's, the up-and-down one is the page's
+       own scroll, and a strip that claimed both would trap a finger on its way down the board.
+
+       It buys the taps as well. Any `touch-action` narrower than `auto` also tells the browser
+       that nothing here is double-tapped to zoom, which is the whole of what iOS was waiting to
+       find out: every press of an arrow was held for a third of a second in case a second one
+       was coming, and the stepper felt slow because it WAS slow, by exactly that much. */
+    touch-action: pan-y;
+  }
+
+  /* tabular, because the count crosses from one digit to two: the arrows must not move when
+     the reader steps between the ninth cluster and the tenth */
+  .pager .says {
+    /* the words are the reach; the arrows are the target. They are one object either way, so
+       the words sit tight against the first arrow rather than a gap away from it. */
+    margin-right: 2px;
+  }
+
+  .pager .at {
+    font-variant-numeric: tabular-nums;
+    padding: 0 2px;
+  }
+
+  .pager .at b {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* A glyph the size of the column's marks, in a box the size of a finger. The mark carries the
+     type of the board and the box carries the target, and growing the second does not move the
+     first: the button is centred on the glyph it draws. */
+  .pager .arrow {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: 0;
+    margin: 0;
+    padding: var(--reach);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--muted);
+    font: 500 10px/1 var(--mono);
+  }
+
+  /* the accent means the same thing on both devices -- this mark is the one being pressed -- but
+     only one of them can stop saying it. A phone has no leave event to give: iOS holds `:hover`
+     on whatever was last touched until something else is, so the arrow that stepped the board
+     stayed lit afterwards and read as the state of the board rather than as a press that had
+     already happened. `:active` is the same statement with an end to it. */
+  @media (hover: hover) {
+    .pager .arrow:hover:not(:disabled) {
+      color: var(--accent);
+    }
+  }
+
+  .pager .arrow:active:not(:disabled) {
+    color: var(--accent);
+  }
+
+  /* the ends are ends and not a wrap: the clusters are ordered by how much of the last month
+     each one is, so the twelfth and the first are the two extremes of that reading and stepping
+     between them would be the one move on this stepper that means nothing */
+  .pager .arrow:disabled {
+    opacity: 0.28;
+    cursor: default;
+  }
+
+  /* A step repaints two bands and moves nothing, so it can be a fade rather than a cut: the
+     eye follows one band lighting up and the other letting go, which is the whole event. Any
+     longer and it would lag a held-down arrow key; any shorter and it is the cut again. */
+  #stack [data-c] {
+    transition: fill 160ms linear;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #stack [data-c] {
+      transition: none;
+    }
+  }
+
+  .axis {
+    position: relative;
+    height: 15px;
+    margin-top: 7px;
+    font: 500 10px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    color: var(--muted);
+  }
+
+  .axis span {
+    position: absolute;
+    top: 0;
+    white-space: nowrap;
+  }
+
+  .axis span:first-child {
+    left: 0;
+  }
+
+  .axis .last {
+    right: 0;
+  }
+
+  /* the years inside the axis are a convenience; the two dates at the ends are not. On a narrow
+   screen the year mark and the last week collide, and the year is the one the chart already
+   draws as a rule of its own. */
+  @media (max-width: 480px) {
+    .axis .yr {
+      display: none;
+    }
+  }
+
+  /* the chosen word's own history. The scale is that word's own peak, printed beside it -- a
+   shared scale would flatten every word except the handful of common ones, and these differ by
+   three orders of magnitude. */
+  .probe {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* the word on its own line and the measurements under it, always: side by side, the two
+     collapse onto one line or fall onto two depending on how long the word is, and the panel
+     changes shape as you move down the column */
+  .probe .who {
+    display: block;
+  }
+
+  .probe .word {
+    display: block;
+    font: 500 clamp(1.05rem, 1.6vw, 1.3rem)/1.2 var(--mono);
+  }
+
+  .probe .word b {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* the multiple is the measurement in that line; it takes the ink rather than the accent,
+     which is spent already on the word above it and on the band that arrives */
+  .probe .meta b {
+    color: var(--ink);
+  }
+
+  .probe .meta {
+    display: block;
+    margin-top: 7px;
+  }
+
+  /* the panel's own readout sits tighter to its chart than the stack's does to the board */
+  .probe .readout {
+    margin: 4px 0 4px;
+  }
+
+  .probe svg {
+    flex: 1;
+    min-height: 74px;
+    height: auto;
+    margin-top: 8px;
+  }
+
+  /* --------------------------------------------------------------- the filter */
+
+  /* One field over the column, sharing the column's frame: the box below is the RESULT of the
+     box above, so the two are drawn as one object with a single hairline between them rather
+     than as two boxes with a gap.
+
+     The seam is the FIELD's bottom border and the wall gives up its top one, rather than the
+     other way round. Either draws the same line, and this way the line belongs to the box that
+     changes colour: a field outlined on three sides came back accented on three sides when it
+     was used, with its own bottom edge left in the ink -- an unclosed box, and the one edge
+     that is missing is the loudest thing in it. */
+  .find {
+    display: flex;
+    align-items: center;
+    flex: none;
+    height: var(--find);
+    border: 1px solid var(--hairline);
+    /* the left pad is the wall's own, so the prompt and the typed word start on the same
+       vertical as the thousand words under them */
+    padding: 0 0 0 12px;
+    gap: 10px;
+  }
+
+  /* The prompt is a label and what is typed is data, so the two are set as different things.
+     The placeholder takes the mono uppercase every other label on the board is in; the query
+     takes the ink and the letterforms of the column it filters, lowercase, because the corpus
+     is lowercased before a word is ever counted. */
+  .find input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: none;
+    color: var(--ink);
+    font: 500 13px/1 var(--mono);
+    /* the field is the board's and not the browser's: no inset rounding on iOS, and none of
+       Safari's own furniture inside a box the board has already drawn one for */
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .find input::placeholder {
+    color: var(--muted);
+    font: 500 11px/1 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    /* Firefox prints a placeholder at 54% of the colour it is given, which on the muted grey
+       is below the contrast the rest of the labels hold */
+    opacity: 1;
+  }
+
+  .find input::-webkit-search-cancel-button,
+  .find input::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* The field is already a box, so it does not take a second outline when it is used: the
+     accent moves onto the frame the box has. `:focus-within` and not `:focus-visible` -- this
+     is the one control on the board a pointer is meant to click into and then type, and a
+     field that was clicked into must not look untouched. */
+  .find:focus-within {
+    border-color: var(--accent);
+  }
+
+  .find input:focus-visible {
+    outline: 0;
+  }
+
+  /* how much of the thousand is left, which is the only reading the field has to give. Silent
+     until there is something to read: an untouched field printing "1,000 of 1,000" is a
+     number about nothing. */
+  .find .n {
+    flex: none;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .find .n b {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* The key that reaches the field, printed inside the field it reaches -- a hairline box round
+     a mono glyph, which is the same object the chosen word in the column is.
+
+     Drawn behind the same test as the rail, and for the same reason: a fine pointer is the
+     nearest thing a page can ask about a physical keyboard, and a shortcut named on a phone is a
+     line of furniture nobody can use. It goes as soon as it is spent -- on the focus it asks
+     for, or on a query, which is also where the count and the cross want the room.
+
+     Its right edge is the marks' right edge, six from the frame like the cross: the box is wider
+     than their ten-pixel column, so the edge is what the three can share rather than the centre. */
+  .find .key {
+    display: none;
+    flex: none;
+    margin-right: 6px;
+    padding: 2px 4px;
+    border: 1px solid #d8d8d8;
+    color: var(--muted);
+    font: 500 11px/1 var(--mono);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .find:not(.on):not(:focus-within) .key {
+      display: block;
+    }
+  }
+
+  /* The cross stands in the same ten-pixel column the arrows on the frame stand in, so the
+     three marks line up down the right edge rather than nearly doing. Ten wide like them, and
+     six from the edge rather than their seven: the marks are positioned against the column,
+     outside its border, and the cross is laid out inside the field's -- so six plus that one
+     pixel is the marks' seven. Measured, the two verticals were one pixel apart at 7. */
+  .find .clear {
+    flex: none;
+    width: 10px;
+    margin-right: 6px;
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--muted);
+    font: 500 15px/1 var(--mono);
+    text-align: center;
+    cursor: pointer;
+  }
+
+  /* behind the same test as the arrows over the chart, and stuck the same way without it: a
+     phone that cannot stop hovering left the cross lit long after the filter it cleared */
+  @media (hover: hover) {
+    .find .clear:hover {
+      color: var(--accent);
+    }
+  }
+
+  .find .clear:active {
+    color: var(--accent);
+  }
+
+  /* both are readings on a filter, so neither is printed when there is no filter */
+  .find:not(.on) .n,
+  .find:not(.on) .clear {
+    display: none;
+  }
+
+  /* ---------------------------------------------------------------- the words */
+
+  /* scrolling the column is choosing: the word crossing the middle of the box is the one
+     drawn, so the wheel and a finger do the same thing. The scrollbar is hidden because the
+     position in a thousand words is not the point — the word under the middle is. */
+  .wall {
+    /* one tick of a wheel, one word. The rows are snap points and none may be skipped, so a
+       whatever moves the column, it comes to rest with a word's top on the chosen line. The
+       padding puts the snap line where that line is, rather than at the box's top.
+
+       `proximity` and not `mandatory`, and no `scroll-snap-stop`: both of those catch a flick
+       and land it on the next word, which is a picker with no weight to it. A finger throws the
+       column now and it carries, snapping only when it stops near a word anyway. Nothing rests
+       on the snapping -- the chosen word is read off the scroll position, whatever it is. */
+    scroll-snap-type: y proximity;
+    scroll-padding-top: max(0px, calc(var(--line) - 14px));
+    position: relative;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    min-height: 0;
+    flex: 1;
+    border: 1px solid var(--hairline);
+    /* the field above it draws this line -- see the note there */
+    border-top: 0;
+    /* The right pad is the strip the frame's own marks stand in, and it is wider than the left
+       for exactly that reason. A row is a block, so its box -- and the outline drawn on it when
+       it is the chosen one -- runs the full width of the column whatever the word is; without
+       the room it ran under the arrows and, once there was one, straight through the rail. It
+       had always done it, at every width the board takes: the marks are a few pixels wide and
+       an outline crossing them at their tips reads as a rendering fault, while an outline
+       crossing a hairline the length of the box reads as one.
+
+       The number is the marks' own geometry: they stand in a ten-wide column seven from the
+       frame, so they reach 17px in from it and 24 here clears them by seven. It is 24 at every
+       width because the marks are placed against the column and not against the cell -- when
+       they were placed against the cell the clearance was the cell's padding as well, and ran
+       from eight on the board down to five on a phone. */
+    padding: 10px 24px 10px 12px;
+  }
+
+  /* The column and the marks on its frame are one object, so the marks are positioned against
+     the column rather than against the cell: whatever is printed above it -- the field -- then
+     cannot carry them off it, and the room the words leave for them is one number at every
+     width the board takes rather than one per cell padding. */
+  .column {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .wall::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* An empty run at each end, so the first and the last word can both reach the line -- the
+     first is the one the page is named after, and it must be reachable. Above the line, its
+     height less half a row; below, the rest of the box.
+
+     It is content and not padding: padding is inside the border box, so a box carrying more of
+     it than it is tall cannot shrink back when the layout changes under it, and the column ends
+     up printing over the footer. */
+  .wall::before,
+  .wall::after {
+    content: "";
+    display: block;
+  }
+
+  /* the run above the first word says what the column is and what to do with it, quietly and in
+     the lightest weight on the page. It scrolls away with the words themselves, which is the
+     right lifetime for a nudge: it is gone the moment it has been taken */
+  .wall::before {
+    height: max(0px, calc(var(--line) - 14px));
+    /* centred in the run on both axes, which is the same rule twice: the run is a box and a
+       label in a box goes in the middle of it. Left-aligned it read as a first row of the list
+       that had lost its word. */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    content: "scroll · most representative first";
+    color: var(--muted);
+    font: 400 10px/1.3 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* Filtered, the run says what the column has become. The order is still the order, but
+     "scroll" is the wrong verb for nine words, and the run is where a reader looking at a
+     short column is already looking. */
+  .wall.some::before {
+    content: "matches · most representative first";
+  }
+
+  /* One match is not a list, so the run stops saying how to read an order that has one element
+     in it. It still says something rather than nothing: an empty run over a single word reads
+     as a column that failed to draw. */
+  .wall.one::before {
+    content: "the only match";
+  }
+
+  /* Nothing to scroll to, so the run is the whole box and the line sits in the middle of it.
+
+     It says the query back rather than "no matches", which is the difference between a state
+     and an explanation -- and it is the one place the field's own rule is written down for a
+     reader. What they have usually done is expect the middle of a word to count; their letters
+     printed after "begins with" is what says why the box is empty. `--q` is set on the box in
+     `filter`, as a CSS string.
+
+     The panel keeps the word it had: narrowing the column to nothing is not the choice of a
+     different word, and blanking the chart would throw away the reading the field was opened
+     to look something up beside. */
+  .wall.none::before {
+    content: "no word begins with " var(--q, "that");
+    height: 100%;
+  }
+
+  .wall.none::after {
+    display: none;
+  }
+
+  /* A column of one word, or of none, does not move -- so the marks that say it moves go, the
+     way a scrollbar goes when there is nothing under it. Left drawn, the mark on the rail sat
+     at the top of a full-height run and said there was more below. */
+  .wall.one~.steps,
+  .wall.none~.steps {
+    display: none;
+  }
+
+  /* the run below is the rest of the box, which is what brings the last word up to the line --
+     and it is the taller of the two, because the line is above the middle */
+  .wall::after {
+    height: calc(100% - var(--line));
+  }
+
+  /* two marks on the frame rather than a scrollbar: what they say is that this column moves,
+     and that up and down are the keys for it. They keep the places they held when each was
+     positioned on its own -- the box is ten wide around a six-wide glyph, so neither mark has
+     moved and what is new is only the run between them. */
+  .steps {
+    position: absolute;
+    right: 7px;
+    top: 9px;
+    bottom: 9px;
+    width: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* the marks hold the ends of the run by `space-between` rather than by the rail's flex, so
+       they stay where they are on the devices where the rail is not drawn at all */
+    justify-content: space-between;
+    /* the marks are marks: only the rail between them takes the pointer */
+    pointer-events: none;
+  }
+
+  .step {
+    color: var(--muted);
+    font: 500 10px/1 var(--mono);
+  }
+
+  /* Where a scrollbar would be, doing the half of a scrollbar's job that is worth doing here.
+     A thousand words is far too many for a thumb whose LENGTH means anything -- it would be a
+     couple of pixels -- so the mark is a point: it says where in the thousand the chosen word
+     is.
+
+     Drawn everywhere. It was drawn only where the pointer is fine enough to catch eight pixels
+     of it, which confused two questions: whether the mark can be TAKEN, and whether it can be
+     READ. A finger cannot take it -- it has the whole column to throw, which is the same
+     gesture with a target the size of the box -- but a reader on a phone has exactly the same
+     need to know where in a thousand words the column has got to, and was told nothing. The
+     two marks on the frame were drawn there all along, so the lane is already reserved and the
+     run between them costs the column no width.
+
+     Being a handle is the part that stays behind the pointer query. */
+  .rail {
+    flex: 1;
+    width: 100%;
+    position: relative;
+    margin: 7px 0;
+    /* the frame is a reading, and the marks on it are the frame's: `.steps` takes no pointer
+       and the rail only takes one back where it is something to take */
+    pointer-events: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .rail {
+      cursor: pointer;
+      pointer-events: auto;
+      /* the drag belongs to the rail and not to the page, on a screen that could serve either */
+      touch-action: none;
+    }
+  }
+
+  /* the track is the lightest line on the page: a position is only legible against the run it
+     is a position in, and the run must not read as a third mark on the frame.
+
+     The half pixel is the only way the line and the thumb share a centre. The rail is ten wide
+     and the thumb eight, so the thumb sits on whole numbers and centres on 5; a one-wide line
+     centred on that same 5 begins at 4.5. Begun at 4 it ran half a pixel to the left of the
+     thumb it is the run for, and a thumb eight wide is wide enough to be read against the line
+     and show it. If one of the two must be off the grid it is the line: spread to two lighter
+     columns where a pixel cannot be halved, a line this light loses nothing. */
+  .rail::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4.5px;
+    width: 1px;
+    background: #d8d8d8;
+  }
+
+  .rail:hover::before {
+    background: #b0b0b0;
+  }
+
+  /* the accent, which on this board means the current selection and nothing else -- the same
+     thing the outline around the word means, said as a position instead of as a word.
+
+     Its travel is the run less its own height, so it reaches both ends of the rail without
+     hanging past either, and `--p` is the chosen word's place in the thousand. */
+  .rail i {
+    position: absolute;
+    top: calc((100% - 8px) * var(--p, 0));
+    left: 1px;
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+  }
+
+  /* a column, one word a line, tight enough that scrolling it is reading rather than paging */
+  .wall span {
+    display: block;
+    scroll-snap-align: start;
+    font-family: var(--mono);
+    white-space: nowrap;
+    line-height: 1.3;
+    border: 1px solid transparent;
+    padding: 1px 5px;
+    margin: 0;
+    cursor: pointer;
+  }
+
+  .wall span.on {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* the rows are blocks, and a block's `display` beats the browser's own rule for `[hidden]` --
+     so the words a filter removes have to be removed here as well as marked */
+  .wall span[hidden] {
+    display: none;
+  }
+
+  /* ---------------------------------------------------------------- where a board fits
+
+   The board is a board only where a board fits. Below this it is a document again: one column,
+   the seams unprinted, the chart at a fixed height and the wall bounded so it cannot become
+   the whole page. */
+  @media (min-width: 1080px) and (min-height: 720px) {
+    .board {
+      height: calc(100dvh - 36px);
+      margin-bottom: 18px;
+      grid-template-rows: auto minmax(0, 1.15fr) minmax(0, 1fr) auto;
+    }
+  }
+
+  @media (max-width: 1079px),
+  (max-height: 719px) {
+
+    /* every span named again rather than `.cell` once: a bare `.cell` here loses to `.cell.head`
+     on specificity and the board would stay a board */
+    .cell.head,
+    .cell.fig,
+    .cell.say,
+    .cell.chart,
+    .cell.panel,
+    .cell.words {
+      grid-column: span 12;
+      grid-row: auto;
+      border-left: 0;
+    }
+
+    /* Stacked, the column and the chart it feeds keep the height they have side by side on the
+       board: one pair, one size. The column fills whatever the cell gives it, so the size is
+       stated once and the two cannot drift apart.
+
+       That the height is fixed at all is the other half of it: the chart keeps it whether a
+       word is chosen or not, so choosing one does not shift the column under the finger that
+       chose it, and what the measurement line does is paid for by the drawing under it. */
+    .cell.panel {
+      height: 268px;
+    }
+
+    /* the column keeps the chart's height and the field is added to the cell, rather than the
+       field taking two rows of words out of a column that is already the shorter half */
+    .cell.words {
+      height: calc(268px + var(--find));
+    }
+
+    .cell.panel {
+      border-bottom: var(--rule) solid var(--ink);
+      justify-content: flex-start;
+    }
+
+    /* One line, not two. It held two while the measurements were two sentences -- the lift and
+       the corpus rate -- and reserving the taller of them was what stopped the panel jumping as
+       the column was scrolled. The corpus rate has gone into the chart, next to the peak it is
+       only worth anything against, and the line left is one that cannot wrap on any phone this
+       page has met; reserving two for it printed an empty line under every word. */
+    .probe .meta {
+      min-height: 1.4em;
+    }
+
+    .cell.chart svg {
+      height: 260px;
+    }
+
+  }
+
+  /* Below this the stepper leaves the readout's line and becomes a strip under the chart.
+
+     It is a width and only a width -- a short wide window stacks the board but has all the room
+     in the world for one line -- and the width is measured rather than picked: the widest
+     reading the chart writes is "week 2026-08-17 · 32% of the week", which with the stepper
+     beside it wants 533px of the cell, and the cell has that from a 580px window upwards. Forty
+     pixels of cushion on that, and the switch falls inside the narrower padding so both sides
+     of it are measured against the same box.
+
+     Below that width one line is not tight, it is impossible: the reading alone is 265px of the
+     336px a phone gives the cell, which does not leave room for two arrows, let alone the words
+     that say what they do. Wrapping is worse than either -- the readout is rewritten on every
+     pointer move, so a row that wrapped for the reading and not for the invitation would change
+     height under the finger taking the reading.
+
+     So it stops being a corner of the chart's head and becomes a control of its own, under the
+     axis, spanning the cell: the arrows hold the two ends, where a thumb already is, and what
+     they change sits between them. Stacked into a second label above the chart -- which is what
+     this was -- it read as a caption that had lost its picture. `display: contents` is what
+     lets it go there without a second copy of it in the markup: the head row stops being a box
+     and hands its two children to the cell, which is a column, and the stepper is ordered last
+     in it. */
+  @media (max-width: 620px) {
+    .cell.chart .top {
+      display: contents;
+    }
+
+    /* the row's ten pixels go back to the readout, since there is no row any more */
+    .cell.chart .top .readout {
+      margin: 0 0 10px;
+    }
+
+    .pager {
+      order: 1;
+      /* both ends now, so each arrow's mark lands on the edge its own side of the cell */
+      margin: 12px calc(-1 * var(--reach)) 0;
+    }
+
+    /* the strip reads end, middle, end -- so the arrow that is written before the words takes
+       the left end rather than sitting between them and the count. The markup keeps the words
+       first because that is the order they are READ in on the board, where the strip is a
+       corner of the chart's head and not a control spanning it. */
+    .pager .arrow:first-of-type {
+      order: -1;
+    }
+
+    /* the pair in the middle, held off the arrows by whatever is left rather than by a gap:
+       one strip with an end, a middle and an end, at whatever width the phone turns out to be */
+    .pager .says {
+      margin-left: auto;
+      /* on the board the words sit tight against the arrow, because they are the reach for it.
+         Here the arrow has gone to the end of the strip and the count is what they are beside,
+         which is a different join and wants a word's worth of space rather than two pixels. */
+      margin-right: 0.75em;
+    }
+
+    .pager .at {
+      margin-right: auto;
+    }
+  }
+
+  /* "swipe to change cluster" is nine characters longer than what a mouse is told, and on the
+     narrowest board the strip falls a character or two short of holding it. The words are the
+     one thing on the strip that can give the room back, and they give it back as tracking: a
+     second line would grow the strip, the chart under it is flex-sized, and the figure would
+     lose a row of pixels on the phones that have the fewest of them to lose. */
+  @media (max-width: 359px) {
+    .pager .says {
+      letter-spacing: 0.06em;
+      margin-right: 0.5em;
+    }
+  }
+
+  @media (max-width: 700px) {
+    :root {
+      --rule: 2px;
+      --pad: 14px 15px;
+    }
+
+    body {
+      font-size: 16px;
+    }
+
+    .board {
+      margin: 10px;
+    }
+
+    h1 {
+      font-size: clamp(1.35rem, 7.2vw, 2rem);
+    }
+
+    .standfirst {
+      margin-bottom: 14px;
+    }
+
+    /* one figure to a line on a phone: two across leaves the third sitting alone under them,
+       which reads as a fourth column that failed rather than as three of a kind */
+    .stats {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    .stat b {
+      font-size: 1.3rem;
+    }
+
+    .cell.chart svg {
+      height: 200px;
+    }
+
+    .cell.foot {
+      padding: 9px 15px;
+    }
+
+  }
+</style>
+
+<div id="app"></div>
+
+<script>
+  const DATA = "analysis.js";
+  let A = null, T = null, V = null;
+  const HALFROW = 14;                        // half a row: how far the line sits above the mark
+  let LINE = 0.33;                           // and the mark, as a fraction of the box: `--line`
+  const THUMB = 8;                           // the mark on the rail, square; `.rail i` agrees
+  const PERLINE = 40;                        // a wheel's LINE in pixels; see the wheel handler
+  /* how big a wheel NOTCH is, in pixels, at the two ends. A notch is 100px in Chrome on macOS
+     and 120 elsewhere, and three lines in Firefox, which `PERLINE` also makes 120; the ceiling
+     is two of those, for the pair that arrive as one event when a hand moves faster than the
+     browser reports. Anything outside the band is a device that does not have notches. */
+  const NOTCH = { min: 40, max: 240 };
+  /* What the board is showing: one of the twelve clusters, and one word inside it. Both start
+     at the top of their own list, and the components arrive from `analyze.py` ordered by size
+     over the last month -- so component 0 is the one the page argues about, and the board opens
+     on it however the reader then moves. */
+  const S = { c: 0, j: 0 };
+  const app = document.getElementById("app");
+  const fmt = n => Math.round(n).toLocaleString("en-US");
+  /* two significant figures however small, because the point of the smallest share is that it is
+     nearly zero and "0.0%" hides that */
+  const pc = v => {
+    const x = v * 100;
+    return (x >= 10 ? x.toFixed(0) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toFixed(2)
+      : x.toPrecision(2)) + "%";
+  };
+  const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const ramp = (from, to, n) => {
+    const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+    const a = hex(from), b = hex(to);
+    return Array.from({ length: n }, (_, i) => {
+      const t = n === 1 ? 0 : i / (n - 1);
+      return "#" + a.map((v, k) => Math.round(v + (b[k] - v) * t)
+        .toString(16).padStart(2, "0")).join("");
+    });
+  };
+  /* the accent for the component the reader is standing on, a grey apiece for the rest; the
+     seam is hairline so ten bands do not read as ten rules. The greys are dealt in
+     `light`, one per band and fixed to the band, from however many components the analysis has:
+     a fixed count of them was one wrapping ramp away from two bands sharing a shade. */
+  const TH = { grey: ["#7d7d7d", "#e6e6e6"], seam: 0.8, dash: "1 4", stroke: 1.6 };
+
+  /* ------------------------------------------------------------------ the charts */
+
+  /* Idle, the line above a chart says what the chart will do rather than standing a number in
+     the place where a reading goes. It used to hold the last week, which is a fact the board
+     never meant to assert -- the newest week is not what either chart is about -- and it hid
+     the one thing a reader who has not touched the chart yet needs to know, which is that the
+     chart answers at all.
+
+     The verb is the one the device actually has: a phone cannot hover and a mouse cannot
+     touch, and a nudge naming the wrong gesture is worse than no nudge. It is read at each
+     rest rather than once at load, so a tablet that gains a mouse is told the truth from then
+     on. */
+  const nudge = () => matchMedia("(hover: hover)").matches
+    ? "hover to see a week" : "touch to see a week";
+
+  /* The line is either a reading or the invitation to take one, and it is set as whichever it
+     is: a reading in the ink, the invitation in the muted grey the board's other labels take,
+     so a glance can tell a measurement from a prompt without reading either. */
+  function readout(el, html) {
+    if (!el) return;
+    el.innerHTML = html || nudge();
+    el.classList.toggle("nudge", !html);
+  }
+
+  /* Both charts are scrubbed the same way, so the wiring is written once: the line follows the
+     pointer across the box, and off it the chart goes back to its invitation.
+
+     The pointer is captured on the way down for anything that is not a mouse. A finger dragged
+     sideways does not travel in a straight line -- it drifts up or down out of a chart 200px
+     tall -- and without the capture those events go to whatever is underneath, the line stops
+     dead half way across and the readout freezes. Captured, the chart keeps the gesture until
+     the finger lifts. A mouse is left alone: it has a real leave event and hovering off the
+     chart is how it says it is done.
+
+     `pointerup` rests the chart only for a finger. With a mouse the pointer is still over the
+     chart after a click, so blanking the line there would take it away from a cursor that is
+     still pointing at it. */
+  function scrubbing(svg, N, say, rest) {
+    const idle = () => { svg.querySelector(".cross").setAttribute("opacity", "0"); rest(); };
+    const move = ev => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(N - 1,
+        Math.round(((ev.clientX - r.left) / r.width) * (N - 1))));
+      const cr = svg.querySelector(".cross");
+      cr.setAttribute("x1", ((i / (N - 1)) * r.width).toFixed(1));
+      cr.setAttribute("x2", ((i / (N - 1)) * r.width).toFixed(1));
+      cr.setAttribute("opacity", "0.6");
+      say(i);
+    };
+    svg.onpointerdown = ev => {
+      if (ev.pointerType !== "mouse" && svg.setPointerCapture) {
+        try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* not capturable: leave it */ }
+      }
+      move(ev);
+    };
+    svg.onpointermove = move;
+    svg.onpointerup = ev => { if (ev.pointerType !== "mouse") idle(); };
+    svg.onpointerleave = svg.onpointercancel = idle;
+  }
+
+  /* One area chart from one word's weekly rate, scaled to `hi`. The unit is written into
+     the labels rather than passed in: this draws the word panel's chart and nothing else,
+     and the stack above it is its own function. */
+  function area(svg, vals, hi, overall) {
+    const w = svg.clientWidth || 800, h = svg.clientHeight || 74, N = vals.length;
+    const x = i => (i / (N - 1)) * w, y = v => h - (v / (hi || 1)) * (h - 2);
+    let d = `M0,${y(vals[0]).toFixed(1)}`;
+    vals.forEach((v, i) => { d += `L${x(i).toFixed(1)},${y(v).toFixed(1)}`; });
+    /* The peak reads off the chart's own scale rather than out of a sentence beside it: one
+       rule at the top of the curve, carrying the number the height stands for. No rule where
+       the year turns -- the axis says where 2026 begins, and a full-height bar through the
+       curve was reading as data.
+
+       The corpus rate is set under it rather than in the measurements above the chart, because
+       it is the same quantity in the same unit and it is only worth anything against the peak:
+       54 at the peak means one thing beside 6 across the corpus and another beside 50. Two
+       lines of one caption, and the panel above is left saying the one thing the chart cannot,
+       which is how characteristic the word is of the cluster it came from. */
+    const top = y(hi);
+    svg.innerHTML = `<path d="${d}L${w},${h}L0,${h}Z" fill="var(--fill)"/>` +
+      `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="${TH.stroke}"/>` +
+      `<line x1="0" x2="${w}" y1="${top.toFixed(1)}" y2="${top.toFixed(1)}"
+      stroke="var(--ink)" stroke-width="1" stroke-dasharray="${TH.dash}" opacity="0.34"/>` +
+      `<text x="6" y="${(top + 12).toFixed(1)}" fill="var(--ink)" opacity="0.62"
+      font-size="10" font-family="var(--mono)">${fmt(hi)} per million, at the peak</text>` +
+      `<text x="6" y="${(top + 25).toFixed(1)}" fill="var(--ink)" opacity="0.62"
+      font-size="10" font-family="var(--mono)">${fmt(overall)} per million words across the
+      whole corpus</text>` +
+      `<line x1="0" x2="${w}" y1="${h - 0.5}" y2="${h - 0.5}" stroke="var(--ink)"
+      stroke-width="1"/>` +
+      `<line class="cross" x1="0" x2="0" y1="0" y2="${h}" stroke="var(--ink)"
+      stroke-width="1" opacity="0"/>`;
+
+    // a finger or a pointer on this chart reads out its week, the same gesture and the same
+    // line as the stack above it. Idle, it asks for the gesture.
+    const out = app.querySelector(".probe .readout");
+    const at = i => `week ${A.weeks[i]} · <b>${fmt(vals[i])}</b> per million words`;
+    scrubbing(svg, N, i => readout(out, at(i)), () => readout(out, null));
+    readout(out, null);
+  }
+
+  /* The stack, as a share of each week. Every band is one cluster of vocabulary and they fill the
+     height; the arrival sits at the bottom, so its growth reads as a rising floor rather than a
+     shape squeezed between others. Normalising per week is safe here: every day contributes one
+     ten full pages of descriptions, so the denominator is near constant and a band cannot appear
+     to shrink merely because the week around it grew. */
+  function stack(svg) {
+    const w = svg.clientWidth || 800, h = svg.clientHeight || 300, N = A.weeks.length;
+    const tot = A.weeks.map((_, i) => A.components.reduce((s, c) => s + c.count[i], 0) || 1);
+    const x = i => (i / (N - 1)) * w;
+    let acc = new Array(N).fill(0), out = "";
+    A.components.forEach((c, k) => {
+      const top = c.count.map((v, i) => acc[i] + v / tot[i]);
+      let d = `M0,${(h - acc[0] * h).toFixed(1)}`;
+      for (let i = 0; i < N; i++) d += `L${x(i).toFixed(1)},${(h - top[i] * h).toFixed(1)}`;
+      for (let i = N - 1; i >= 0; i--) d += `L${x(i).toFixed(1)},${(h - acc[i] * h).toFixed(1)}`;
+      // the band is addressable and its FILL is left off: which one is red is not a fact about
+      // the drawing, it is where the reader is standing, and `light` paints that on afterwards.
+      // The seam is not -- it is the same hairline whichever band is chosen.
+      out += `<path data-c="${k}" d="${d}Z" stroke="var(--ground)"
+             stroke-width="${TH.seam}"/>`;
+      acc = top;
+    });
+    let rules = "";
+    for (const f of [0.25, 0.5, 0.75]) {
+      const y = h - f * h;
+      rules += `<line x1="0" x2="${w}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"
+               stroke="var(--ink)" stroke-width="1" stroke-dasharray="${TH.dash}"
+               opacity="0.34"/>`
+        + `<text x="6" y="${(y - 5).toFixed(1)}" fill="var(--ink)" opacity="0.62"
+               font-size="10" font-family="var(--mono)">${f * 100}%</text>`;
+    }
+    svg.innerHTML = out + rules + `<line class="cross" x1="0" x2="0" y1="0" y2="${h}"
+    stroke="var(--ink)" stroke-width="1" opacity="0"/>`;
+    // the week is read out for the band the reader is on, and which band that is can change
+    // without the chart being redrawn -- so the component is looked up when the line is
+    // written rather than closed over when the chart is built
+    const at = i => `week ${A.weeks[i]} · `
+      + `<b>${pc(A.components[S.c].count[i] / tot[i])}</b> of the week`;
+    // pointer events rather than mouse events, so a finger dragged across the chart scrubs it and
+    // a tap on it reads out one week
+    scrubbing(svg, N, i => week(at(i)), () => week(null));
+    week(null);
+    light();
+  }
+
+  /* Which band is the subject, as colour. Kept apart from drawing the stack because it is the
+     only thing a step changes: the twelve shapes are the same shapes afterwards, and redrawing
+     them would make a change of subject look like a change of data.
+
+     The greys are fixed to a band's PLACE in the stack rather than dealt out to whichever bands
+     happen not to be chosen. Dealt out -- which is what this did, with a ramp of eleven and a
+     counter that skipped the lead -- every band above the selection took its neighbour's shade
+     the moment the selection moved, and a step recoloured the whole chart to say one thing.
+
+     One red thing at a time, and it is the fill. The arrival was given a red edge of its own
+     to keep while the fill was elsewhere, so that the cluster the page argues about stayed
+     marked; drawn, it was a second red mark in a chart whose whole grammar is that red is
+     where you are, and the eye read the two as a pair rather than as a subject and a
+     footnote. What holds the argument still is the prose beside the chart, which does not
+     move, and the arrival being cluster 1 -- one press of the left arrow, from anywhere. */
+  let greys = null;
+  function light() {
+    const svg = app.querySelector("#stack");
+    if (!svg) return;
+    greys = greys || ramp(TH.grey[0], TH.grey[1], Math.max(1, A.components.length));
+    svg.querySelectorAll("[data-c]").forEach(p => {
+      const k = +p.dataset.c;
+      p.setAttribute("fill", k === S.c ? "var(--accent)" : greys[k]);
+    });
+  }
+
+  /* The week reads out at the head of the chart's own cell. Off the chart the line carries the
+     invitation instead, so it is never an empty row of the board and never a stale one. */
+  function week(html) {
+    readout(app.querySelector(".cell.chart .readout"), html);
+  }
+
+  /* ------------------------------------------------------------------ the word panel */
+
+  function paint() {
+    const c = V.c, p = app.querySelector(".probe");
+    if (!p) return;
+    /* A RATE, not a count: appearances per million words written that week. The corpus runs
+       from 380,000 words in a week to 1,407,000, so a curve of raw counts draws the corpus
+       growing wherever it draws the word arriving, and the two cannot be told apart by
+       looking. Dividing each week by the words in it leaves the word's own shape. */
+    const s = c.series[S.j];
+    const freq = s.map((v, t) => 1e6 * v / (A.words_per_week[t] || 1));
+    const overall = 1e6 * s.reduce((a, b) => a + b, 0) / Math.max(A.appearances, 1);
+    p.querySelector(".word").innerHTML = `<b>${esc(c.word_list[S.j])}</b>`;
+    // "this cluster" is the one the stepper is on, and the stepper is the thing that says
+    // which -- said twice, the panel and the stepper would be two places to keep in step
+    p.querySelector(".meta").innerHTML =
+      `<b>${c.word_lift[S.j]}×</b> more frequent in this cluster`;
+    area(p.querySelector("svg"), freq, Math.max(...freq), overall);
+    app.querySelectorAll(".wall .on").forEach(n => n.classList.remove("on"));
+    app.querySelectorAll(`[data-j="${S.j}"]`).forEach(n => n.classList.add("on"));
+    /* the mark on the rail is this same choice as a position. It is set as a fraction and
+       placed by the layout rather than measured here: the rail's height is whatever the box
+       gives it, and a number read back per frame would only be that height again.
+
+       The fraction is a place in what the column SHOWS, not in the thousand: the rail is the
+       run of the column beside it, so under a filter of nine words the mark travels those
+       nine. */
+    const rail = app.querySelector(".rail");
+    if (rail) {
+      const { js, at } = rows(app.querySelector(".wall")), at_j = at.get(S.j);
+      rail.style.setProperty("--p",
+        (js.length > 1 && at_j !== undefined ? at_j / (js.length - 1) : 0).toFixed(4));
+    }
+  }
+
+  /* One entry point for choosing a word, whether it was clicked, scrolled to or stepped to. */
+  function pick(j, reveal) {
+    S.j = j;
+    paint();
+    if (reveal) {
+      const wall = app.querySelector(".wall");
+      if (wall) bring(wall, j);
+    }
+  }
+
+  /* The rows the column is SHOWING, from the layout rather than from anything measured per
+     frame. They only change when the layout or the filter does, so they are cached and dropped
+     in `render` and in `filter`.
+
+     Three parallel readings of the same list, because each of the three ways of moving asks a
+     different question of it: `tops` is where each row is, for the word on the line; `js` is
+     which word each row holds, for stepping and for the rail; `at` is the reverse, for bringing
+     a word already chosen back to the line. Without the filter all three were the identity and
+     a row's place in the column WAS its place in the thousand -- which is exactly the
+     assumption a filter breaks, and every one of the three readings below used to be that
+     assumption written down. */
+  let shown = null;
+  function rows(wall) {
+    if (!shown) {
+      const els = [...wall.querySelectorAll("[data-j]")].filter(el => !el.hidden);
+      shown = {
+        tops: els.map(el => el.offsetTop),
+        js: els.map(el => +el.dataset.j),
+        at: new Map(els.map((el, at) => [+el.dataset.j, at])),
+      };
+    }
+    return shown;
+  }
+
+  /* Where the chosen line is, and what sits on it is the TOP of a word's box rather than its
+     middle: the words are set in the size of their lift, so a box centred on a line jumps up and
+     down by however tall the word inside it happens to be. Its top does not.
+
+     It is measured off the box and not off the empty run above the words: `getComputedStyle` on
+     a pseudo-element is not something every browser answers with a used height, and a wrong
+     answer here would put the word somewhere other than where it is read back from. The
+     FRACTION does come from the stylesheet -- `--line` on the box, which is an ordinary custom
+     property and not a pseudo-element -- so the run above and the line read back from it are one
+     number rather than the same number written in two languages. */
+  function line(wall) {
+    return Math.max(0, wall.clientHeight * LINE - HALFROW);
+  }
+
+  /* The word on the line is the one whose top is NEAREST to it, rather than the last one whose
+     top is above it. Rounding lands exactly on that comparison: `offsetTop` is a whole number,
+     the run above the words is fractional, and a browser snaps `scrollTop` to physical pixels --
+     so a word scrolled to the line could measure a hair short of its own edge and hand the
+     choice to the word above it. A miss of half a pixel cannot reach the next word's top. */
+  function middle(wall) {
+    const { tops, js } = rows(wall);
+    // a filter that matched nothing leaves no row to be on the line, and the choice stands
+    if (!js.length) return S.j;
+    const y = wall.scrollTop + line(wall);
+    let lo = 0, hi = tops.length - 1;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (tops[m] <= y) lo = m; else hi = m - 1; }
+    return js[lo < tops.length - 1 && tops[lo + 1] - y < y - tops[lo] ? lo + 1 : lo];
+  }
+
+  /* Bring a word to the line by scrolling the column and nothing else. `scrollIntoView` would
+     scroll every scrollable ancestor with it, which on a phone means the page jumps and the
+     chart the word was chosen for leaves the screen; and it centres the row, which is only the
+     line on the board. */
+  function bring(wall, j) {
+    const { tops, at } = rows(wall), at_j = at.get(j);
+    // a word the filter is hiding has no place to be brought to, and the column stays put
+    if (at_j !== undefined) wall.scrollTop = tops[at_j] - line(wall);
+  }
+
+  /* One word along the column from wherever the choice is, in whatever the column is showing:
+     the wheel, the arrow keys and the field's own arrows all ask for exactly this, and none of
+     them may step onto a word the filter has removed. */
+  function step(d) {
+    const wall = app.querySelector(".wall"), { js, at } = rows(wall), at_j = at.get(S.j);
+    if (at_j === undefined) return;
+    const to = at_j + d;
+    if (to >= 0 && to < js.length) pick(js[to], true);
+  }
+
+  /* ------------------------------------------------------------------ the clusters */
+
+  /* Choosing a cluster, which is choosing what the whole lower half of the board is about: the
+     band that is red, the words in the column, and the word the panel draws.
+
+     The chart is NOT redrawn. Its twelve shapes are shares of each week and none of them
+     depends on where the reader is standing, so a step repaints two fills and leaves the
+     drawing alone -- which is also what lets the fills carry a transition and the change read
+     as one band lighting up rather than as the figure being replaced.
+
+     The filter survives the step, deliberately. A query is a question about the vocabulary and
+     the natural next thing to do with one is to ask it of the next cluster; clearing it would
+     make stepping and searching two modes instead of two hands on the same object. Where the
+     query matches nothing the column says so, which is an answer and not a fault. */
+  function hold(k) {
+    if (k < 0 || k >= A.components.length || k === S.c) return;
+    S.c = k;
+    V = view(k);
+    const wall = app.querySelector(".wall");
+    wall.innerHTML = V.wall();
+    wall.scrollTop = 0;
+    rowEl = null;                         // a different cluster is a different set of rows
+    shown = null;
+    S.j = 0;                              // the most characteristic word of what is now shown
+    light();
+    pager(k);
+    // through the filter rather than round it, so a query that is still in the field is still
+    // being answered, and `pick` happens exactly once
+    filter(app.querySelector(".find input").value);
+  }
+
+  /* What the strip IS, which is not the same thing on both devices. The two arrows are the two
+     arrows either way, but the way to the next cluster is the whole strip on a phone and the
+     arrows alone on a mouse -- so the words name the gesture the device actually has, the way
+     the charts' invitation does. A mouse told to swipe would be told to do something it cannot,
+     and a finger not told to would never find out that the strip answers at all.
+
+     Read at each step rather than once at load, so a tablet that gains a mouse is told the truth
+     from then on. */
+  const says = () => matchMedia("(hover: hover)").matches
+    ? "change cluster" : "swipe to change cluster";
+
+  /* Where the reader is, in the one place the arrows are. The count is the stack's own order --
+     `analyze.py` sorts the components by size over the last month -- so the number is a reading
+     as well as a position: 1 is the biggest cluster of the last month, which is the one the
+     page is about. */
+  function pager(k) {
+    const box = app.querySelector(".pager");
+    if (!box) return;
+    const total = A.components.length;
+    const at = String(k + 1).padStart(String(total).length, "0");
+    box.querySelector(".at").innerHTML = `<b>${at}</b> / ${total}`;
+    box.querySelector(".says").textContent = says();
+    // an arrow with nowhere to go says so, rather than being pressed twice and blamed
+    const arrows = box.querySelectorAll(".arrow");
+    arrows[0].disabled = k === 0;
+    arrows[1].disabled = k === A.components.length - 1;
+  }
+
+  /* The strip the arrows stand in is also the surface a finger swipes, which is the gesture a
+     phone already holds for "the next one of these" and the one the arrows are the smallest
+     possible target for.
+
+     One swipe is one cluster, and the rest of the finger's travel is nothing. The strip is not a
+     thing to scroll: the ten clusters are ordered by size and a reader arrives at one to read it,
+     so the useful move is the step and not the sweep. A distance that carried several steps also
+     made the gesture a guess -- a flick landed two or three clusters from where it was aimed, and
+     the strip is too short to aim on.
+
+     A mouse is left out of it. It has the arrows under it and two keys beside them, and a board
+     where dragging the corner of the figure changed the cluster would be answering a gesture
+     nobody made. */
+  const REACH = 32;                       // how far a finger travels before the swipe counts
+  let swept = false;                      // did the gesture that is ending also step the board?
+  function dragging(box) {
+    let from = null;
+    box.addEventListener("pointerdown", ev => {
+      swept = false;
+      from = ev.pointerType === "mouse" ? null : { x: ev.clientX, y: ev.clientY, id: ev.pointerId };
+    });
+    box.addEventListener("pointermove", ev => {
+      if (!from || ev.pointerId !== from.id) return;
+      const dx = ev.clientX - from.x;
+      /* A drag that has not yet said which way it is going belongs to nobody: the browser is
+         still free to take it as a scroll of the page, and claiming it here first would step the
+         board under a finger that was only on its way down the board. So it has to have gone far
+         enough to be a gesture, and to have gone more sideways than not. */
+      if (Math.abs(dx) < REACH || Math.abs(dx) <= Math.abs(ev.clientY - from.y)) return;
+      // and the gesture is spent: what is left of the drag is not a second one, and the next
+      // cluster waits for the finger to lift and come back
+      from = null;
+      swept = true;
+      // no clamp here -- `hold` already declines a cluster that is not there, which is the same
+      // answer the arrow at that end of the strip gives
+      hold(S.c + (dx < 0 ? 1 : -1));
+    });
+    box.addEventListener("pointerup", () => { from = null; });
+    box.addEventListener("pointercancel", () => { from = null; });
+  }
+
+  function axis() {
+    let out = `<span>${A.weeks[0]}</span>`;
+    A.weeks.forEach((wk, i) => {
+      if (i && wk.slice(0, 4) !== A.weeks[i - 1].slice(0, 4)) {
+        const p = (i / (A.weeks.length - 1)) * 100;
+        if (p > 8 && p < 88) out += `<span class="yr" style="left:${p.toFixed(1)}%">`
+          + `${wk.slice(0, 4)}</span>`;
+      }
+    });
+    return out + `<span class="last">${A.weeks[A.weeks.length - 1]}</span>`;
+  }
+
+  /* ------------------------------------------------------------------ the filter */
+
+  /* A PREFIX and not a substring, which is the whole of what the field does.
+
+     A word is typed left to right and the column is ordered by how characteristic a word is, so
+     a prefix narrows it the way reading it does: every keystroke can only remove words, the
+     order of what is left never changes, and the top of the column is always the most
+     representative of the matches. A substring cannot promise the first of those -- `ing` would
+     answer with words that share three letters and nothing else -- and the field would stop
+     being a way of finding a word you can already half spell.
+
+     The cost is real and worth naming rather than hiding: `bearing` does not find
+     `load-bearing`. The words are hyphenated compounds often enough that this will be missed. */
+  let rowEl = null;                       // the chosen cluster's rows, in the order printed
+  function filter(text) {
+    const wall = app.querySelector(".wall"), find = app.querySelector(".find");
+    if (!rowEl) rowEl = [...wall.querySelectorAll("[data-j]")];
+    // every word in the corpus is lowercased in `analyze.py` before it is ever counted, so the
+    // folding is the query's alone
+    const q = text.trim().toLowerCase();
+    let n = 0, first = -1;
+    rowEl.forEach((el, j) => {
+      const hit = !q || V.words[j].w.startsWith(q);
+      if (hit && first < 0) first = j;
+      if (hit) n++;
+      // written only where it changes: a keystroke that removes four words should touch four
+      // rows and not a thousand
+      if (el.hidden === hit) el.hidden = !hit;
+    });
+    shown = null;                         // the offsets are the offsets of the rows still shown
+    wall.classList.toggle("some", !!q && n > 1);
+    wall.classList.toggle("one", !!q && n === 1);
+    wall.classList.toggle("none", n === 0);
+    // the query, as a CSS string, for the run to print back when it has nothing else to print.
+    // Escaped rather than trusted: it is whatever was typed, and a bare quote in it would end
+    // the string and take the rest of the rule with it.
+    wall.style.setProperty("--q", `"${q.replace(/[\\"]/g, "\\$&")}"`);
+    find.classList.toggle("on", !!q);
+    find.querySelector(".n").innerHTML = q
+      ? `<b>${fmt(n)}</b> of ${fmt(rowEl.length)}` : "";
+    /* The chosen word survives a keystroke wherever it still can. Narrowing the column is not
+       choosing from it, and a panel that jumped on every letter would make the field useless for
+       the thing it is mostly for -- looking up a word you already have. It moves only when the
+       choice has been filtered away, and then to the most representative of what is left, which
+       is the top of the column and where the eye already is. */
+    pick(rowEl[S.j].hidden && first >= 0 ? first : S.j, true);
+  }
+
+  /* ------------------------------------------------------------------ the content */
+
+  /* The words of ONE component, sized for the wall. Rebuilt when the reader steps, because
+     everything in it is that component's: which words, how far apart their lifts are, and
+     therefore how big each one is set.
+
+     The log spread is measured within the component rather than across the board. A cluster's
+     top word is 36x here and 6,300x there, and a scale shared between the twelve would set
+     eleven walls in one size and leave the sizing saying nothing about any of them. What the
+     size means is "characteristic of THIS cluster", which is the only reading that survives
+     the wall being swapped. */
+  function view(k) {
+    const c = A.components[k];
+    // log scale, because measuring lift against everything-else spreads it over three orders of
+    // magnitude and on a linear ramp every word past the first dozen would sit at the minimum
+    const lg = Math.log, hiL = c.word_lift[0], loL = c.word_lift[c.word_lift.length - 1];
+    const sp = Math.max(lg(hiL) - lg(loL), 1e-9);
+    const words = c.word_list.map((w, j) => ({
+      j, w, t: (lg(c.word_lift[j]) - lg(loL)) / sp,
+    }));
+    return {
+      k, c, words,
+      // the cloud: size and opacity by lift, on the log scale. The rows alone and not the box
+      // around them -- the box is a tab stop with listeners on it, and a step replaces what it
+      // holds rather than the box itself
+      wall: () => words.map(({ j, w, t }) =>
+        `<span data-j="${j}" style="font-size:${(10.5 + 8 * t).toFixed(1)}px;`
+        + `opacity:${(0.45 + 0.55 * t).toFixed(2)}">${esc(w)}</span>`).join(""),
+    };
+  }
+
+  /* What the PAGE says, which is about the arrival and stays about the arrival however far the
+     reader steps from it. The prose is the argument; the board below is where the argument can
+     be checked against the other eleven, and an argument that rewrote itself as you looked
+     around would be worth nothing. */
+  function prep() {
+    const lead = A.components.find(c => c.lead);
+    const W = A.lead_window;
+    const sum = a => a.reduce((s, v) => s + v, 0);
+    // the share is read off the last `W` weeks, not the last one: a week is some 5,300
+    // descriptions and the headline should not turn on which of two close clusters led
+    // across one of them
+    const monthDocs = sum(A.docs_per_week.slice(-W));
+    const monthShare = monthDocs ? pc(sum(lead.count.slice(-W)) / monthDocs) : "—";
+
+    return {
+      stats: [{ v: fmt(A.days), k: "days" },
+      { v: fmt(A.documents), k: "pull requests" },
+      { v: fmt(A.appearances), k: "words" }],
+      // the method is the sentence's last clause rather than a paragraph under it: what was
+      // done is a link away, and the page says it once
+      divided: `We grouped GitHub PRs since 2025 into <b>${A.k}</b> clusters of vocabulary using `
+        + '<a href="https://jmlr.csail.mit.edu/papers/volume6/banerjee05b/banerjee05b.pdf">KL-divergence k-means</a>.',
+      share: `One of the clusters appeared in 2026 and represented <b>${monthShare}</b> of all human-attributed pull requests last month.`,
+      familiar: `Its most representative words should <a href="https://github.com/anthropics/claude-code/issues/53454">look</a> <a href="https://x.com/Kedr_bit/status/2092939290170777726">familiar</a> `
+        + "to anyone who uses coding agents.",
+    };
+  }
+
+  /* ------------------------------------------------------------------ the page */
+
+  function build() {
+    app.innerHTML = `<div class="board">
+    <div class="cell head">
+      <h1>The <em>load-bearing</em> vocabulary of Claude</h1>
+    </div>
+    <div class="cell fig">
+      <p class="standfirst">We scrape 1,000 GitHub Pull Requests daily to analyse trends in
+        vocabulary.<br>So far we have analysed:</p>
+      <div class="stats">${T.stats.map(s => `<div class="stat"><i></i><b>${s.v}</b>`
+      + `<span class="label">${s.k}</span></div>`).join("")}</div>
+    </div>
+    <div class="cell say">
+      <p class="lede">${T.divided}</p>
+      <p class="lede">${T.share}</p>
+      <p class="lede">${T.familiar}</p>
+      <p class="repo">
+        <a href="https://github.com/louisabraham/load-bearing">Full code and methodology write-up</a>.<br>
+        Try our <a href="detector.html">detector tool</a>.</p>
+    </div>
+    <div class="cell chart">
+      <div class="top">
+        <p class="readout"></p>
+        <div class="pager">
+          <span class="says">${says()}</span>
+          <button class="arrow" type="button" title="the previous cluster"
+            aria-label="the previous cluster">◀</button>
+          <span class="at" aria-live="polite"></span>
+          <button class="arrow" type="button" title="the next cluster"
+            aria-label="the next cluster">▶</button>
+        </div>
+      </div>
+      <svg id="stack"></svg>
+      <div class="axis">${axis()}</div>
+    </div>
+    <div class="cell panel empty">
+      <div class="probe"><div class="who"><span class="word"></span>
+        <span class="label meta"></span></div>
+        <p class="readout"></p><svg></svg>
+        <div class="axis">${axis()}</div></div>
+    </div>
+    <div class="cell words">
+      <div class="find">
+        <input type="search" placeholder="search for a word…" spellcheck="false"
+          autocomplete="off" autocorrect="off" autocapitalize="off" enterkeyhint="done"
+          aria-controls="wall" aria-label="show only the words beginning with what is typed">
+        <span class="label n" aria-live="polite"></span>
+        <kbd class="key" aria-hidden="true">/</kbd>
+        <button class="clear" type="button" aria-label="clear the filter">×</button>
+      </div>
+      <div class="column">
+        <div class="wall" id="wall">${V.wall()}</div>
+        <div class="steps" aria-hidden="true"><span class="step">▲</span>
+          <div class="rail"><i></i></div>
+          <span class="step">▼</span></div>
+      </div>
+    </div>
+    <div class="cell foot"><span class="label">generated ${A.generated}</span>
+      <span class="label">Made with ❤️ by <a href="https://louisabraham.github.io/">Louis Abraham</a></span></div>
+  </div>`;
+
+    // a click keeps the word, so the panel can be read with both hands off the mouse, and the
+    // wall is one tab stop with the arrows moving inside it rather than a thousand tab stops
+    const wall = app.querySelector(".wall");
+    // not "the thousand": the arrival lists a thousand words and the other eleven list a
+    // hundred and fifty, and the label has to be true of whichever the reader has stepped to
+    wall.setAttribute("aria-label", "the most characteristic words of the chosen cluster");
+    /* The tab stop the line above has always claimed, and never was. Nothing in the cell was
+       focusable, so a click on a word focused nothing -- and an arrow key afterwards belonged to
+       whatever the browser guessed, which is the bug the guard further down describes. */
+    wall.tabIndex = 0;
+    wall.addEventListener("click", ev => {
+      const el = ev.target.closest("[data-j]");
+      if (el) pick(+el.dataset.j, true);
+    });
+    wall.addEventListener("scroll", () => {
+      const j = middle(wall);
+      if (j !== S.j) pick(j);
+    });
+    /* A wheel with detents asks for one word, not for the hundred pixels the browser would
+       give it, which is five of them. A trackpad is left alone: it asks in pixels, and the
+       column moves as far as the finger did and settles on a word by snapping.
+
+       The delta is put into PIXELS first, because the test under it is a test on a distance
+       and only one of the three units a delta arrives in is one. `deltaMode` was read as if it
+       named the device -- pixels meaning something continuous, anything else a detent -- and it
+       does not: Firefox reports a wheel in LINES, and a high-resolution wheel reports fractions
+       of a line. Every one of those fractions failed the `deltaMode === 0` clause, took this
+       branch, and moved a whole word, because `Math.sign` had thrown the magnitude away before
+       anything could notice how small it was. Six detents' worth of a wheel reporting tenths of
+       a line moved sixty words. Converted, that same spin is 4px an event and the browser gets
+       it, which is what it was always meant to get.
+
+       Forty pixels to the line is the constant every library that has had to do this converged
+       on, and it is not picked but fitted: three lines is a wheel tick in Firefox and 120px is
+       a wheel tick in Chrome, so at forty a detent is the same distance whichever unit it
+       arrives in -- and a tick, however it is reported, still lands on this side of the test. A
+       page is the box, which is what a page means to something that scrolls.
+
+       That the line is forty pixels and the floor below is forty pixels is a coincidence of two
+       unrelated numbers: one is how big a line is, the other is how big a delta has to be
+       before it is a notch rather than a nudge.
+
+       The delta has to be small enough to be a notch as well as big enough. There was only a
+       floor, so a delta of ANY size above it moved exactly one word -- and a device that
+       delivers its distance in few large events therefore moved the column less the faster it
+       was spun. One event carrying 720px moved one word; the same 720px arriving in events
+       small enough to be handed to the browser moved the whole 720, which is thirty-odd words
+       of this column. Thirty times the travel for the same gesture, decided by nothing but how
+       finely the device chopped it. Over the ceiling it is not a notch and never was, so it
+       goes back to the browser, which scrolls it the distance it asked for.
+
+       This does not make the two sides of the floor agree -- a wheel notch is deliberately one
+       word rather than the six that 120px of column would be, so travel is not proportional
+       here and is not meant to be. What it does is stop the disagreement growing without limit
+       in the one direction where it had no bound at all. */
+    wall.addEventListener("wheel", ev => {
+      const px = Math.abs(ev.deltaMode === 1 ? ev.deltaY * PERLINE
+        : ev.deltaMode === 2 ? ev.deltaY * wall.clientHeight
+          : ev.deltaY);
+      if (px < NOTCH.min || px > NOTCH.max) return;
+      ev.preventDefault();
+      step(Math.sign(ev.deltaY));
+    }, { passive: false });
+    // The rail is a handle as well as a reading: the mark can be taken and dragged along it,
+    // and a press anywhere on it goes to that place at once. The mark centres on the pointer
+    // either way, so pressing and dragging are one gesture rather than two behaviours.
+    const rail = app.querySelector(".rail");
+    const along = ev => {
+      // the run is the run of the column beside it, so a filtered column is dragged in the
+      // words it is showing rather than in the thousand it came from
+      const { js } = rows(wall);
+      if (!js.length) return;
+      const box = rail.getBoundingClientRect(), run = box.height - THUMB;
+      const t = run > 0 ? (ev.clientY - box.top - THUMB / 2) / run : 0;
+      pick(js[Math.round(Math.min(1, Math.max(0, t)) * (js.length - 1))], true);
+    };
+    rail.addEventListener("pointerdown", ev => {
+      // capture is what lets the drag leave the ten pixels the rail is wide and carry on, which
+      // is how every other slider behaves and the only way a drag down a long column is usable
+      rail.setPointerCapture(ev.pointerId);
+      ev.preventDefault();                 // a drag on the frame is not a selection of the words
+      along(ev);
+    });
+    rail.addEventListener("pointermove", ev => {
+      if (rail.hasPointerCapture(ev.pointerId)) along(ev);
+    });
+    /* Up and down step the choice, and centring it scrolls the column to match, so the two ways
+       of moving cannot disagree about which word is chosen.
+
+       The old guard stood aside wherever the PAGE scrolls, on the grounds that the arrows are
+       the page's there. They were not: a click inside a scroller is what makes it the browser's
+       keyboard scroll target, so the arrows went to the COLUMN -- and a native arrow scroll is a
+       LINE, which is not a word. Safari moved the choice two words a press and Firefox three,
+       from anywhere in the column, while the page it was supposedly scrolling never moved at
+       all. Chromium was the one engine that looked right, and only because it snaps a keyboard
+       scroll to the nearest snap point; the bug was invisible in the browser the tests run in.
+
+       So the question is who holds the focus, which is answerable -- and the column can now be
+       asked, because it is a tab stop as of a few lines up. The second clause keeps the board:
+       there the page does not scroll, the arrows can mean nothing but the column, and a reader
+       who has clicked nothing still gets them. */
+    /* The two arrows over the chart, and the two keys that are the same gesture without the
+       reach. `mousedown` is left alone so the button can take the focus and be tabbed to; what
+       is prevented is the focus RING stealing the eye on a click, which is `:focus-visible`'s
+       job and not something to write here. */
+    app.querySelectorAll(".pager .arrow").forEach((b, i) => {
+      b.addEventListener("click", ev => {
+        /* a swipe that happens to end over an arrow is not also a press of it: the board would
+           step once for the travel and once more for the release. `detail` is what tells the two
+           apart -- a click from a pointer carries a count and a click from the keyboard carries
+           none, so a reader who has tabbed to the arrow is never answering for a finger. */
+        if (swept && ev.detail) return;
+        hold(S.c + (i ? 1 : -1));
+      });
+    });
+    dragging(app.querySelector(".pager"));
+    pager(S.c);
+    /* Left and right step the cluster, from anywhere.
+
+       They need none of the guard the up and down keys carry two blocks below. That guard
+       exists because a native arrow scroll is a LINE and the column is a scroller, so up and
+       down had to be asked who owned them; left and right scroll nothing on this page -- there
+       is no horizontal overflow anywhere on the board -- and there is nothing for them to be
+       taken from. Only a text field, where they are a caret and must stay one. */
+    addEventListener("keydown", ev => {
+      if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const t = ev.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      ev.preventDefault();
+      hold(S.c + (ev.key === "ArrowRight" ? 1 : -1));
+    });
+    addEventListener("keydown", ev => {
+      if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
+      const t = ev.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if (document.activeElement !== wall
+        && document.documentElement.scrollHeight > innerHeight + 1) return;
+      ev.preventDefault();
+      step(ev.key === "ArrowDown" ? 1 : -1);
+    });
+    /* The field. `input` rather than `keyup`: it is the one event that also fires for a paste,
+       for a drop, and for the phone keyboard's own completion, and every one of those is a
+       query the column should already have narrowed to. */
+    const find = app.querySelector(".find"), q = find.querySelector("input");
+    q.addEventListener("input", () => filter(q.value));
+    find.querySelector(".clear").addEventListener("click", () => {
+      q.value = "";
+      filter("");
+      q.focus();                          // clearing a field is not leaving it
+    });
+    /* Up and down belong to the field while it has the focus: typing three letters and then
+       stepping through what is left is one gesture, and sending the reader to the column to do
+       the stepping would cost a tab and, on a phone, give the keyboard back for nothing.
+
+       Enter has nothing to submit, so it means done -- and what "done" is worth on a phone is
+       the half of the screen the keyboard is standing on. Escape empties the field, and empties
+       the reader out of it once there is nothing left to empty. */
+    q.addEventListener("keydown", ev => {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        step(ev.key === "ArrowDown" ? 1 : -1);
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        q.blur();
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        if (q.value) { q.value = ""; filter(""); } else q.blur();
+      }
+    });
+    /* `/` reaches the field from anywhere on the board, which is the key this page's readers
+       already hold for every other list of a thousand things. Taken only where it would
+       otherwise be typed into nothing, and never from a modifier -- the browser's own find is
+       the browser's. */
+    addEventListener("keydown", ev => {
+      if (ev.key !== "/" || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const t = ev.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      ev.preventDefault();
+      q.focus();
+      q.select();
+    });
+    // the row offsets are read off the box, and the box changes with the window, with the
+    // orientation and with the media query the board switches on -- a debounced resize handler
+    // sees only the first of those. Nothing here writes to the box, so nothing can loop.
+    if (self.ResizeObserver) new ResizeObserver(() => { shown = null; }).observe(wall);
+    render();
+  }
+
+  /* The charts are measured from the layout, so they are drawn after it and again when it
+     changes. The chosen word survives both. */
+  function render() {
+    const wall = app.querySelector(".wall");
+    // read once a layout and not once a scroll event: `middle` runs on every frame of a throw
+    if (wall) LINE = (parseFloat(getComputedStyle(wall).getPropertyValue("--line")) || 33) / 100;
+    const svg = app.querySelector("#stack");
+    if (svg && svg.clientWidth) stack(svg);
+    shown = null;
+    paint();
+  }
+
+  let t;
+  addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
+
+  const tag = document.createElement("script");
+  tag.src = DATA;
+  tag.onload = () => {
+    A = window.ANALYSIS;
+    if (!A) return fail();
+    T = prep();
+    V = view(S.c);
+    build();
+  };
+  tag.onerror = fail;
+  document.head.appendChild(tag);
+
+  function fail() {
+    app.innerHTML = `<p style="padding:80px 24px;font-family:ui-monospace,monospace">`
+      + `<b>${DATA}</b> not found.<br>Run <b>python analyze.py</b> first.</p>`;
+  }
+</script>
